@@ -1,0 +1,234 @@
+2022-05-07 10:42:31,945  INFO  Using database zlk as default
+2022-05-07 10:42:31,964  INFO  提取数据，从病案首页提取2021-04-01至2022-03-31的数据
+2022-05-07 10:44:49,745  INFO  保存数据，共计63456条，保存至./data/other/level_jbbm_ssbm_20220331.csv
+
+2022-05-10 16:48:36,260  INFO  获取202201的数据
+2022-05-10 16:48:36,263  INFO  Using database zlk as default
+2022-05-10 16:48:36,279  INFO  医院信息，提取2022年的数据
+2022-05-10 16:48:43,967  INFO  保存数据，共计5083条，保存至./data/original/hospital_info.csv
+2022-05-10 16:48:43,967  INFO  提取数据，提取202201的数据
+2022-05-10 16:57:42,443  INFO  西医数据，共计1470033条
+2022-05-10 16:58:50,696  INFO  中医数据，共计235513条
+2022-05-10 16:59:50,971  INFO  保存数据，共计1701525条，保存至./data/original/original_202201.csv
+2022-05-10 16:59:50,971  INFO  Closing active operation
+2022-05-10 16:59:56,878  INFO  清洗数据
+2022-05-10 17:04:14,238  INFO  保存数据，共计1700935条，保存至./data/cleaned/cleaned_202201.csv
+2022-05-10 17:04:31,674  INFO  hospital_id == 0，共计0条
+2022-05-10 17:04:35,019  INFO  cleaned_data，共计1172509条
+2022-05-10 17:15:27,431  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计260230条,保存至./result/202201/dmiaes_map_hospital_diagnosis.csv
+2022-05-10 17:15:27,478  INFO  temp_scs_odd_supplies.csv完成，共计1027条,保存至./result/202201/temp_scs_odd_supplies.csv
+2022-05-10 17:15:27,701  INFO  temp_scs_odd_zd.csv完成，共计3943条,保存至./result/202201/temp_scs_odd_zd.csv
+2022-05-10 17:15:29,139  INFO  dmiaes_map_hospital_patient.csv完成，共计50415条,保存至./result/202201/dmiaes_map_hospital_patient.csv
+2022-05-10 17:15:40,821  INFO  dmiaes_map.csv完成，共计756条，保存至./result/202201/dmiaes_map.csv
+2022-05-10 17:15:42,150  INFO  dmiaes_map_area.csv完成，共计132条，保存至./result/202201/dmiaes_map_area.csv
+2022-05-10 17:15:46,787  INFO  dmiaes_map_hospital.csv完成，共计2587条，保存至./result/202201/dmiaes_map_hospital.csv
+2022-05-10 17:15:53,425  INFO  dmiaes_map_hospital_dept.csv完成，共计11280条，保存至./result/202201/dmiaes_map_hospital_dept.csv
+2022-05-10 17:16:01,127  INFO  dmiaes_map_hospital_doctor.csv完成，共计23106条,保存至./result/202201/dmiaes_map_hospital_doctor.csv
+2022-05-10 17:16:04,616  INFO  dmiaes_map_hospital_overview.csv完成，共计22195条,保存至./result/202201/dmiaes_map_hospital_overview.csv
+
+
+2022-05-07 12:57:38,750  INFO  获取202202的数据
+2022-05-07 12:57:38,750  INFO  Using database zlk as default
+2022-05-07 12:57:38,750  INFO  医院信息，提取2022年的数据
+2022-05-07 12:57:45,538  INFO  保存数据，共计5083条，保存至./data/original/hospital_info.csv
+2022-05-07 12:57:45,538  INFO  提取数据，提取202202的数据
+2022-05-07 13:04:16,418  INFO  西医数据，共计1064367条
+2022-05-07 13:05:02,529  INFO  中医数据，共计162749条
+2022-05-07 13:05:45,542  INFO  保存数据，共计1226789条，保存至./data/original/original_202202.csv
+2022-05-07 13:05:45,542  INFO  Closing active operation
+2022-05-09 11:24:47,426  INFO  清洗数据
+2022-05-09 11:27:32,560  INFO  保存数据，共计1226629条，保存至./data/cleaned/cleaned_202202.csv
+2022-05-09 11:27:38,946  INFO  hospital_id == 0，共计0条
+2022-05-09 11:27:40,480  INFO  cleaned_data，共计837249条
+2022-05-09 11:33:28,736  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计189538条,保存至./result/202202/dmiaes_map_hospital_diagnosis.csv
+2022-05-09 11:33:28,814  INFO  temp_scs_odd_supplies.csv完成，共计1071条,保存至./result/202202/temp_scs_odd_supplies.csv
+2022-05-09 11:33:28,955  INFO  temp_scs_odd_zd.csv完成，共计2741条,保存至./result/202202/temp_scs_odd_zd.csv
+2022-05-09 11:33:30,159  INFO  dmiaes_map_hospital_patient.csv完成，共计37541条,保存至./result/202202/dmiaes_map_hospital_patient.csv
+2022-05-09 11:33:34,749  INFO  dmiaes_map.csv完成，共计743条，保存至./result/202202/dmiaes_map.csv
+2022-05-09 11:33:35,796  INFO  dmiaes_map_area.csv完成，共计132条，保存至./result/202202/dmiaes_map_area.csv
+2022-05-09 11:33:39,162  INFO  dmiaes_map_hospital.csv完成，共计2523条，保存至./result/202202/dmiaes_map_hospital.csv
+2022-05-09 11:33:43,483  INFO  dmiaes_map_hospital_dept.csv完成，共计10278条，保存至./result/202202/dmiaes_map_hospital_dept.csv
+2022-05-09 11:33:48,330  INFO  dmiaes_map_hospital_doctor.csv完成，共计19456条,保存至./result/202202/dmiaes_map_hospital_doctor.csv
+2022-05-09 11:33:51,404  INFO  dmiaes_map_hospital_overview.csv完成，共计21919条,保存至./result/202202/dmiaes_map_hospital_overview.csv
+
+
+2022-05-07 13:33:57,886  INFO  获取202203的数据
+2022-05-07 13:33:57,886  INFO  Using database zlk as default
+2022-05-07 13:33:57,902  INFO  医院信息，提取2022年的数据
+2022-05-07 13:34:04,851  INFO  保存数据，共计5083条，保存至./data/original/hospital_info.csv
+2022-05-07 13:34:04,851  INFO  提取数据，提取202203的数据
+2022-05-07 13:43:07,498  INFO  西医数据，共计1508757条
+2022-05-07 13:44:15,556  INFO  中医数据，共计236065条
+2022-05-07 13:45:15,942  INFO  保存数据，共计1741295条，保存至./data/original/original_202203.csv
+2022-05-07 13:45:15,942  INFO  Closing active operation
+2022-05-09 11:36:44,640  INFO  获取202203的数据
+2022-05-09 11:36:44,641  INFO  清洗数据
+2022-05-09 11:40:47,193  INFO  保存数据，共计1741077条，保存至./data/cleaned/cleaned_202203.csv
+2022-05-09 11:40:55,559  INFO  hospital_id == 0，共计0条
+2022-05-09 11:40:57,663  INFO  cleaned_data，共计1168945条
+2022-05-09 11:49:19,683  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计184424条,保存至./result/202203/dmiaes_map_hospital_diagnosis.csv
+2022-05-09 11:49:19,746  INFO  temp_scs_odd_supplies.csv完成，共计1118条,保存至./result/202203/temp_scs_odd_supplies.csv
+2022-05-09 11:49:19,902  INFO  temp_scs_odd_zd.csv完成，共计2792条,保存至./result/202203/temp_scs_odd_zd.csv
+2022-05-09 11:49:20,817  INFO  dmiaes_map_hospital_patient.csv完成，共计30408条,保存至./result/202203/dmiaes_map_hospital_patient.csv
+2022-05-09 11:49:28,586  INFO  dmiaes_map.csv完成，共计662条，保存至./result/202203/dmiaes_map.csv
+2022-05-09 11:49:30,177  INFO  dmiaes_map_area.csv完成，共计132条，保存至./result/202203/dmiaes_map_area.csv
+2022-05-09 11:49:33,879  INFO  dmiaes_map_hospital.csv完成，共计2032条，保存至./result/202203/dmiaes_map_hospital.csv
+2022-05-09 11:49:38,679  INFO  dmiaes_map_hospital_dept.csv完成，共计7867条，保存至./result/202203/dmiaes_map_hospital_dept.csv
+2022-05-09 11:49:45,428  INFO  dmiaes_map_hospital_doctor.csv完成，共计15090条,保存至./result/202203/dmiaes_map_hospital_doctor.csv
+2022-05-09 11:49:49,401  INFO  dmiaes_map_hospital_overview.csv完成，共计21740条,保存至./result/202203/dmiaes_map_hospital_overview.csv
+
+2022-05-27 16:08:56,448  INFO  获取202204的数据
+2022-05-27 16:08:56,463  INFO  Using database zlk as default
+2022-05-27 16:08:56,479  INFO  医院信息，提取2022年的数据
+2022-05-27 16:09:07,665  INFO  保存数据，共计5083条，保存至./data/original/hospital_info.csv
+2022-05-27 16:09:07,665  INFO  提取数据，提取202204的数据
+2022-05-27 16:17:48,729  INFO  西医数据，共计1326838条
+2022-05-27 16:18:55,800  INFO  中医数据，共计211650条
+2022-05-27 16:19:57,580  INFO  保存数据，共计1534333条，保存至./data/original/original_202204.csv
+2022-05-27 16:19:57,595  INFO  Closing active operation
+2022-05-27 16:20:03,911  INFO  清洗数据
+2022-05-27 16:34:52,613  INFO  保存数据，共计1534068条，保存至./data/cleaned/cleaned_202204.csv
+2022-05-27 16:35:02,381  INFO  hospital_id == 0，共计0条
+2022-05-27 16:35:04,044  INFO  cleaned_data，共计1047897条
+2022-05-27 16:43:37,114  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计172398条,保存至./result/202204/dmiaes_map_hospital_diagnosis.csv
+2022-05-27 16:43:37,161  INFO  temp_scs_odd_supplies.csv完成，共计447条,保存至./result/202204/temp_scs_odd_supplies.csv
+2022-05-27 16:43:37,317  INFO  temp_scs_odd_zd.csv完成，共计2962条,保存至./result/202204/temp_scs_odd_zd.csv
+2022-05-27 16:43:38,381  INFO  dmiaes_map_hospital_patient.csv完成，共计28425条,保存至./result/202204/dmiaes_map_hospital_patient.csv
+2022-05-27 16:43:44,740  INFO  dmiaes_map.csv完成，共计685条，保存至./result/202204/dmiaes_map.csv
+2022-05-27 16:43:46,165  INFO  dmiaes_map_area.csv完成，共计128条，保存至./result/202204/dmiaes_map_area.csv
+2022-05-27 16:43:50,270  INFO  dmiaes_map_hospital.csv完成，共计2094条，保存至./result/202204/dmiaes_map_hospital.csv
+2022-05-27 16:43:55,976  INFO  dmiaes_map_hospital_dept.csv完成，共计7768条，保存至./result/202204/dmiaes_map_hospital_dept.csv
+2022-05-27 16:44:02,045  INFO  dmiaes_map_hospital_doctor.csv完成，共计14360条,保存至./result/202204/dmiaes_map_hospital_doctor.csv
+2022-05-27 16:44:05,241  INFO  dmiaes_map_hospital_overview.csv完成，共计21894条,保存至./result/202204/dmiaes_map_hospital_overview.csv
+
+2022-06-28 13:38:15,968  INFO  获取202205的数据
+2022-06-28 13:38:15,984  INFO  Using database zlk as default
+2022-06-28 13:38:16,000  INFO  医院信息，提取2022年的数据
+2022-06-28 13:38:28,049  INFO  保存数据，共计5201条，保存至./data/original/hospital_info.csv
+2022-06-28 13:38:28,049  INFO  提取数据，提取202205的数据
+2022-06-28 13:46:39,347  INFO  西医数据，共计1316705条
+2022-06-28 13:47:37,674  INFO  中医数据，共计202138条
+2022-06-28 13:48:33,081  INFO  保存数据，共计1517822条，保存至./data/original/original_202205.csv
+2022-06-28 13:48:33,081  INFO  Closing active operation
+2022-06-28 13:48:38,694  INFO  清洗数据
+2022-06-28 17:32:06,305  INFO  保存数据，共计1517515条，保存至./data/cleaned/cleaned_202205.csv
+2022-06-29 10:24:35,309  INFO  hospital_id == 0，共计2003条
+2022-06-29 10:24:37,139  INFO  cleaned_data，共计1022897条
+2022-06-29 10:30:32,559  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计83302条,保存至./result/202205/dmiaes_map_hospital_diagnosis.csv
+2022-06-29 10:30:32,591  INFO  temp_scs_odd_supplies.csv完成，共计1015条,保存至./result/202205/temp_scs_odd_supplies.csv
+2022-06-29 10:30:32,638  INFO  temp_scs_odd_zd.csv完成，共计1175条,保存至./result/202205/temp_scs_odd_zd.csv
+2022-06-29 10:30:32,841  INFO  dmiaes_map_hospital_patient.csv完成，共计14742条,保存至./result/202205/dmiaes_map_hospital_patient.csv
+2022-06-29 10:30:37,242  INFO  dmiaes_map.csv完成，共计639条，保存至./result/202205/dmiaes_map.csv
+2022-06-29 10:30:38,118  INFO  dmiaes_map_area.csv完成，共计132条，保存至./result/202205/dmiaes_map_area.csv
+2022-06-29 10:30:40,871  INFO  dmiaes_map_hospital.csv完成，共计1568条，保存至./result/202205/dmiaes_map_hospital.csv
+2022-06-29 10:30:44,375  INFO  dmiaes_map_hospital_dept.csv完成，共计5497条，保存至./result/202205/dmiaes_map_hospital_dept.csv
+2022-06-29 10:30:48,531  INFO  dmiaes_map_hospital_doctor.csv完成，共计9692条,保存至./result/202205/dmiaes_map_hospital_doctor.csv
+2022-06-29 10:30:51,061  INFO  dmiaes_map_hospital_overview.csv完成，共计21272条,保存至./result/202205/dmiaes_map_hospital_overview.csv
+
+
+2022-07-29 16:53:41,771  INFO  获取202206的数据
+2022-07-29 16:53:41,787  INFO  Using database zlk as default
+2022-07-29 16:53:41,818  INFO  医院信息，提取2022年的数据
+2022-07-29 16:53:55,110  INFO  保存数据，共计5237条，保存至./data/original/hospital_info.csv
+2022-07-29 16:53:55,110  INFO  提取数据，提取202206的数据
+2022-07-29 17:02:33,125  INFO  西医数据，共计1397318条
+2022-07-29 17:03:34,983  INFO  中医数据，共计216069条
+2022-07-29 17:04:33,576  INFO  保存数据，共计1612091条，保存至./data/original/original_202206.csv
+2022-07-29 17:04:33,576  INFO  Closing active operation
+2022-07-29 17:04:44,225  INFO  清洗数据
+2022-07-29 17:07:18,812  INFO  保存数据，共计1611614条，保存至./data/cleaned/cleaned_202206.csv
+2022-07-29 17:07:28,310  INFO  hospital_id == 0，共计2949条
+2022-07-29 17:07:30,573  INFO  cleaned_data，共计1086080条
+
+2022-07-29 17:40:31,882  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计221666条,保存至./result/202206/dmiaes_map_hospital_diagnosis.csv
+2022-07-29 17:40:31,914  INFO  temp_scs_odd_supplies.csv完成，共计1074条,保存至./result/202206/temp_scs_odd_supplies.csv
+2022-07-29 17:40:32,023  INFO  temp_scs_odd_zd.csv完成，共计2900条,保存至./result/202206/temp_scs_odd_zd.csv
+2022-07-29 17:40:32,664  INFO  dmiaes_map_hospital_patient.csv完成，共计42410条,保存至./result/202206/dmiaes_map_hospital_patient.csv
+2022-07-29 17:40:38,880  INFO  dmiaes_map.csv完成，共计745条，保存至./result/202206/dmiaes_map.csv
+2022-07-29 17:40:40,023  INFO  dmiaes_map_area.csv完成，共计128条，保存至./result/202206/dmiaes_map_area.csv
+2022-07-29 17:40:44,068  INFO  dmiaes_map_hospital.csv完成，共计2595条，保存至./result/202206/dmiaes_map_hospital.csv
+2022-07-29 17:40:49,160  INFO  dmiaes_map_hospital_dept.csv完成，共计10629条，保存至./result/202206/dmiaes_map_hospital_dept.csv
+2022-07-29 17:40:55,438  INFO  dmiaes_map_hospital_doctor.csv完成，共计20165条,保存至./result/202206/dmiaes_map_hospital_doctor.csv
+2022-07-29 17:40:58,681  INFO  dmiaes_map_hospital_overview.csv完成，共计22407条,保存至./result/202206/dmiaes_map_hospital_overview.csv
+
+
+2022-09-06 23:38:08,876  INFO  获取202207的数据
+2022-09-06 23:38:08,892  INFO  Using database zlk as default
+2022-09-06 23:38:08,908  INFO  医院信息，提取2022年的数据
+2022-09-06 23:38:24,482  INFO  保存数据，共计5262条，保存至./data/original/hospital_info.csv
+2022-09-06 23:38:24,482  INFO  提取数据，提取202207的数据
+2022-09-06 23:48:07,108  INFO  西医数据，共计1583323条
+2022-09-06 23:49:17,128  INFO  中医数据，共计241063条
+2022-09-06 23:50:20,604  INFO  保存数据，共计1823536条，保存至./data/original/original_202207.csv
+2022-09-06 23:50:20,604  INFO  Closing active operation
+2022-09-06 23:50:31,946  INFO  清洗数据
+2022-09-06 23:54:21,201  INFO  保存数据，共计1823357条，保存至./data/cleaned/cleaned_202207.csv
+
+2022-09-12 05:15:47,551  INFO  hospital_id == 0，共计3860条
+2022-09-12 05:15:49,618  INFO  cleaned_data，共计1192723条
+2022-09-12 05:26:18,762  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计202582条,保存至./result/202207/dmiaes_map_hospital_diagnosis.csv
+2022-09-12 05:26:18,778  INFO  temp_scs_odd_supplies.csv完成，共计653条,保存至./result/202207/temp_scs_odd_supplies.csv
+2022-09-12 05:26:18,809  INFO  temp_scs_odd_zd.csv完成，共计680条,保存至./result/202207/temp_scs_odd_zd.csv
+2022-09-12 05:26:19,311  INFO  dmiaes_map_hospital_patient.csv完成，共计37546条,保存至./result/202207/dmiaes_map_hospital_patient.csv
+2022-09-12 05:26:25,173  INFO  dmiaes_map.csv完成，共计729条，保存至./result/202207/dmiaes_map.csv
+2022-09-12 05:26:26,222  INFO  dmiaes_map_area.csv完成，共计128条，保存至./result/202207/dmiaes_map_area.csv
+2022-09-12 05:26:29,750  INFO  dmiaes_map_hospital.csv完成，共计2494条，保存至./result/202207/dmiaes_map_hospital.csv
+2022-09-12 05:26:34,453  INFO  dmiaes_map_hospital_dept.csv完成，共计10321条，保存至./result/202207/dmiaes_map_hospital_dept.csv
+2022-09-12 05:26:40,151  INFO  dmiaes_map_hospital_doctor.csv完成，共计18435条,保存至./result/202207/dmiaes_map_hospital_doctor.csv
+2022-09-12 05:26:43,248  INFO  dmiaes_map_hospital_overview.csv完成，共计22374条,保存至./result/202207/dmiaes_map_hospital_overview.csv
+
+
+2022-10-09 10:30:56,458  INFO  获取202208的数据
+2022-10-09 10:30:56,458  INFO  Using database zlk as default
+2022-10-09 10:30:56,473  INFO  医院信息，提取2022年的数据
+2022-10-09 10:31:13,000  INFO  保存数据，共计5287条，保存至./data/original/hospital_info.csv
+2022-10-09 10:31:13,000  INFO  提取数据，提取202208的数据
+2022-10-09 10:40:08,959  INFO  西医数据，共计1432784条
+2022-10-09 10:41:12,694  INFO  中医数据，共计220935条
+2022-10-09 10:42:13,185  INFO  保存数据，共计1653119条，保存至./data/original/original_202208.csv
+2022-10-09 10:42:13,185  INFO  Closing active operation
+2022-10-09 10:42:24,004  INFO  清洗数据
+2022-10-09 10:45:59,684  INFO  保存数据，共计1652904条，保存至./data/cleaned/cleaned_202208.csv
+
+2022-10-09 14:48:51,104  INFO  hospital_id == 0，共计3554条
+2022-10-09 14:48:53,180  INFO  cleaned_data，共计1094516条
+2022-10-09 14:57:14,147  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计179233条,保存至./result/202208/dmiaes_map_hospital_diagnosis.csv
+2022-10-09 14:57:14,178  INFO  temp_scs_odd_supplies.csv完成，共计649条,保存至./result/202208/temp_scs_odd_supplies.csv
+2022-10-09 14:57:14,194  INFO  temp_scs_odd_zd.csv完成，共计680条,保存至./result/202208/temp_scs_odd_zd.csv
+2022-10-09 14:57:14,631  INFO  dmiaes_map_hospital_patient.csv完成，共计31427条,保存至./result/202208/dmiaes_map_hospital_patient.csv
+2022-10-09 14:57:19,732  INFO  dmiaes_map.csv完成，共计720条，保存至./result/202208/dmiaes_map.csv
+2022-10-09 14:57:20,698  INFO  dmiaes_map_area.csv完成，共计128条，保存至./result/202208/dmiaes_map_area.csv
+2022-10-09 14:57:23,799  INFO  dmiaes_map_hospital.csv完成，共计2360条，保存至./result/202208/dmiaes_map_hospital.csv
+2022-10-09 14:57:27,893  INFO  dmiaes_map_hospital_dept.csv完成，共计9312条，保存至./result/202208/dmiaes_map_hospital_dept.csv
+2022-10-09 14:57:32,742  INFO  dmiaes_map_hospital_doctor.csv完成，共计16075条,保存至./result/202208/dmiaes_map_hospital_doctor.csv
+2022-10-09 14:57:35,370  INFO  dmiaes_map_hospital_overview.csv完成，共计22224条,保存至./result/202208/dmiaes_map_hospital_overview.csv
+
+
+2022-11-02 22:06:59,654  INFO  Using database zlk as default
+2022-11-02 22:06:59,667  INFO  提取数据，从病案首页提取2021-01-01至2022-08-31的数据
+2022-11-02 22:07:45,084  INFO  保存数据，共计123055条，保存至./data/other/level_jbbm_ssbm_20220831.csv
+2022-11-02 22:07:45,085  INFO  Closing active operation
+2022-11-02 22:07:45,604  INFO  获取202209的数据
+2022-11-02 22:07:45,610  INFO  Using database zlk as default
+2022-11-02 22:07:45,626  INFO  医院信息，提取2022年的数据
+2022-11-02 22:08:06,116  INFO  保存数据，共计5309条，保存至./data/original/hospital_info.csv
+2022-11-02 22:08:06,116  INFO  提取数据，提取202209的数据
+2022-11-02 22:14:00,462  INFO  西医数据，共计1147688条
+2022-11-02 22:14:42,641  INFO  中医数据，共计178196条
+2022-11-02 22:15:49,653  INFO  保存数据，共计1325409条，保存至./data/original/original_202209.csv
+2022-11-02 22:15:49,653  INFO  Closing active operation
+2022-11-02 22:15:58,356  INFO  清洗数据
+2022-11-02 22:18:23,788  INFO  保存数据，共计1325250条，保存至./data/cleaned/cleaned_202209.csv
+
+2022-11-02 22:41:26,528  INFO  hospital_id == 0，共计3242条
+2022-11-02 22:41:28,279  INFO  cleaned_data，共计880613条
+2022-11-02 22:44:44,845  INFO  dmiaes_map_hospital_diagnosis.csv完成，共计152289条,保存至./result/202209/dmiaes_map_hospital_diagnosis.csv
+2022-11-02 22:44:44,869  INFO  temp_scs_odd_supplies.csv完成，共计597条,保存至./result/202209/temp_scs_odd_supplies.csv
+2022-11-02 22:44:44,893  INFO  temp_scs_odd_zd.csv完成，共计640条,保存至./result/202209/temp_scs_odd_zd.csv
+2022-11-02 22:44:45,305  INFO  dmiaes_map_hospital_patient.csv完成，共计27155条,保存至./result/202209/dmiaes_map_hospital_patient.csv
+2022-11-02 22:44:56,276  INFO  dmiaes_map.csv完成，共计709条，保存至./result/202209/dmiaes_map.csv
+2022-11-02 22:44:56,989  INFO  dmiaes_map_area.csv完成，共计132条，保存至./result/202209/dmiaes_map_area.csv
+2022-11-02 22:44:59,491  INFO  dmiaes_map_hospital.csv完成，共计2303条，保存至./result/202209/dmiaes_map_hospital.csv
+2022-11-02 22:45:02,962  INFO  dmiaes_map_hospital_dept.csv完成，共计8783条，保存至./result/202209/dmiaes_map_hospital_dept.csv
+2022-11-02 22:45:06,976  INFO  dmiaes_map_hospital_doctor.csv完成，共计14898条,保存至./result/202209/dmiaes_map_hospital_doctor.csv
+2022-11-02 22:45:09,249  INFO  dmiaes_map_hospital_overview.csv完成，共计21895条,保存至./result/202209/dmiaes_map_hospital_overview.csv

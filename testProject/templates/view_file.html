@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}查看档案 - 稽核档案管理系统{% endblock %}
+{% block page_title %}档案详情{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-folder"></i> 档案信息</h5>
+                <div>
+                    <a href="{{ url_for('files') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-arrow-left"></i> 返回列表
+                    </a>
+                    {% if current_user.role in ['admin', 'auditor'] or file.created_by == current_user.id %}
+                    <a href="{{ url_for('edit_file', file_id=file.id) }}" class="btn btn-warning btn-sm">
+                        <i class="bi bi-pencil"></i> 编辑
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">档案编号</label>
+                            <p class="form-control-plaintext">
+                                <span class="badge bg-secondary">{{ file.file_number }}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">档案标题</label>
+                            <p class="form-control-plaintext">{{ file.title }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">档案分类</label>
+                            <p class="form-control-plaintext">{{ file.category_name or 'N/A' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">所属部门</label>
+                            <p class="form-control-plaintext">{{ file.department_name or 'N/A' }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">稽核员</label>
+                            <p class="form-control-plaintext">{{ file.auditor_name or 'N/A' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">创建人</label>
+                            <p class="form-control-plaintext">{{ file.creator_name or 'N/A' }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">状态</label>
+                            <p class="form-control-plaintext">
+                                {% if file.status == 'pending' %}
+                                    <span class="badge bg-warning">待处理</span>
+                                {% elif file.status == 'in_progress' %}
+                                    <span class="badge bg-info">进行中</span>
+                                {% elif file.status == 'completed' %}
+                                    <span class="badge bg-success">已完成</span>
+                                {% elif file.status == 'archived' %}
+                                    <span class="badge bg-secondary">已归档</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">优先级</label>
+                            <p class="form-control-plaintext">
+                                {% if file.priority == 'low' %}
+                                    <span class="badge bg-secondary">低</span>
+                                {% elif file.priority == 'medium' %}
+                                    <span class="badge bg-warning">中</span>
+                                {% elif file.priority == 'high' %}
+                                    <span class="badge bg-danger">高</span>
+                                {% elif file.priority == 'urgent' %}
+                                    <span class="badge bg-dark">紧急</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">稽核日期</label>
+                            <p class="form-control-plaintext">{{ file.audit_date or '未设置' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">创建时间</label>
+                            <p class="form-control-plaintext">{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-bold">档案描述</label>
+                    <p class="form-control-plaintext">{{ file.description or '暂无描述' }}</p>
+                </div>
+                
+                {% if file.findings %}
+                <div class="mb-3">
+                    <label class="form-label fw-bold">稽核发现</label>
+                    <p class="form-control-plaintext">{{ file.findings }}</p>
+                </div>
+                {% endif %}
+                
+                {% if file.recommendations %}
+                <div class="mb-3">
+                    <label class="form-label fw-bold">建议措施</label>
+                    <p class="form-control-plaintext">{{ file.recommendations }}</p>
+                </div>
+                {% endif %}
+                
+                <!-- 附件列表 -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">相关附件</label>
+                    <div id="attachments-list">
+                        <div class="text-center py-3">
+                            <i class="bi bi-hourglass-split text-muted"></i>
+                            <p class="text-muted">正在加载附件...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- 档案状态 -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> 档案状态</h6>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <div class="mb-3">
+                        {% if file.status == 'pending' %}
+                            <i class="bi bi-clock text-warning" style="font-size: 3rem;"></i>
+                        {% elif file.status == 'in_progress' %}
+                            <i class="bi bi-arrow-repeat text-info" style="font-size: 3rem;"></i>
+                        {% elif file.status == 'completed' %}
+                            <i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i>
+                        {% elif file.status == 'archived' %}
+                            <i class="bi bi-archive text-secondary" style="font-size: 3rem;"></i>
+                        {% endif %}
+                    </div>
+                    <h6>{{ file.title[:20] }}{% if file.title|length > 20 %}...{% endif %}</h6>
+                    <p class="text-muted small">{{ file.file_number }}</p>
+                    <hr>
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <div class="h6 text-primary">{{ file.status|title }}</div>
+                            <small class="text-muted">当前状态</small>
+                        </div>
+                        <div class="col-6">
+                            <div class="h6 text-success">{{ file.priority|title }}</div>
+                            <small class="text-muted">优先级</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 快速操作 -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightning"></i> 快速操作</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    {% if current_user.role in ['admin', 'auditor'] %}
+                    <button class="btn btn-outline-warning" disabled>
+                        <i class="bi bi-pencil"></i> 编辑档案
+                    </button>
+                    <button class="btn btn-outline-info" disabled>
+                        <i class="bi bi-upload"></i> 上传附件
+                    </button>
+                    {% endif %}
+                    <button class="btn btn-outline-secondary" disabled>
+                        <i class="bi bi-printer"></i> 打印档案
+                    </button>
+                    <button class="btn btn-outline-primary" disabled>
+                        <i class="bi bi-download"></i> 导出档案
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 档案历史 -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-clock-history"></i> 档案历史</h6>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-primary"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">档案创建</h6>
+                            <p class="text-muted small mb-0">{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</p>
+                        </div>
+                    </div>
+                    {% if file.updated_at and file.updated_at != file.created_at %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-info"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">档案更新</h6>
+                            <p class="text-muted small mb-0">{{ file.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if file.completed_at %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-success"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">档案完成</h6>
+                            <p class="text-muted small mb-0">{{ file.completed_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline {
+    position: relative;
+    padding-left: 20px;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -30px;
+    top: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.timeline-content {
+    padding-left: 10px;
+}
+
+.timeline-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: -24px;
+    top: 12px;
+    width: 2px;
+    height: 20px;
+    background-color: #e9ecef;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('档案详情页面加载完成');
+    
+    // 加载附件列表
+    loadAttachments();
+});
+
+function loadAttachments() {
+    const fileId = {{ file.id }};
+    const attachmentsList = document.getElementById('attachments-list');
+    
+    fetch(`/attachments/${fileId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.attachments && data.attachments.length > 0) {
+                displayAttachments(data.attachments);
+            } else {
+                attachmentsList.innerHTML = `
+                    <div class="text-center py-3">
+                        <i class="bi bi-inbox text-muted"></i>
+                        <p class="text-muted">暂无附件</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('加载附件失败:', error);
+            attachmentsList.innerHTML = `
+                <div class="text-center py-3">
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    <p class="text-warning">加载附件失败</p>
+                </div>
+            `;
+        });
+}
+
+function displayAttachments(attachments) {
+    const attachmentsList = document.getElementById('attachments-list');
+    let html = '<div class="row">';
+    
+    attachments.forEach(attachment => {
+        const fileSize = (attachment.file_size / 1024 / 1024).toFixed(2);
+        const fileType = attachment.file_type || 'UNKNOWN';
+        
+        html += `
+            <div class="col-md-6 mb-3">
+                <div class="card border">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="bi bi-file-earmark-${getFileIcon(fileType)} text-primary" style="font-size: 2rem;"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">${attachment.original_name}</h6>
+                                <small class="text-muted">
+                                    ${fileSize} MB • ${fileType} • 上传者: ${attachment.uploader_name || '未知'}
+                                </small>
+                                ${attachment.description ? `<br><small class="text-muted">${attachment.description}</small>` : ''}
+                            </div>
+                            <div class="ms-2">
+                                <a href="/download/${attachment.filename}" class="btn btn-sm btn-outline-primary" title="下载">
+                                    <i class="bi bi-download"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    attachmentsList.innerHTML = html;
+}
+
+function getFileIcon(fileType) {
+    const iconMap = {
+        'PDF': 'pdf',
+        'DOC': 'word',
+        'DOCX': 'word',
+        'XLS': 'excel',
+        'XLSX': 'excel',
+        'TXT': 'text',
+        'JPG': 'image',
+        'JPEG': 'image',
+        'PNG': 'image',
+        'GIF': 'image',
+        'ZIP': 'archive',
+        'RAR': 'archive'
+    };
+    return iconMap[fileType] || 'text';
+}
+</script>
+{% endblock %} 

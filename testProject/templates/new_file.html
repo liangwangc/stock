@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}创建新档案 - 稽核档案管理系统{% endblock %}
+{% block page_title %}创建新档案{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-plus-circle"></i> 创建新稽核档案</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="file_number" class="form-label">档案编号 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="file_number" name="file_number" required>
+                                <div class="form-text">请输入唯一的档案编号，如：AUDIT-2024-001</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="title" class="form-label">档案标题 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="title" name="title" required>
+                                <div class="form-text">请输入档案的标题</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="category_id" class="form-label">档案分类 <span class="text-danger">*</span></label>
+                                <select class="form-select" id="category_id" name="category_id" required>
+                                    <option value="">请选择分类</option>
+                                    {% for category in categories %}
+                                    <option value="{{ category.id }}">{{ category.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="department_id" class="form-label">所属部门 <span class="text-danger">*</span></label>
+                                <select class="form-select" id="department_id" name="department_id" required>
+                                    <option value="">请选择部门</option>
+                                    {% for dept in departments %}
+                                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="priority" class="form-label">优先级</label>
+                                <select class="form-select" id="priority" name="priority">
+                                    <option value="low">低</option>
+                                    <option value="medium" selected>中</option>
+                                    <option value="high">高</option>
+                                    <option value="urgent">紧急</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="audit_date" class="form-label">稽核日期</label>
+                                <input type="date" class="form-control" id="audit_date" name="audit_date">
+                                <div class="form-text">计划进行稽核的日期</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">档案描述</label>
+                        <textarea class="form-control" id="description" name="description" rows="4" placeholder="请详细描述稽核档案的内容、目的和要求..."></textarea>
+                        <div class="form-text">详细描述稽核档案的内容、目的和要求</div>
+                    </div>
+                    
+                    <!-- 文件上传 -->
+                    <div class="mb-3">
+                        <label for="attachments" class="form-label">上传附件</label>
+                        <input type="file" class="form-control" id="attachments" name="attachments" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar">
+                        <div class="form-text">
+                            支持的文件类型: PDF, Word, Excel, 文本, 图片, 压缩包等<br>
+                            单个文件最大: 16MB，可同时选择多个文件
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="file_description" class="form-label">附件说明</label>
+                        <textarea class="form-control" id="file_description" name="file_description" rows="2" placeholder="可选：为上传的附件添加说明..."></textarea>
+                        <div class="form-text">为上传的附件添加描述信息</div>
+                    </div>
+                    
+                    <!-- 文件预览区域 -->
+                    <div class="mb-3" id="file-preview" style="display: none;">
+                        <label class="form-label">已选择的文件</label>
+                        <div class="border rounded p-3 bg-light" id="selected-files">
+                            <!-- 动态显示选择的文件 -->
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('files') }}" class="btn btn-secondary me-md-2">
+                            <i class="bi bi-arrow-left"></i> 取消
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> 创建档案
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- 创建说明 -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> 创建说明</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> 档案编号必须唯一，建议使用有意义的编号规则</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> 档案标题应简洁明了，便于识别和管理</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> 选择合适的分类和部门，便于后续管理和查询</li>
+                    <li class="mb-2"><i class="bi bi-check-circle text-success"></i> 根据实际情况设置优先级和稽核日期</li>
+                    <li class="mb-0"><i class="bi bi-check-circle text-success"></i> 详细描述有助于其他人员了解档案内容</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 设置默认日期为今天
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('audit_date').value = today;
+    
+    // 文件选择和预览
+    const fileInput = document.getElementById('attachments');
+    const filePreview = document.getElementById('file-preview');
+    const selectedFiles = document.getElementById('selected-files');
+    
+    fileInput.addEventListener('change', function() {
+        const files = this.files;
+        if (files.length > 0) {
+            filePreview.style.display = 'block';
+            selectedFiles.innerHTML = '';
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const fileSize = (file.size / 1024 / 1024).toFixed(2);
+                const fileType = file.name.split('.').pop().toUpperCase();
+                
+                const fileItem = document.createElement('div');
+                fileItem.className = 'd-flex align-items-center mb-2';
+                fileItem.innerHTML = `
+                    <div class="me-2">
+                        <i class="bi bi-file-earmark-${getFileIcon(fileType)} text-primary"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="fw-bold">${file.name}</div>
+                        <small class="text-muted">${fileSize} MB • ${fileType}</small>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeFile(${i})">
+                        <i class="bi bi-x"></i>
+                    </button>
+                `;
+                selectedFiles.appendChild(fileItem);
+            }
+        } else {
+            filePreview.style.display = 'none';
+        }
+    });
+    
+    // 表单验证
+    const form = document.querySelector('form');
+    form.addEventListener('submit', function(e) {
+        const fileNumber = document.getElementById('file_number').value.trim();
+        const title = document.getElementById('title').value.trim();
+        
+        if (!fileNumber || !title) {
+            e.preventDefault();
+            alert('请填写所有必填字段');
+            return false;
+        }
+        
+        // 检查文件大小
+        const files = fileInput.files;
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].size > 16 * 1024 * 1024) { // 16MB
+                e.preventDefault();
+                alert(`文件 "${files[i].name}" 超过16MB限制，请选择较小的文件`);
+                return false;
+            }
+        }
+    });
+});
+
+// 获取文件图标
+function getFileIcon(fileType) {
+    const iconMap = {
+        'PDF': 'pdf',
+        'DOC': 'word',
+        'DOCX': 'word',
+        'XLS': 'excel',
+        'XLSX': 'excel',
+        'TXT': 'text',
+        'JPG': 'image',
+        'JPEG': 'image',
+        'PNG': 'image',
+        'GIF': 'image',
+        'ZIP': 'archive',
+        'RAR': 'archive'
+    };
+    return iconMap[fileType] || 'text';
+}
+
+// 移除文件
+function removeFile(index) {
+    const fileInput = document.getElementById('attachments');
+    const dt = new DataTransfer();
+    const files = fileInput.files;
+    
+    for (let i = 0; i < files.length; i++) {
+        if (i !== index) {
+            dt.items.add(files[i]);
+        }
+    }
+    
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+}
+</script>
+{% endblock %} 

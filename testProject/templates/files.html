@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}档案管理 - 稽核档案管理系统{% endblock %}
+{% block page_title %}档案管理{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h5><i class="bi bi-folder"></i> 稽核档案列表</h5>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('new_file') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> 创建新档案
+        </a>
+    </div>
+</div>
+
+<!-- 筛选器 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-3">
+                <label for="status" class="form-label">状态</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">全部状态</option>
+                    <option value="pending" {% if current_filters.status == 'pending' %}selected{% endif %}>待处理</option>
+                    <option value="in_progress" {% if current_filters.status == 'in_progress' %}selected{% endif %}>进行中</option>
+                    <option value="completed" {% if current_filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                    <option value="archived" {% if current_filters.status == 'archived' %}selected{% endif %}>已归档</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="category_id" class="form-label">分类</label>
+                <select class="form-select" id="category_id" name="category_id">
+                    <option value="">全部分类</option>
+                    {% for category in categories %}
+                    <option value="{{ category.id }}" {% if current_filters.category_id|string == category.id|string %}selected{% endif %}>
+                        {{ category.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="department_id" class="form-label">部门</label>
+                <select class="form-select" id="department_id" name="department_id">
+                    <option value="">全部部门</option>
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if current_filters.department_id|string == dept.id|string %}selected{% endif %}>
+                        {{ dept.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">&nbsp;</label>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i class="bi bi-search"></i> 筛选
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 档案列表 -->
+<div class="card">
+    <div class="card-body">
+        {% if files %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>档案编号</th>
+                        <th>标题</th>
+                        <th>分类</th>
+                        <th>部门</th>
+                        <th>稽核员</th>
+                        <th>状态</th>
+                        <th>优先级</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr>
+                        <td><span class="badge bg-secondary">{{ file.file_number }}</span></td>
+                        <td>{{ file.title }}</td>
+                        <td>{{ file.category_name or 'N/A' }}</td>
+                        <td>{{ file.department_name or 'N/A' }}</td>
+                        <td>{{ file.auditor_name or 'N/A' }}</td>
+                        <td>
+                            {% if file.status == 'pending' %}
+                                <span class="badge bg-warning">待处理</span>
+                            {% elif file.status == 'in_progress' %}
+                                <span class="badge bg-info">进行中</span>
+                            {% elif file.status == 'completed' %}
+                                <span class="badge bg-success">已完成</span>
+                            {% elif file.status == 'archived' %}
+                                <span class="badge bg-secondary">已归档</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.priority == 'low' %}
+                                <span class="badge bg-secondary">低</span>
+                            {% elif file.priority == 'medium' %}
+                                <span class="badge bg-warning">中</span>
+                            {% elif file.priority == 'high' %}
+                                <span class="badge bg-danger">高</span>
+                            {% elif file.priority == 'urgent' %}
+                                <span class="badge bg-dark">紧急</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('view_file', file_id=file.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> 查看
+                                </a>
+                                {% if current_user.role in ['admin', 'auditor'] or file.created_by == current_user.id %}
+                                <a href="{{ url_for('edit_file', file_id=file.id) }}" class="btn btn-sm btn-outline-warning">
+                                    <i class="bi bi-pencil"></i> 编辑
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="text-muted">
+                共显示 {{ files|length }} 条记录
+            </div>
+        </div>
+        
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox text-muted" style="font-size: 4rem;"></i>
+            <h5 class="text-muted mt-3">暂无档案记录</h5>
+            <p class="text-muted">开始创建您的第一个稽核档案吧！</p>
+            <a href="{{ url_for('new_file') }}" class="btn btn-primary btn-lg">
+                <i class="bi bi-plus-circle"></i> 创建新档案
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %} 

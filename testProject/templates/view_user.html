@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}查看用户 - 稽核档案管理系统{% endblock %}
+{% block page_title %}用户详情{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h5><i class="bi bi-person-circle"></i> 用户信息</h5>
+        <p class="text-muted">用户ID: {{ user.id }}</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('users') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-warning">
+            <i class="bi bi-pencil"></i> 编辑用户
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <!-- 基本信息 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> 基本信息</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">用户名</label>
+                            <p class="form-control-plaintext">{{ user.username }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">真实姓名</label>
+                            <p class="form-control-plaintext">{{ user.real_name }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">邮箱</label>
+                            <p class="form-control-plaintext">{{ user.email }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">电话</label>
+                            <p class="form-control-plaintext">{{ user.phone or '未设置' }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">部门</label>
+                            <p class="form-control-plaintext">{{ user.department_name or '未设置' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">角色</label>
+                            <p class="form-control-plaintext">
+                                {% if user.role == 'admin' %}
+                                    <span class="badge bg-danger">管理员</span>
+                                {% elif user.role == 'auditor' %}
+                                    <span class="badge bg-warning">稽核员</span>
+                                {% else %}
+                                    <span class="badge bg-info">普通用户</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">状态</label>
+                            <p class="form-control-plaintext">
+                                {% if user.status == 'active' %}
+                                    <span class="badge bg-success">正常</span>
+                                {% elif user.status == 'inactive' %}
+                                    <span class="badge bg-secondary">停用</span>
+                                {% elif user.status == 'locked' %}
+                                    <span class="badge bg-danger">锁定</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">创建时间</label>
+                            <p class="form-control-plaintext">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">最后登录</label>
+                            <p class="form-control-plaintext">{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else '从未登录' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">登录尝试次数</label>
+                            <p class="form-control-plaintext">{{ user.login_attempts or 0 }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 操作日志 -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-journal-text"></i> 最近操作记录</h6>
+            </div>
+            <div class="card-body">
+                <div id="user-logs">
+                    <div class="text-center py-3">
+                        <i class="bi bi-hourglass-split text-muted"></i>
+                        <p class="text-muted">正在加载操作记录...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- 统计信息 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-graph-up"></i> 统计信息</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-3">
+                    <span>创建档案数</span>
+                    <span class="badge bg-primary" id="files-count">-</span>
+                </div>
+                <div class="d-flex justify-content-between mb-3">
+                    <span>上传附件数</span>
+                    <span class="badge bg-success" id="attachments-count">-</span>
+                </div>
+                <div class="d-flex justify-content-between mb-3">
+                    <span>操作次数</span>
+                    <span class="badge bg-info" id="actions-count">-</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 快速操作 -->
+        {% if current_user.role == 'admin' and user.id != current_user.id %}
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-gear"></i> 快速操作</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    {% if user.status == 'active' %}
+                    <button class="btn btn-outline-warning btn-sm" onclick="changeUserStatus('{{ user.id }}', 'inactive')">
+                        <i class="bi bi-pause-circle"></i> 停用用户
+                    </button>
+                    {% else %}
+                    <button class="btn btn-outline-success btn-sm" onclick="changeUserStatus('{{ user.id }}', 'active')">
+                        <i class="bi bi-play-circle"></i> 启用用户
+                    </button>
+                    {% endif %}
+                    
+                    {% if user.status != 'locked' %}
+                    <button class="btn btn-outline-danger btn-sm" onclick="changeUserStatus('{{ user.id }}', 'locked')">
+                        <i class="bi bi-lock"></i> 锁定用户
+                    </button>
+                    {% else %}
+                    <button class="btn btn-outline-success btn-sm" onclick="changeUserStatus('{{ user.id }}', 'active')">
+                        <i class="bi bi-unlock"></i> 解锁用户
+                    </button>
+                    {% endif %}
+                    
+                    <button class="btn btn-outline-info btn-sm" onclick="resetPassword('{{ user.id }}')">
+                        <i class="bi bi-key"></i> 重置密码
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('用户详情页面加载完成');
+    
+    // 加载用户统计信息
+    loadUserStats();
+    
+    // 加载用户操作日志
+    loadUserLogs();
+});
+
+function loadUserStats() {
+    const userId = {{ user.id }};
+    
+    // 这里可以添加获取用户统计信息的API调用
+    // 暂时使用模拟数据
+    document.getElementById('files-count').textContent = '0';
+    document.getElementById('attachments-count').textContent = '0';
+    document.getElementById('actions-count').textContent = '0';
+}
+
+function loadUserLogs() {
+    const userId = {{ user.id }};
+    const logsContainer = document.getElementById('user-logs');
+    
+    // 这里可以添加获取用户操作日志的API调用
+    // 暂时显示空状态
+    logsContainer.innerHTML = `
+        <div class="text-center py-3">
+            <i class="bi bi-inbox text-muted"></i>
+            <p class="text-muted">暂无操作记录</p>
+        </div>
+    `;
+}
+
+function changeUserStatus(userId, status) {
+    const statusText = {
+        'active': '启用',
+        'inactive': '停用',
+        'locked': '锁定'
+    }[status];
+    
+    if (confirm(`确定要${statusText}这个用户吗？`)) {
+        // 这里可以添加更改用户状态的API调用
+        alert(`用户状态已更改为${statusText}`);
+        location.reload();
+    }
+}
+
+function resetPassword(userId) {
+    if (confirm('确定要重置这个用户的密码吗？新密码将发送到用户邮箱。')) {
+        // 这里可以添加重置密码的API调用
+        alert('密码重置请求已发送');
+    }
+}
+</script>
+{% endblock %} 

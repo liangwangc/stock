@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}编辑档案 - 稽核档案管理系统{% endblock %}
+{% block page_title %}编辑档案{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h5><i class="bi bi-pencil"></i> 编辑稽核档案</h5>
+        <p class="text-muted">档案编号: {{ file.file_number }}</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('files') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" enctype="multipart/form-data">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="file_number" class="form-label">档案编号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="file_number" name="file_number" 
+                               value="{{ file.file_number }}" required>
+                        <div class="form-text">档案的唯一标识编号</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">档案标题 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="title" name="title" 
+                               value="{{ file.title }}" required>
+                        <div class="form-text">档案的简要描述</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="category_id" class="form-label">档案分类 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="category_id" name="category_id" required>
+                            <option value="">请选择分类</option>
+                            {% for category in categories %}
+                            <option value="{{ category.id }}" 
+                                    {% if category.id == file.category_id %}selected{% endif %}>
+                                {{ category.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="department_id" class="form-label">所属部门 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="department_id" name="department_id" required>
+                            <option value="">请选择部门</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}" 
+                                    {% if dept.id == file.department_id %}selected{% endif %}>
+                                {{ dept.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="priority" class="form-label">优先级</label>
+                        <select class="form-select" id="priority" name="priority">
+                            <option value="low" {% if file.priority == 'low' %}selected{% endif %}>低</option>
+                            <option value="medium" {% if file.priority == 'medium' %}selected{% endif %}>中</option>
+                            <option value="high" {% if file.priority == 'high' %}selected{% endif %}>高</option>
+                            <option value="urgent" {% if file.priority == 'urgent' %}selected{% endif %}>紧急</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="status" class="form-label">状态</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="pending" {% if file.status == 'pending' %}selected{% endif %}>待处理</option>
+                            <option value="in_progress" {% if file.status == 'in_progress' %}selected{% endif %}>进行中</option>
+                            <option value="completed" {% if file.status == 'completed' %}selected{% endif %}>已完成</option>
+                            <option value="archived" {% if file.status == 'archived' %}selected{% endif %}>已归档</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="audit_date" class="form-label">稽核日期</label>
+                <input type="date" class="form-control" id="audit_date" name="audit_date" 
+                       value="{{ file.audit_date.strftime('%Y-%m-%d') if file.audit_date else '' }}">
+            </div>
+
+            <div class="mb-3">
+                <label for="description" class="form-label">档案描述</label>
+                <textarea class="form-control" id="description" name="description" rows="4">{{ file.description or '' }}</textarea>
+                <div class="form-text">详细描述档案内容和要求</div>
+            </div>
+
+            <div class="mb-3">
+                <label for="notes" class="form-label">备注</label>
+                <textarea class="form-control" id="notes" name="notes" rows="3">{{ file.notes or '' }}</textarea>
+                <div class="form-text">其他需要说明的信息</div>
+            </div>
+
+            <div class="mb-3">
+                <label for="attachments" class="form-label">添加附件</label>
+                <input type="file" class="form-control" id="attachments" name="attachments" multiple>
+                <div class="form-text">可以选择多个文件，支持格式：PDF、Word、Excel、图片等</div>
+            </div>
+
+            <!-- 显示现有附件 -->
+            {% if file.attachments %}
+            <div class="mb-3">
+                <label class="form-label">现有附件</label>
+                <div class="list-group">
+                    {% for attachment in file.attachments %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-paperclip"></i>
+                            <span class="ms-2">{{ attachment.original_name }}</span>
+                            <small class="text-muted ms-2">({{ attachment.file_size|filesizeformat }})</small>
+                        </div>
+                        <div>
+                            <a href="{{ url_for('download_file', filename=attachment.filename) }}" 
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-download"></i> 下载
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteAttachment({{ attachment.id }})">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary" onclick="history.back()">
+                    <i class="bi bi-arrow-left"></i> 取消
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-circle"></i> 保存修改
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function deleteAttachment(attachmentId) {
+    if (confirm('确定要删除这个附件吗？此操作不可恢复。')) {
+        fetch(`/attachments/${attachmentId}/delete`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('删除失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('删除失败，请重试');
+        });
+    }
+}
+</script>
+{% endblock %} 

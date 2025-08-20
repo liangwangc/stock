@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}仪表板 - 稽核档案管理系统{% endblock %}
+{% block page_title %}仪表板{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- 统计卡片 -->
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stats-card">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="stats-number">{{ stats.total_files }}</div>
+                    <div class="stats-label">总档案数</div>
+                </div>
+                <div class="align-self-center">
+                    <i class="bi bi-folder text-white" style="font-size: 3rem; opacity: 0.7;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stats-card">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="stats-number">{{ stats.pending_files }}</div>
+                    <div class="stats-label">待处理档案</div>
+                </div>
+                <div class="align-self-center">
+                    <i class="bi bi-clock text-white" style="font-size: 3rem; opacity: 0.7;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stats-card">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="stats-number">{{ stats.completed_files }}</div>
+                    <div class="stats-label">已完成档案</div>
+                </div>
+                <div class="align-self-center">
+                    <i class="bi bi-check-circle text-white" style="font-size: 3rem; opacity: 0.7;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stats-card">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="stats-number">{{ stats.total_users }}</div>
+                    <div class="stats-label">系统用户</div>
+                </div>
+                <div class="align-self-center">
+                    <i class="bi bi-people text-white" style="font-size: 3rem; opacity: 0.7;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 最近档案 -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history"></i> 最近档案</h5>
+                <a href="{{ url_for('files') }}" class="btn btn-sm btn-outline-primary">查看全部</a>
+            </div>
+            <div class="card-body">
+                {% if stats.recent_files %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>档案编号</th>
+                                <th>标题</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in stats.recent_files %}
+                            <tr>
+                                <td><span class="badge bg-secondary">{{ file.file_number }}</span></td>
+                                <td>{{ file.title }}</td>
+                                <td>
+                                    {% if file.status == 'pending' %}
+                                        <span class="badge bg-warning">待处理</span>
+                                    {% elif file.status == 'in_progress' %}
+                                        <span class="badge bg-info">进行中</span>
+                                    {% elif file.status == 'completed' %}
+                                        <span class="badge bg-success">已完成</span>
+                                    {% elif file.status == 'archived' %}
+                                        <span class="badge bg-secondary">已归档</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</td>
+                                <td>
+                                    <a href="{{ url_for('view_file', file_id=file.id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> 查看
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                    <p class="text-muted mt-2">暂无档案记录</p>
+                    <a href="{{ url_for('new_file') }}" class="btn btn-primary">
+                        <i class="bi bi-plus"></i> 创建第一个档案
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- 快速操作 -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning"></i> 快速操作</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('new_file') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> 创建新档案
+                    </a>
+                    <a href="{{ url_for('files') }}" class="btn btn-outline-primary">
+                        <i class="bi bi-folder"></i> 浏览档案
+                    </a>
+                    {% if current_user.role == 'admin' %}
+                    <a href="{{ url_for('users') }}" class="btn btn-outline-success">
+                        <i class="bi bi-people"></i> 用户管理
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('profile') }}" class="btn btn-outline-info">
+                        <i class="bi bi-person-circle"></i> 个人资料
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 系统信息 -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> 系统信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <div class="border-end">
+                            <div class="h4 text-primary">{{ current_user.role|title }}</div>
+                            <small class="text-muted">用户角色</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="h4 text-success">{{ current_user.department }}</div>
+                        <small class="text-muted">所属部门</small>
+                    </div>
+                </div>
+                <hr>
+                <div class="text-center">
+                    <small class="text-muted">
+                        欢迎使用稽核档案管理系统<br>
+                                                 当前时间: {{ moment.strftime('%Y-%m-%d %H:%M') if moment else 'N/A' }}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 这里可以添加图表等交互功能
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('仪表板加载完成');
+});
+</script>
+{% endblock %} 
