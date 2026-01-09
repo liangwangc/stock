@@ -13,7 +13,7 @@ from audit_system.database import DatabaseManager
 
 def fix_users_table():
     """修复用户表结构"""
-    print("🔧 正在修复用户表结构...")
+    print("🔧 正在修复用户表结构....")
     
     try:
         db_manager = DatabaseManager()
