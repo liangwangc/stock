@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票预测列表</title>
+    <link rel="stylesheet" href="/static/common.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            margin-bottom: 20px;
+        }
+        .search-box input {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        .stock-item-wrapper {
+            margin-bottom: 10px;
+        }
+        .stock-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .stock-item:hover {
+            background-color: #f0f7ff;
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.2);
+            transform: translateY(-2px);
+        }
+        .stock-code {
+            width: 100px;
+            font-weight: bold;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+        .stock-name {
+            flex: 1;
+            font-size: 15px;
+            color: #555;
+            margin-left: 20px;
+        }
+        .stock-price {
+            width: 100px;
+            text-align: right;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+        .stock-prediction {
+            width: 120px;
+            text-align: center;
+            font-size: 14px;
+            padding: 5px 10px;
+            border-radius: 3px;
+            margin: 0 10px;
+        }
+        .prediction-up {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .prediction-down {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .prediction-neutral {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        .stock-probability {
+            width: 150px;
+            text-align: right;
+            font-size: 13px;
+            color: #666;
+        }
+        .stock-actions {
+            display: flex;
+            gap: 8px;
+            margin-left: 15px;
+        }
+        .btn-report {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+        .btn-graph {
+            background-color: #3498db;
+            color: white;
+        }
+        .btn-graph:hover {
+            background-color: #2980b9;
+        }
+        .btn-graph:disabled,
+        .btn-graph.disabled {
+            background-color: #ccc;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .btn-text {
+            background-color: #2ecc71;
+            color: white;
+        }
+        .btn-text:hover {
+            background-color: #27ae60;
+        }
+        .btn-detail {
+            background-color: #f39c12;
+            color: white;
+        }
+        .btn-detail:hover {
+            background-color: #e67e22;
+        }
+        .btn-history {
+            background-color: #95a5a6;
+            color: white;
+        }
+        .btn-history:hover {
+            background-color: #7f8c8d;
+        }
+        .summary-panel {
+            display: none;
+            padding: 15px;
+            margin-top: 10px;
+            background-color: #f9fafb;
+            border-left: 4px solid #2ecc71;
+            border-radius: 5px;
+            font-size: 13px;
+            line-height: 1.8;
+            color: #333;
+        }
+        .summary-panel.show {
+            display: block;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+            font-size: 16px;
+        }
+        .btn-monitor {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .btn-monitor:hover {
+            background-color: #c0392b;
+        }
+        /* 页签样式 */
+        .tab-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 12px 24px;
+            font-size: 15px;
+            border: none;
+            background-color: #f0f0f0;
+            color: #666;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-button:hover {
+            background-color: #e0e0e0;
+        }
+        .tab-button.active {
+            background-color: white;
+            color: #2c3e50;
+            font-weight: bold;
+            border-bottom: 3px solid #3498db;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        /* Tooltip 样式 */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+            cursor: help;
+        }
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+        .tooltip-text {
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 6px;
+            white-space: normal;
+            width: 280px;
+            font-size: 12px;
+            line-height: 1.6;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #333;
+        }
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        /* 内联tooltip（用于表格等） */
+        .inline-tooltip {
+            position: relative;
+            cursor: help;
+            border-bottom: 1px dotted #667eea;
+        }
+        .inline-tooltip .tooltip-text {
+            width: 300px;
+        }
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+        .btn-primary:disabled {
+            background-color: #ccc;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        .modal-header h2 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 20px;
+        }
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 20px;
+        }
+        .close:hover,
+        .close:focus {
+            color: #000;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        .form-group .help-text {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+        }
+        .btn-confirm {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .btn-confirm:hover {
+            background-color: #2980b9;
+        }
+        .btn-cancel {
+            background-color: #95a5a6;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .btn-cancel:hover {
+            background-color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <span>📈 股票预测系统</span>
+        </div>
+        <div class="navbar-actions">
+            <button class="navbar-button" id="settingsBtn" onclick="window.location.href='/settings'" style="display: none;">
+                <span>⚙️</span>
+                <span>设置</span>
+            </button>
+            <button class="navbar-button" onclick="logout()">
+                <span>🚪</span>
+                <span>退出</span>
+            </button>
+        </div>
+    </nav>
+    
+    <!-- 大盘信息栏 -->
+    <div class="market-info-bar" id="marketInfoBar">
+        <div class="market-index-item">
+            <span class="market-index-name">加载中...</span>
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="container">
+            <!-- 页签切换 -->
+            <div class="tab-container" style="margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+                <button class="tab-button active" id="tabAfterClose" onclick="switchTab('after_close')">
+                    📈 股票预测列表（收盘-明日）
+                </button>
+                <button class="tab-button" id="tabBeforeClose" onclick="switchTab('before_close')">
+                    ⏰ 股票预测列表（未收盘-明天）
+                </button>
+            </div>
+            
+            <div id="tabContentAfterClose" class="tab-content active">
+                <h1>📈 股票预测列表（收盘-明日）</h1>
+                
+                <!-- 搜索条件区域 -->
+                <div class="search-filters" style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">搜索股票</label>
+                            <input type="text" id="searchInput" placeholder="输入股票代码或名称..." 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="min-width: 150px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测类型</label>
+                            <select id="predictionDirectionFilter" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                                <option value="">全部</option>
+                                <option value="上涨">上涨</option>
+                                <option value="下跌">下跌</option>
+                                <option value="震荡">震荡</option>
+                            </select>
+                        </div>
+                        <div style="min-width: 150px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">最小置信度</label>
+                            <input type="number" id="confidenceMinFilter" placeholder="0.0-1.0" min="0" max="1" step="0.1"
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; align-items: flex-end; gap: 10px;">
+                            <button onclick="applyFilters('after_close')" style="padding: 8px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">搜索</button>
+                            <button onclick="resetFilters('after_close')" style="padding: 8px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">重置</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stock-list" id="stockList">
+                    <div class="empty-state">正在加载预测数据...</div>
+                </div>
+                
+                <!-- 分页区域 -->
+                <div id="paginationAfterClose" style="margin-top: 20px; text-align: center; display: none;"></div>
+            </div>
+            
+            <div id="tabContentBeforeClose" class="tab-content" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h1 style="margin: 0;">⏰ 股票预测列表（未收盘-明天）</h1>
+                    <button class="btn btn-primary" id="predictBtn" onclick="showPredictModal()" style="padding: 10px 20px; font-size: 14px;">
+                        🔮 预测
+                    </button>
+                </div>
+                
+                <!-- 搜索条件区域 -->
+                <div class="search-filters" style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">搜索股票</label>
+                            <input type="text" id="searchInputBeforeClose" placeholder="输入股票代码或名称..." 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="min-width: 150px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测类型</label>
+                            <select id="predictionDirectionFilterBeforeClose" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                                <option value="">全部</option>
+                                <option value="上涨">上涨</option>
+                                <option value="下跌">下跌</option>
+                                <option value="震荡">震荡</option>
+                            </select>
+                        </div>
+                        <div style="min-width: 150px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">最小置信度</label>
+                            <input type="number" id="confidenceMinFilterBeforeClose" placeholder="0.0-1.0" min="0" max="1" step="0.1"
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; align-items: flex-end; gap: 10px;">
+                            <button onclick="applyFilters('before_close')" style="padding: 8px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">搜索</button>
+                            <button onclick="resetFilters('before_close')" style="padding: 8px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">重置</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stock-list" id="stockListBeforeClose">
+                    <div class="empty-state">暂无预测记录，点击"预测"按钮开始预测</div>
+                </div>
+                
+                <!-- 分页区域 -->
+                <div id="paginationBeforeClose" style="margin-top: 20px; text-align: center; display: none;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 全局变量保存当前股票记录
+        let allStockRecords = [];
+        let allStockRecordsBeforeClose = [];
+        
+        // 分页和搜索状态
+        let currentPageAfterClose = 1;
+        let currentPageBeforeClose = 1;
+        let currentFiltersAfterClose = {};
+        let currentFiltersBeforeClose = {};
+
+        // 退出登录
+        function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                window.location.href = '/logout';
+            }
+        }
+        
+        // 全局变量：大盘信息更新定时器
+        let marketInfoInterval = null;
+        
+        // 全局变量：市场是否收盘
+        let isMarketClosed = false;
+        
+        // 更新预测按钮状态
+        function updatePredictButtonState() {
+            const predictBtn = document.getElementById('predictBtn');
+            if (!predictBtn) return;
+            
+            if (isMarketClosed) {
+                predictBtn.disabled = true;
+                predictBtn.style.opacity = '0.5';
+                predictBtn.style.cursor = 'not-allowed';
+                predictBtn.title = '市场已收盘，无法预测';
+            } else {
+                predictBtn.disabled = false;
+                predictBtn.style.opacity = '1';
+                predictBtn.style.cursor = 'pointer';
+                predictBtn.title = '预测股票走势（未收盘-明天）';
+            }
+        }
+        
+        // 实时更新大盘信息
+        function updateMarketInfo() {
+            fetch('/api/market/index')
+                .then(response => response.json())
+                .then(data => {
+                    const marketBar = document.getElementById('marketInfoBar');
+                    if (!marketBar) return;
+                    
+                    // 检查是否收盘
+                    if (data.market_closed) {
+                        isMarketClosed = true;
+                        // 停止定时获取
+                        if (marketInfoInterval) {
+                            clearInterval(marketInfoInterval);
+                            marketInfoInterval = null;
+                        }
+                        // 更新预测按钮状态
+                        updatePredictButtonState();
+                    } else {
+                        isMarketClosed = false;
+                        // 更新预测按钮状态
+                        updatePredictButtonState();
+                    }
+                    
+                    if (data.success && data.data && Object.keys(data.data).length > 0) {
+                        let html = '';
+                        
+                        for (const [code, info] of Object.entries(data.data)) {
+                            const changeClass = info.change_pct >= 0 ? 'positive' : 'negative';
+                            const changeSign = info.change_pct >= 0 ? '+' : '';
+                            html += `
+                                <div class="market-index-item">
+                                    <span class="market-index-name">${info.name}</span>
+                                    <span class="market-index-value">${info.current.toFixed(2)}</span>
+                                    <span class="market-index-change ${changeClass}">
+                                        ${changeSign}${info.change.toFixed(2)} (${changeSign}${info.change_pct.toFixed(2)}%)
+                                    </span>
+                                </div>
+                            `;
+                        }
+                        
+                        // 如果收盘，在最后添加提示
+                        if (data.market_closed && data.message) {
+                            html += '<div class="market-index-item"><span class="market-index-name" style="color: #999; font-size: 12px;">（' + data.message + '，已停止更新）</span></div>';
+                        }
+                        
+                        marketBar.innerHTML = html;
+                    } else {
+                        // 如果没有数据，显示提示
+                        if (data.market_closed && data.message) {
+                            marketBar.innerHTML = '<div class="market-index-item"><span class="market-index-name" style="color: #999;">' + data.message + '，已停止更新</span></div>';
+                        } else {
+                            marketBar.innerHTML = '<div class="market-index-item"><span class="market-index-name">暂无数据</span></div>';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('获取大盘信息失败:', error);
+                });
+        }
+        
+        // 检查用户权限，显示/隐藏设置按钮
+        function checkUserPermission() {
+            fetch('/api/user/info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data) {
+                        const role = data.data.role;
+                        const settingsBtn = document.getElementById('settingsBtn');
+                        if (settingsBtn) {
+                            // 只有管理员可以看到设置按钮
+                            if (role === 'admin') {
+                                settingsBtn.style.display = 'flex'; // 或 'block' 或 ''
+                            } else {
+                                settingsBtn.style.display = 'none';
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('检查用户权限失败:', error);
+                    // 如果检查失败，隐藏设置按钮以确保安全
+                    const settingsBtn = document.getElementById('settingsBtn');
+                    if (settingsBtn) {
+                        settingsBtn.style.display = 'none';
+                    }
+                });
+        }
+        
+        // 从后端加载股票预测数据（收盘-明日）
+        function loadStockData(page = 1) {
+            currentPageAfterClose = page;
+            const filters = currentFiltersAfterClose;
+            
+            // 构建查询参数
+            let params = new URLSearchParams({
+                prediction_type: 'after_close',
+                page: page,
+                page_size: 100
+            });
+            
+            if (filters.search) {
+                params.append('search', filters.search);
+            }
+            if (filters.prediction_direction) {
+                params.append('prediction_direction', filters.prediction_direction);
+            }
+            if (filters.confidence_min) {
+                params.append('confidence_min', filters.confidence_min);
+            }
+            
+            fetch('/api/stocks?' + params.toString())
+                .then(response => response.json())
+                .then(result => {
+                    const stockList = document.getElementById('stockList');
+                    if (!stockList) return;
+                    
+                    if (!result.success) {
+                        console.error('加载股票数据失败:', result.message);
+                        stockList.innerHTML = '<div class="empty-state">加载失败：' + (result.message || '未知错误') + '</div>';
+                        return;
+                    }
+                    
+                    const records = result.data || [];
+                    allStockRecords = records;
+                    renderStockList(records);
+                    
+                    // 渲染分页
+                    renderPagination('after_close', result.page || 1, result.total_pages || 1, result.total || 0);
+                })
+                .catch(error => {
+                    console.error('加载股票数据异常:', error);
+                    const stockList = document.getElementById('stockList');
+                    if (stockList) {
+                        stockList.innerHTML = '<div class="empty-state">加载失败，请稍后重试</div>';
+                    }
+                });
+        }
+        
+        // 从后端加载股票预测数据（未收盘-明天）
+        function loadStockDataBeforeClose(page = 1) {
+            currentPageBeforeClose = page;
+            const filters = currentFiltersBeforeClose;
+            
+            // 构建查询参数
+            let params = new URLSearchParams({
+                prediction_type: 'before_close',
+                page: page,
+                page_size: 100
+            });
+            
+            if (filters.search) {
+                params.append('search', filters.search);
+            }
+            if (filters.prediction_direction) {
+                params.append('prediction_direction', filters.prediction_direction);
+            }
+            if (filters.confidence_min) {
+                params.append('confidence_min', filters.confidence_min);
+            }
+            
+            fetch('/api/stocks?' + params.toString())
+                .then(response => response.json())
+                .then(result => {
+                    const stockList = document.getElementById('stockListBeforeClose');
+                    if (!stockList) return;
+                    
+                    if (!result.success) {
+                        console.error('加载股票数据失败:', result.message);
+                        stockList.innerHTML = '<div class="empty-state">加载失败：' + (result.message || '未知错误') + '</div>';
+                        return;
+                    }
+                    
+                    const records = result.data || [];
+                    allStockRecordsBeforeClose = records;
+                    renderStockListBeforeClose(records);
+                    
+                    // 渲染分页
+                    renderPagination('before_close', result.page || 1, result.total_pages || 1, result.total || 0);
+                })
+                .catch(error => {
+                    console.error('加载股票数据异常:', error);
+                    const stockList = document.getElementById('stockListBeforeClose');
+                    if (stockList) {
+                        stockList.innerHTML = '<div class="empty-state">加载失败，请稍后重试</div>';
+                    }
+                });
+        }
+        
+        // 应用搜索条件
+        function applyFilters(tabType) {
+            if (tabType === 'after_close') {
+                const search = document.getElementById('searchInput').value.trim();
+                const predictionDirection = document.getElementById('predictionDirectionFilter').value;
+                const confidenceMin = document.getElementById('confidenceMinFilter').value.trim();
+                
+                currentFiltersAfterClose = {
+                    search: search || '',
+                    prediction_direction: predictionDirection || '',
+                    confidence_min: confidenceMin || ''
+                };
+                
+                loadStockData(1);
+            } else if (tabType === 'before_close') {
+                const search = document.getElementById('searchInputBeforeClose').value.trim();
+                const predictionDirection = document.getElementById('predictionDirectionFilterBeforeClose').value;
+                const confidenceMin = document.getElementById('confidenceMinFilterBeforeClose').value.trim();
+                
+                currentFiltersBeforeClose = {
+                    search: search || '',
+                    prediction_direction: predictionDirection || '',
+                    confidence_min: confidenceMin || ''
+                };
+                
+                loadStockDataBeforeClose(1);
+            }
+        }
+        
+        // 重置搜索条件
+        function resetFilters(tabType) {
+            if (tabType === 'after_close') {
+                document.getElementById('searchInput').value = '';
+                document.getElementById('predictionDirectionFilter').value = '';
+                document.getElementById('confidenceMinFilter').value = '';
+                currentFiltersAfterClose = {};
+                loadStockData(1);
+            } else if (tabType === 'before_close') {
+                document.getElementById('searchInputBeforeClose').value = '';
+                document.getElementById('predictionDirectionFilterBeforeClose').value = '';
+                document.getElementById('confidenceMinFilterBeforeClose').value = '';
+                currentFiltersBeforeClose = {};
+                loadStockDataBeforeClose(1);
+            }
+        }
+        
+        // 渲染分页
+        function renderPagination(tabType, currentPage, totalPages, totalCount) {
+            const paginationId = tabType === 'after_close' ? 'paginationAfterClose' : 'paginationBeforeClose';
+            const pagination = document.getElementById(paginationId);
+            if (!pagination) return;
+            
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+            
+            pagination.style.display = 'block';
+            
+            let html = `<div style="display: inline-flex; align-items: center; gap: 10px;">`;
+            html += `<span style="color: #666;">共 ${totalCount} 条，第 ${currentPage}/${totalPages} 页</span>`;
+            
+            // 上一页按钮
+            if (currentPage > 1) {
+                html += `<button onclick="loadStockData${tabType === 'after_close' ? '' : 'BeforeClose'}(${currentPage - 1})" 
+                         style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">上一页</button>`;
+            } else {
+                html += `<button disabled style="padding: 6px 12px; border: 1px solid #ddd; background: #f5f5f5; border-radius: 4px; cursor: not-allowed; color: #999;">上一页</button>`;
+            }
+            
+            // 页码按钮（显示当前页前后各2页）
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            if (startPage > 1) {
+                html += `<button onclick="loadStockData${tabType === 'after_close' ? '' : 'BeforeClose'}(1)" 
+                         style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">1</button>`;
+                if (startPage > 2) {
+                    html += `<span style="padding: 6px;">...</span>`;
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === currentPage) {
+                    html += `<button style="padding: 6px 12px; border: 1px solid #007bff; background: #007bff; color: white; border-radius: 4px; cursor: pointer; font-weight: bold;">${i}</button>`;
+                } else {
+                    html += `<button onclick="loadStockData${tabType === 'after_close' ? '' : 'BeforeClose'}(${i})" 
+                             style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">${i}</button>`;
+                }
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    html += `<span style="padding: 6px;">...</span>`;
+                }
+                html += `<button onclick="loadStockData${tabType === 'after_close' ? '' : 'BeforeClose'}(${totalPages})" 
+                         style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">${totalPages}</button>`;
+            }
+            
+            // 下一页按钮
+            if (currentPage < totalPages) {
+                html += `<button onclick="loadStockData${tabType === 'after_close' ? '' : 'BeforeClose'}(${currentPage + 1})" 
+                         style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">下一页</button>`;
+            } else {
+                html += `<button disabled style="padding: 6px 12px; border: 1px solid #ddd; background: #f5f5f5; border-radius: 4px; cursor: not-allowed; color: #999;">下一页</button>`;
+            }
+            
+            html += `</div>`;
+            pagination.innerHTML = html;
+        }
+        
+        // 渲染股票列表（未收盘-明天）- 不去重，显示所有预测记录
+        function renderStockListBeforeClose(records) {
+            const stockList = document.getElementById('stockListBeforeClose');
+            if (!stockList) return;
+            
+            stockList.innerHTML = '';
+            
+            if (!records || records.length === 0) {
+                stockList.innerHTML = '<div class="empty-state">暂无预测记录，点击"预测"按钮开始预测</div>';
+                return;
+            }
+            
+            // 不去重，直接显示所有记录，按预测时间倒序排列
+            records.sort((a, b) => {
+                const timeA = a.prediction_time || '';
+                const timeB = b.prediction_time || '';
+                return timeB.localeCompare(timeA);
+            });
+            
+            records.forEach(record => {
+                const stockItem = createStockItemHTML(record);
+                stockList.innerHTML += stockItem;
+            });
+        }
+        
+        // 页签切换
+        function switchTab(tabType) {
+            currentTab = tabType;
+            
+            // 更新页签按钮状态
+            const tabAfterClose = document.getElementById('tabAfterClose');
+            const tabBeforeClose = document.getElementById('tabBeforeClose');
+            const contentAfterClose = document.getElementById('tabContentAfterClose');
+            const contentBeforeClose = document.getElementById('tabContentBeforeClose');
+            
+            if (tabType === 'after_close') {
+                tabAfterClose.classList.add('active');
+                tabBeforeClose.classList.remove('active');
+                contentAfterClose.classList.add('active');
+                contentAfterClose.style.display = 'block';
+                contentBeforeClose.classList.remove('active');
+                contentBeforeClose.style.display = 'none';
+                // 切换到收盘-明日页签时，加载数据
+                loadStockData(currentPageAfterClose);
+            } else {
+                tabAfterClose.classList.remove('active');
+                tabBeforeClose.classList.add('active');
+                contentAfterClose.classList.remove('active');
+                contentAfterClose.style.display = 'none';
+                contentBeforeClose.classList.add('active');
+                contentBeforeClose.style.display = 'block';
+                // 切换到未收盘页签时，加载数据和更新按钮状态
+                loadStockDataBeforeClose(currentPageBeforeClose);
+                updatePredictButtonState();
+            }
+        }
+        
+        // 显示预测弹窗
+        function showPredictModal() {
+            // 检查是否收盘
+            if (isMarketClosed) {
+                alert('市场已收盘，无法进行预测');
+                return;
+            }
+            
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%;">
+                    <h2 style="margin: 0 0 20px 0;">预测股票走势（未收盘-明天）</h2>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">股票代码</label>
+                        <input type="text" id="predictSymbols" placeholder="例如：000001、600519、000858" 
+                               style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px; box-sizing: border-box;">
+                        <div style="margin-top: 5px; font-size: 12px; color: #666;">
+                            输入股票代码，多个代码用顿号、隔开（最多10个）。例如：000001、600519、000858
+                        </div>
+                    </div>
+                    
+                    <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-size: 13px; color: #666;">
+                        <strong>说明：</strong><br>
+                        • 新闻数据：使用数据库中的当天新闻<br>
+                        • 当天股票数据：实时获取<br>
+                        • 历史股票数据：使用数据库中的数据<br>
+                        • 预测结果将保存为"未收盘-明天"类型
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn" id="cancelPredictBtn" style="background: #f0f0f0; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">取消</button>
+                        <button class="btn btn-primary" onclick="startPredict()" style="padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; background: #3498db; color: white;">开始预测</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // 取消按钮点击事件
+            const cancelBtn = modal.querySelector('#cancelPredictBtn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                    modal.remove();
+                });
+            }
+            
+            // 点击背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+        
+        // 开始预测
+        async function startPredict() {
+            const symbolsInput = document.getElementById('predictSymbols');
+            if (!symbolsInput) return;
+            
+            const symbolsText = symbolsInput.value.trim();
+            if (!symbolsText) {
+                alert('请输入股票代码');
+                return;
+            }
+            
+            // 解析股票代码（支持顿号、和逗号,）
+            const symbols = symbolsText.split(/[、,，]/).map(s => s.trim()).filter(s => s);
+            
+            if (symbols.length === 0) {
+                alert('请输入有效的股票代码');
+                return;
+            }
+            
+            if (symbols.length > 10) {
+                alert('最多只能输入10个股票代码');
+                return;
+            }
+            
+            // 验证股票代码格式（6位数字）
+            for (const symbol of symbols) {
+                if (!/^\d{6}$/.test(symbol)) {
+                    alert(`股票代码格式错误：${symbol}（应为6位数字）`);
+                    return;
+                }
+            }
+            
+            // 关闭弹窗
+            const modal = document.querySelector('div[style*="position: fixed"][style*="z-index: 10000"]');
+            if (modal) {
+                modal.remove();
+            }
+            
+            // 显示预测进度
+            const stockList = document.getElementById('stockListBeforeClose');
+            if (stockList) {
+                stockList.innerHTML = `<div class="empty-state">正在预测 ${symbols.length} 只股票，请稍候...</div>`;
+            }
+            
+            try {
+                const response = await fetch('/api/predict/before_close', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        symbols: symbols
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`预测完成！成功：${result.data.success_count || 0}，失败：${result.data.fail_count || 0}`);
+                    // 刷新列表
+                    loadStockDataBeforeClose();
+                } else {
+                    alert('预测失败: ' + result.message);
+                    if (stockList) {
+                        stockList.innerHTML = '<div class="empty-state">预测失败：' + (result.message || '未知错误') + '</div>';
+                    }
+                }
+            } catch (error) {
+                console.error('预测异常:', error);
+                alert('预测异常: ' + error.message);
+                if (stockList) {
+                    stockList.innerHTML = '<div class="empty-state">预测异常，请稍后重试</div>';
+                }
+            }
+        }
+        
+        // 过滤股票（未收盘页签）
+        function filterStocksBeforeClose() {
+            const input = document.getElementById('searchInputBeforeClose');
+            const filter = input.value.toUpperCase();
+            const stockWrappers = document.querySelectorAll('#stockListBeforeClose .stock-item-wrapper');
+            
+            stockWrappers.forEach(wrapper => {
+                const symbol = wrapper.getAttribute('data-symbol') || '';
+                const item = wrapper.querySelector('.stock-item');
+                const name = item ? item.getAttribute('data-name') || '' : '';
+                const text = (symbol + ' ' + name).toUpperCase();
+                
+                if (text.indexOf(filter) > -1) {
+                    wrapper.style.display = '';
+                } else {
+                    wrapper.style.display = 'none';
+                }
+            });
+        }
+
+        // 渲染股票列表
+        function renderStockList(records) {
+            const stockList = document.getElementById('stockList');
+            if (!stockList) return;
+            
+            stockList.innerHTML = '';
+            
+            if (!records || records.length === 0) {
+                stockList.innerHTML = '<div class="empty-state">暂无预测记录</div>';
+                return;
+            }
+            
+            // 前端再次去重，确保每个股票只显示最新的一条（三重保险）
+            const symbolMap = new Map();
+            records.forEach(record => {
+                const symbol = String(record.symbol || '').trim();
+                if (!symbol) return;
+                
+                // 如果该股票还没有记录，或者当前记录的时间更新，则更新
+                if (!symbolMap.has(symbol)) {
+                    symbolMap.set(symbol, record);
+                } else {
+                    const existingRecord = symbolMap.get(symbol);
+                    const currentTime = record.prediction_time || '';
+                    const existingTime = existingRecord.prediction_time || '';
+                    // 比较时间，保留最新的
+                    if (currentTime > existingTime) {
+                        symbolMap.set(symbol, record);
+                    }
+                }
+            });
+            
+            // 转换为数组并按预测时间排序(最新的在前)
+            const uniqueRecords = Array.from(symbolMap.values());
+            uniqueRecords.sort((a, b) => {
+                const timeA = a.prediction_time || '';
+                const timeB = b.prediction_time || '';
+                return timeB.localeCompare(timeA);
+            });
+            
+            uniqueRecords.forEach(record => {
+                const stockItem = createStockItemHTML(record);
+                stockList.innerHTML += stockItem;
+            });
+        }
+
+        // 格式化日期为中文格式
+        function formatDateToChinese(dateStr) {
+            if (!dateStr) return '';
+            
+            let date = null;
+            const str = String(dateStr).trim();
+            
+            // 尝试解析各种日期格式
+            // 1. ISO 格式: "2026-01-08" 或 "2026-01-08T00:00:00"
+            if (str.match(/^\d{4}-\d{2}-\d{2}/)) {
+                date = new Date(str);
+            }
+            // 2. GMT 格式: "Wed, 07 Jan 2026 00:00:00 GMT"
+            else if (str.includes('GMT') || str.includes('UTC')) {
+                date = new Date(str);
+            }
+            // 3. 其他标准日期格式
+            else {
+                date = new Date(str);
+            }
+            
+            // 检查日期是否有效
+            if (date && !isNaN(date.getTime())) {
+                const year = date.getFullYear();
+                const month = date.getMonth() + 1; // getMonth() 返回 0-11
+                const day = date.getDate();
+                return year + '年' + month + '月' + day + '日';
+            }
+            
+            // 如果解析失败，尝试直接提取 YYYY-MM-DD 格式
+            const match = str.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (match) {
+                const year = match[1];
+                const month = parseInt(match[2], 10);
+                const day = parseInt(match[3], 10);
+                return year + '年' + month + '月' + day + '日';
+            }
+            
+            // 如果都失败，返回原值
+            return dateStr;
+        }
+        
+        // 创建股票项HTML
+        function createStockItemHTML(record) {
+            const symbol = String(record.symbol || '').trim();
+            const name = String(record.name || '').trim();
+            const current_price = parseFloat(record.current_price || 0);
+            const predicted_close_price = record.predicted_close_price ? parseFloat(record.predicted_close_price) : null;
+            const predicted_change_pct = record.predicted_change_pct !== null && record.predicted_change_pct !== undefined ? parseFloat(record.predicted_change_pct) : null;
+            const prediction = String(record.prediction || '震荡').trim();
+            const up_prob = parseFloat(record.up_probability || 0);
+            const down_prob = parseFloat(record.down_probability || 0);
+            const confidence = parseFloat(record.confidence || 0);
+            const prediction_date = formatDateToChinese(String(record.prediction_date || '').trim());
+            const target_date = formatDateToChinese(String(record.target_date || '').trim());
+            const png_file = String(record.png_file || '').trim();
+            const full_report_html = String(record.full_report_html || '').trim();
+            const summary = String(record.summary || '暂无文字报告').trim();
+            
+            // 预测样式
+            let pred_class = 'prediction-neutral';
+            let pred_icon = '📊';
+            if (prediction === '上涨') {
+                pred_class = 'prediction-up';
+                pred_icon = '📈';
+            } else if (prediction === '下跌') {
+                pred_class = 'prediction-down';
+                pred_icon = '📉';
+            }
+            
+            // 按钮生成 - 图形报告按钮指向新的HTML页面
+            let graph_btn = '';
+            const graph_url = '/graph_report?symbol=' + encodeURIComponent(symbol) + '&name=' + encodeURIComponent(name);
+            graph_btn = '<a href="' + graph_url + '" target="_blank" class="btn-report btn-graph">图形报告</a>';
+            
+            const text_btn = '<button class="btn-report btn-text" onclick="toggleSummary(\'' + symbol + '\'); event.stopPropagation(); return false;">文字报告</button>';
+            
+            // 按钮生成 - 文字详情按钮指向新的HTML页面
+            let detail_btn = '';
+            const detail_url = '/text_detail?symbol=' + encodeURIComponent(symbol) + '&name=' + encodeURIComponent(name);
+            detail_btn = '<a href="' + detail_url + '" target="_blank" class="btn-report btn-detail">文字详情</a>';
+            
+            // 按钮生成 - 历史预测按钮指向新的HTML页面
+            const history_url = '/history?symbol=' + encodeURIComponent(symbol) + '&name=' + encodeURIComponent(name);
+            const history_btn = '<a href="' + history_url + '" target="_blank" class="btn-report btn-history">历史预测</a>';
+            // 按钮生成 - 实时策略按钮弹出设置窗口
+            const monitor_btn = '<button class="btn-report btn-monitor" onclick="openRealtimeStrategyModal(\'' + symbol + '\', \'' + name + '\', ' + current_price.toFixed(2) + '); event.stopPropagation(); return false;">实时策略</button>';
+            
+            return (
+                '<div class="stock-item-wrapper" data-symbol="' + symbol + '">' +
+                    '<div class="stock-item" data-symbol="' + symbol + '" data-name="' + name + '">' +
+                        '<div class="stock-code">' + symbol + '</div>' +
+                        '<div class="stock-name">' +
+                            '<div style="font-weight: 500;">' + name + '</div>' +
+                            '<div style="font-size: 11px; color: #999; margin-top: 2px;">' +
+                                '预测日期: ' + prediction_date + ' | 目标: ' + target_date + ' | ' +
+                                '<span class="inline-tooltip">置信度: ' + (confidence * 100).toFixed(1) + '%' +
+                                '<span class="tooltip-text">置信度表示预测的可靠程度。综合考虑了：<br>• 各因子得分的一致性<br>• 历史预测准确率<br>• 数据质量和时效性<br>• 市场状态<br>置信度越高，预测越可靠。</span></span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="stock-price">' +
+                            '<div style="font-weight: 500;">' + current_price.toFixed(2) + '元</div>' +
+                            (predicted_close_price && predicted_close_price > 0 ? 
+                                '<div style="font-size: 12px; color: #666; margin-top: 4px; font-weight: 500;">' +
+                                '<span class="inline-tooltip">预测: <span style="color: #2c3e50;">' + predicted_close_price.toFixed(2) + '元</span>' +
+                                '<span class="tooltip-text">明日大概收盘价格。基于当前价格、上涨/下跌概率差异和置信度计算。计算公式：当前价格 × (1 + 预期涨跌幅%)，其中预期涨跌幅由概率差异和置信度决定。</span></span>' +
+                                '</div>' : '') +
+                            (predicted_change_pct !== null && predicted_change_pct !== undefined && predicted_change_pct !== 0 ? 
+                                '<div style="font-size: 13px; font-weight: 600; color: ' + (predicted_change_pct >= 0 ? '#e74c3c' : '#27ae60') + '; margin-top: 2px;">' +
+                                '<span class="inline-tooltip">' + (predicted_change_pct >= 0 ? '+' : '') + predicted_change_pct.toFixed(2) + '%' +
+                                '<span class="tooltip-text">明日大概涨幅。基于上涨概率与下跌概率的差异，结合置信度计算。概率差异越大、置信度越高，涨幅越大。最大涨跌幅限制在±10%以内。</span></span>' +
+                                '</div>' : 
+                                (predicted_close_price && predicted_close_price > 0 ? 
+                                    '<div style="font-size: 11px; color: #999; margin-top: 2px;">（涨幅计算中）</div>' : '')) +
+                        '</div>' +
+                        '<div class="stock-prediction ' + pred_class + '">' +
+                            '<span class="inline-tooltip">' + pred_icon + ' ' + prediction +
+                            '<span class="tooltip-text">预测方向：<br>• <strong>上涨</strong>：上涨概率 > 60%<br>• <strong>下跌</strong>：下跌概率 > 60%<br>• <strong>震荡</strong>：上涨和下跌概率都 ≤ 60%<br><br>预测方向由综合得分转换为概率后确定，综合考虑技术指标、新闻情感、资金流向、市场情绪等多个因子。</span></span>' +
+                        '</div>' +
+                        '<div class="stock-probability">' +
+                            '<span class="inline-tooltip">↑' + (up_prob * 100).toFixed(1) + '% ↓' + (down_prob * 100).toFixed(1) + '%' +
+                            '<span class="tooltip-text">上涨/下跌概率：<br>• <strong>上涨概率</strong>：综合得分通过sigmoid函数转换为概率，表示股票上涨的可能性<br>• <strong>下跌概率</strong>：1 - 上涨概率<br><br>综合得分 = 技术指标得分×权重 + 新闻得分×权重 + 资金流向得分×权重 + 市场情绪得分×权重 + 其他因子得分×权重</span></span>' +
+                        '</div>' +
+                        '<div class="stock-actions">' +
+                            graph_btn +
+                            text_btn +
+                            detail_btn +
+                            history_btn +
+                            monitor_btn +
+                        '</div>' +
+                    '</div>' +
+                    '<div id="summary-' + symbol + '" class="summary-panel">' +
+                        '<strong>预测分析摘要:</strong><br>' +
+                        summary +
+                    '</div>' +
+                '</div>'
+            );
+        }
+        
+        // 初始化：检查是否已登录，如果已登录才更新大盘信息
+        checkUserPermission();
+        loadStockData(); // 加载收盘-明日数据
+        
+        // 检查是否已登录，只有登录后才更新大盘信息
+        fetch('/api/user/info')
+            .then(response => {
+                // 检查响应状态
+                if (response.status === 401) {
+                    // 未登录
+                    const marketBar = document.getElementById('marketInfoBar');
+                    if (marketBar) {
+                        marketBar.innerHTML = '<div class="market-index-item"><span class="market-index-name">请先登录查看大盘信息</span></div>';
+                    }
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.success && data.data) {
+                    // 用户已登录，开始更新大盘信息
+                    updateMarketInfo(); // 立即更新一次（会自动更新预测按钮状态）
+                    // 只在交易时段定时更新（收盘后会自动停止）
+                    marketInfoInterval = setInterval(updateMarketInfo, 1000);
+                } else if (data && !data.success) {
+                    // API 返回失败
+                    const marketBar = document.getElementById('marketInfoBar');
+                    if (marketBar) {
+                        marketBar.innerHTML = '<div class="market-index-item"><span class="market-index-name">请先登录查看大盘信息</span></div>';
+                    }
+                }
+                // 初始化预测按钮状态（延迟执行，确保按钮已创建）
+                setTimeout(updatePredictButtonState, 500);
+            })
+            .catch(error => {
+                console.error('检查登录状态失败:', error);
+                // 如果检查失败，也显示提示
+                const marketBar = document.getElementById('marketInfoBar');
+                if (marketBar) {
+                    marketBar.innerHTML = '<div class="market-index-item"><span class="market-index-name">请先登录查看大盘信息</span></div>';
+                }
+            });
+        // 可视情况决定是否定时刷新股票列表（例如每30秒刷新一次）
+        // setInterval(loadStockData, 30000);
+        
+        function filterStocks() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toUpperCase();
+            const stockWrappers = document.querySelectorAll('.stock-item-wrapper');
+            
+            stockWrappers.forEach(wrapper => {
+                const symbol = wrapper.getAttribute('data-symbol') || '';
+                const item = wrapper.querySelector('.stock-item');
+                const name = item.getAttribute('data-name') || '';
+                const text = (symbol + ' ' + name).toUpperCase();
+                
+                if (text.indexOf(filter) > -1) {
+                    wrapper.style.display = '';
+                } else {
+                    wrapper.style.display = 'none';
+                }
+            });
+        }
+        
+        function toggleSummary(symbol) {
+            const panel = document.getElementById('summary-' + symbol);
+            if (panel) {
+                panel.classList.toggle('show');
+            }
+        }
+        
+        // 打开实时策略设置弹窗
+        function openRealtimeStrategyModal(symbol, name, currentPrice) {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.id = 'realtimeStrategyModal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>实时策略设置 - ${symbol} ${name}</h2>
+                        <span class="close" onclick="closeRealtimeStrategyModal()">&times;</span>
+                    </div>
+                    <div class="form-group">
+                        <label>持仓状态</label>
+                        <select id="holdingStatus" onchange="updateHoldingStatus()">
+                            <option value="false">未持仓</option>
+                            <option value="true">已持仓</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="costPriceGroup" style="display: none;">
+                        <label>持仓成本价（元）</label>
+                        <input type="number" id="costPrice" step="0.01" min="0" value="${currentPrice.toFixed(2)}" placeholder="请输入持仓成本价">
+                        <div class="help-text">当前价格: ${currentPrice.toFixed(2)}元</div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn-confirm" onclick="confirmRealtimeStrategy('${symbol}', '${name}')">确认</button>
+                        <button class="btn-cancel" onclick="closeRealtimeStrategyModal()">取消</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.style.display = 'block';
+            
+            // 点击背景关闭
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    closeRealtimeStrategyModal();
+                }
+            });
+        }
+        
+        // 更新持仓状态
+        function updateHoldingStatus() {
+            const holdingStatus = document.getElementById('holdingStatus').value;
+            const costPriceGroup = document.getElementById('costPriceGroup');
+            if (holdingStatus === 'true') {
+                costPriceGroup.style.display = 'block';
+            } else {
+                costPriceGroup.style.display = 'none';
+            }
+        }
+        
+        // 确认实时策略
+        function confirmRealtimeStrategy(symbol, name) {
+            const holdingStatus = document.getElementById('holdingStatus').value === 'true';
+            const costPrice = parseFloat(document.getElementById('costPrice').value) || 0;
+            
+            // 构建URL参数
+            const params = new URLSearchParams({
+                symbol: symbol,
+                name: name,
+                holding: holdingStatus ? 'true' : 'false',
+                cost_price: costPrice > 0 ? costPrice.toString() : ''
+            });
+            
+            // 跳转到实时策略页面
+            window.open('/realtime_strategy?' + params.toString(), '_blank');
+            
+            // 关闭弹窗
+            closeRealtimeStrategyModal();
+        }
+        
+        // 关闭实时策略弹窗
+        function closeRealtimeStrategyModal() {
+            const modal = document.getElementById('realtimeStrategyModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+    </script>
+</body>
+</html>

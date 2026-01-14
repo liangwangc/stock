@@ -1,0 +1,109 @@
+{
+  "completed_symbols": [],
+  "failed_symbols": [
+    {
+      "symbol": "AAPL",
+      "error": "未获取到 AAPL 的数据",
+      "time": "2026-01-12 13:29:04"
+    },
+    {
+      "symbol": "MSFT",
+      "error": "未获取到 MSFT 的数据",
+      "time": "2026-01-12 13:29:04"
+    },
+    {
+      "symbol": "GOOGL",
+      "error": "未获取到 GOOGL 的数据",
+      "time": "2026-01-12 13:29:35"
+    },
+    {
+      "symbol": "AMZN",
+      "error": "未获取到 AMZN 的数据",
+      "time": "2026-01-12 13:29:36"
+    },
+    {
+      "symbol": "NVDA",
+      "error": "未获取到 NVDA 的数据",
+      "time": "2026-01-12 13:30:07"
+    },
+    {
+      "symbol": "META",
+      "error": "未获取到 META 的数据",
+      "time": "2026-01-12 13:30:10"
+    },
+    {
+      "symbol": "TSLA",
+      "error": "未获取到 TSLA 的数据",
+      "time": "2026-01-12 13:30:40"
+    },
+    {
+      "symbol": "BRK-B",
+      "error": "未获取到 BRK-B 的数据",
+      "time": "2026-01-12 13:30:43"
+    },
+    {
+      "symbol": "V",
+      "error": "未获取到 V 的数据",
+      "time": "2026-01-12 13:31:11"
+    },
+    {
+      "symbol": "JNJ",
+      "error": "未获取到 JNJ 的数据",
+      "time": "2026-01-12 13:31:13"
+    },
+    {
+      "symbol": "WMT",
+      "error": "未获取到 WMT 的数据",
+      "time": "2026-01-12 13:31:42"
+    },
+    {
+      "symbol": "JPM",
+      "error": "未获取到 JPM 的数据",
+      "time": "2026-01-12 13:31:45"
+    },
+    {
+      "symbol": "MA",
+      "error": "未获取到 MA 的数据",
+      "time": "2026-01-12 13:32:15"
+    },
+    {
+      "symbol": "PG",
+      "error": "未获取到 PG 的数据",
+      "time": "2026-01-12 13:32:18"
+    },
+    {
+      "symbol": "UNH",
+      "error": "未获取到 UNH 的数据",
+      "time": "2026-01-12 13:32:46"
+    },
+    {
+      "symbol": "HD",
+      "error": "未获取到 HD 的数据",
+      "time": "2026-01-12 13:32:51"
+    },
+    {
+      "symbol": "DIS",
+      "error": "未获取到 DIS 的数据",
+      "time": "2026-01-12 13:33:17"
+    },
+    {
+      "symbol": "PYPL",
+      "error": "未获取到 PYPL 的数据",
+      "time": "2026-01-12 13:33:28"
+    },
+    {
+      "symbol": "BAC",
+      "error": "未获取到 BAC 的数据",
+      "time": "2026-01-12 13:33:49"
+    },
+    {
+      "symbol": "VZ",
+      "error": "未获取到 VZ 的数据",
+      "time": "2026-01-12 13:34:00"
+    }
+  ],
+  "current_batch": 1,
+  "total_symbols": 3000,
+  "start_time": "2026-01-12 13:28:28",
+  "last_update": "2026-01-12 13:34:00"
+}

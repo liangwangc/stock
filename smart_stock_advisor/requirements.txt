@@ -1,0 +1,50 @@
+# ============================================
+# Smart Stock Advisor Project Dependencies
+# ============================================
+# Install: pip install -r requirements.txt
+# Use mirror: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# ============================================
+
+# ========== Core Dependencies (Required) ==========
+pandas>=2.0.0
+numpy>=1.24.0
+akshare>=1.11.0
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+python-dateutil>=2.8.0
+pymysql>=1.1.0
+flask>=2.3.0
+flask-socketio
+werkzeug>=2.3.0
+schedule>=1.2.0
+tqdm>=4.65.0
+
+# ========== Optional Dependencies (Enhanced Features) ==========
+# Machine Learning
+scikit-learn>=1.3.0
+
+# Data Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.17.0
+dash>=2.14.0
+
+# US Stock Data
+yfinance>=0.2.0
+
+# Chinese Word Segmentation
+jieba>=0.42.1
+
+# System Monitoring
+psutil>=5.9.0
+
+# ========== Testing Framework (Development) ==========
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# ========== Other Optional Dependencies ==========
+# openpyxl>=3.1.0
+# gf-api-client>=1.0.0
+

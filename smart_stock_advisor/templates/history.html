@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史预测 - {{symbol}} {{name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .back-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        .back-button:hover {
+            background-color: #2980b9;
+        }
+        .info-box {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .prediction-up {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .prediction-down {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .prediction-neutral {
+            color: #95a5a6;
+        }
+        .hit {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .miss {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .unknown {
+            color: #95a5a6;
+        }
+        .expand-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .expand-btn:hover {
+            background-color: #2980b9;
+        }
+        .detail-panel {
+            display: none;
+            padding: 15px;
+            margin-top: 5px;
+            background-color: #f9fafb;
+            border-left: 4px solid #3498db;
+            border-radius: 5px;
+            font-size: 13px;
+            line-height: 1.8;
+        }
+        .detail-panel.show {
+            display: block;
+        }
+        .detail-section {
+            margin: 10px 0;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #555;
+            margin-right: 10px;
+        }
+        .detail-value {
+            color: #333;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #e74c3c;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+            font-size: 16px;
+        }
+        .comparison-section {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 5px;
+        }
+        .comparison-item {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+        }
+        .comparison-label {
+            font-weight: bold;
+            color: #555;
+            min-width: 120px;
+        }
+        .comparison-value {
+            color: #333;
+        }
+        .actual-up {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .actual-down {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .actual-neutral {
+            color: #95a5a6;
+        }
+        /* Tooltip 样式 */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+            cursor: help;
+        }
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+        .tooltip-text {
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 6px;
+            white-space: normal;
+            width: 300px;
+            font-size: 12px;
+            line-height: 1.6;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #333;
+        }
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        .inline-tooltip {
+            position: relative;
+            cursor: help;
+            border-bottom: 1px dotted #667eea;
+        }
+        .inline-tooltip .tooltip-text {
+            width: 320px;
+        }
+        th .inline-tooltip {
+            border-bottom: 1px dotted #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/stock_list" class="back-button">← 返回股票列表</a>
+        
+        <h1 id="stockTitle">📊 历史预测记录 - <span id="stockSymbol">{{symbol}}</span> <span id="stockName">{{name}}</span></h1>
+        
+        <div class="info-box" id="infoBox">
+            <strong>说明：</strong>点击"查看详情"按钮可展开查看每条预测的详细内容，包括预测摘要、技术指标、新闻分析等。实际数据会在目标日期后自动更新。
+        </div>
+        
+        <div id="loading" class="loading">正在加载数据...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="contentContainer" style="display: none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>预测时间</th>
+                        <th>预测日期</th>
+                        <th>目标日期</th>
+                        <th>预测时价格</th>
+                        <th><span class="inline-tooltip">预测收盘价<span class="tooltip-text">明日大概收盘价格。基于当前价格、上涨/下跌概率差异和置信度计算。</span></span></th>
+                        <th><span class="inline-tooltip">预测涨幅<span class="tooltip-text">明日大概涨幅。基于上涨概率与下跌概率的差异，结合置信度计算。最大涨跌幅限制在±10%以内。</span></span></th>
+                        <th><span class="inline-tooltip">预测方向<span class="tooltip-text">预测方向：<br>• 上涨：上涨概率 > 60%<br>• 下跌：下跌概率 > 60%<br>• 震荡：上涨和下跌概率都 ≤ 60%</span></span></th>
+                        <th><span class="inline-tooltip">上涨概率<span class="tooltip-text">上涨概率：综合得分通过sigmoid函数转换为概率值。得分越高，上涨概率越大。</span></span></th>
+                        <th><span class="inline-tooltip">下跌概率<span class="tooltip-text">下跌概率：1 - 上涨概率。表示股票下跌的可能性。</span></span></th>
+                        <th><span class="inline-tooltip">置信度<span class="tooltip-text">置信度表示预测的可靠程度。综合考虑各因子得分的一致性、历史准确率、数据质量等。</span></span></th>
+                        <th>实际价格</th>
+                        <th>实际涨跌</th>
+                        <th>实际方向</th>
+                        <th><span class="inline-tooltip">预测命中<span class="tooltip-text">预测命中：比较预测方向与实际方向是否一致。命中表示预测正确，未命中表示预测错误。</span></span></th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                    <!-- 数据将通过JavaScript动态加载 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // 从URL获取股票代码
+        const urlParams = new URLSearchParams(window.location.search);
+        const symbol = urlParams.get('symbol') || '{{symbol}}';
+        const name = urlParams.get('name') || '{{name}}';
+        
+        // 加载数据
+        async function loadHistoryData() {
+            try {
+                const response = await fetch(`/api/history?symbol=${symbol}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('error').style.display = 'block';
+                    document.getElementById('error').textContent = '加载失败: ' + (result.message || '未知错误');
+                    return;
+                }
+                
+                const data = result.data;
+                
+                // 更新头部信息
+                document.getElementById('stockSymbol').textContent = data.symbol || symbol;
+                document.getElementById('stockName').textContent = data.name || name;
+                
+                // 渲染历史记录表格
+                renderHistoryTable(data.records || []);
+                
+                // 显示内容容器
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('contentContainer').style.display = 'block';
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = '加载失败: ' + error.message;
+            }
+        }
+        
+        // 渲染历史记录表格
+        function renderHistoryTable(records) {
+            const tbody = document.getElementById('historyTableBody');
+            
+            if (!records || records.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="15" class="empty-state">暂无历史预测记录</td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            let html = '';
+            records.forEach((record, index) => {
+                const predictionTime = record.prediction_time || '-';
+                const predictionDate = record.prediction_date || '-';
+                const targetDate = record.target_date || '-';
+                const currentPrice = record.current_price ? parseFloat(record.current_price).toFixed(2) : '-';
+                const predictedClosePrice = record.predicted_close_price ? parseFloat(record.predicted_close_price).toFixed(2) : '-';
+                const predictedChangePct = record.predicted_change_pct !== null && record.predicted_change_pct !== undefined ? 
+                    (parseFloat(record.predicted_change_pct) >= 0 ? '+' : '') + parseFloat(record.predicted_change_pct).toFixed(2) + '%' : '-';
+                const predictedChangeColor = record.predicted_change_pct !== null && record.predicted_change_pct !== undefined ? 
+                    (record.predicted_change_pct >= 0 ? '#e74c3c' : '#27ae60') : '#666';
+                const prediction = record.prediction || '震荡';
+                const upProb = record.up_probability ? (parseFloat(record.up_probability) * 100).toFixed(1) + '%' : '-';
+                const downProb = record.down_probability ? (parseFloat(record.down_probability) * 100).toFixed(1) + '%' : '-';
+                const confidence = record.confidence ? (parseFloat(record.confidence) * 100).toFixed(1) + '%' : '-';
+                
+                // 实际数据
+                const actualPrice = record.actual_price ? parseFloat(record.actual_price).toFixed(2) : '-';
+                const actualChangePct = record.actual_change_pct !== null && record.actual_change_pct !== undefined ? 
+                    (parseFloat(record.actual_change_pct) >= 0 ? '+' : '') + parseFloat(record.actual_change_pct).toFixed(2) + '%' : '-';
+                const actualDirection = record.actual_direction || '-';
+                const predictionHit = record.prediction_hit || '-';
+                
+                // 预测方向样式
+                const predClass = prediction === '上涨' ? 'prediction-up' : 
+                                (prediction === '下跌' ? 'prediction-down' : 'prediction-neutral');
+                
+                // 实际方向样式
+                const actualClass = actualDirection === '上涨' ? 'actual-up' : 
+                                  (actualDirection === '下跌' ? 'actual-down' : 'actual-neutral');
+                
+                // 预测命中样式
+                const hitClass = predictionHit === '命中' ? 'hit' : 
+                              (predictionHit === '未命中' ? 'miss' : 'unknown');
+                
+                const detailId = `detail-${symbol}-${index}`;
+                
+                const predictionTooltip = prediction === '上涨' ? 
+                    '上涨：上涨概率 > 60%。综合得分通过sigmoid函数转换为概率，得分越高上涨概率越大。' :
+                    (prediction === '下跌' ? 
+                        '下跌：下跌概率 > 60%。综合得分越低，下跌概率越大。' :
+                        '震荡：上涨和下跌概率都 ≤ 60%。表示走势不明确，可能横盘整理。');
+                
+                html += `
+                    <tr>
+                        <td>${predictionTime}</td>
+                        <td>${predictionDate}</td>
+                        <td>${targetDate}</td>
+                        <td>${currentPrice}</td>
+                        <td><span class="inline-tooltip">${predictedClosePrice}<span class="tooltip-text">明日大概收盘价格。计算公式：当前价格 × (1 + 预期涨跌幅%)，其中预期涨跌幅由概率差异和置信度决定。</span></span></td>
+                        <td style="color: ${predictedChangeColor}; font-weight: bold;"><span class="inline-tooltip">${predictedChangePct}<span class="tooltip-text">明日大概涨幅。基于上涨概率与下跌概率的差异，结合置信度计算。计算公式：tanh(概率差异×3) × 10% × 置信度</span></span></td>
+                        <td class="${predClass}"><span class="inline-tooltip">${prediction}<span class="tooltip-text">${predictionTooltip}</span></span></td>
+                        <td><span class="inline-tooltip">${upProb}<span class="tooltip-text">上涨概率：综合得分通过sigmoid函数转换为概率值。计算公式：1 / (1 + e^(-得分×3))</span></span></td>
+                        <td><span class="inline-tooltip">${downProb}<span class="tooltip-text">下跌概率：1 - 上涨概率。表示股票下跌的可能性。</span></span></td>
+                        <td><span class="inline-tooltip">${confidence}<span class="tooltip-text">置信度表示预测的可靠程度。综合考虑各因子得分的一致性、历史准确率、数据质量和时效性、市场状态等。</span></span></td>
+                        <td>${actualPrice}</td>
+                        <td class="${actualClass}">${actualChangePct}</td>
+                        <td class="${actualClass}">${actualDirection}</td>
+                        <td class="${hitClass}"><span class="inline-tooltip">${predictionHit}<span class="tooltip-text">预测命中：比较预测方向与实际方向是否一致。命中表示预测正确，未命中表示预测错误。</span></span></td>
+                        <td>
+                            <button class="expand-btn" onclick="toggleDetail('${detailId}')">查看详情</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="15">
+                            <div id="${detailId}" class="detail-panel">
+                                ${renderDetailContent(record, index)}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+        }
+        
+        // 渲染详情内容
+        function renderDetailContent(record, index) {
+            const predictionTime = record.prediction_time || '-';
+            const predictionDate = record.prediction_date || '-';
+            const targetDate = record.target_date || '-';
+            const currentPrice = record.current_price ? parseFloat(record.current_price).toFixed(2) : '-';
+            const prediction = record.prediction || '震荡';
+            const upProb = record.up_probability ? (parseFloat(record.up_probability) * 100).toFixed(1) + '%' : '-';
+            const downProb = record.down_probability ? (parseFloat(record.down_probability) * 100).toFixed(1) + '%' : '-';
+            const confidence = record.confidence ? (parseFloat(record.confidence) * 100).toFixed(1) + '%' : '-';
+            const finalScore = record.final_score ? parseFloat(record.final_score).toFixed(4) : '-';
+            
+            // 实际数据
+            const actualPrice = record.actual_price ? parseFloat(record.actual_price).toFixed(2) : '-';
+            const actualChangePct = record.actual_change_pct !== null && record.actual_change_pct !== undefined ? 
+                (parseFloat(record.actual_change_pct) >= 0 ? '+' : '') + parseFloat(record.actual_change_pct).toFixed(2) + '%' : '-';
+            const actualDirection = record.actual_direction || '-';
+            const predictionHit = record.prediction_hit || '-';
+            
+            // 预测方向样式
+            const predClass = prediction === '上涨' ? 'prediction-up' : 
+                            (prediction === '下跌' ? 'prediction-down' : 'prediction-neutral');
+            
+            // 实际方向样式
+            const actualClass = actualDirection === '上涨' ? 'actual-up' : 
+                              (actualDirection === '下跌' ? 'actual-down' : 'actual-neutral');
+            
+            // 预测命中样式
+            const hitClass = predictionHit === '命中' ? 'hit' : 
+                          (predictionHit === '未命中' ? 'miss' : 'unknown');
+            
+            let html = `
+                <div class="detail-section">
+                    <span class="detail-label">预测时间：</span>
+                    <span class="detail-value">${predictionTime}</span>
+                </div>
+                <div class="detail-section">
+                    <span class="detail-label">预测日期：</span>
+                    <span class="detail-value">${predictionDate}</span>
+                    <span class="detail-label" style="margin-left: 20px;">目标日期：</span>
+                    <span class="detail-value">${targetDate}</span>
+                </div>
+                <div class="detail-section">
+                    <span class="detail-label">预测时价格：</span>
+                    <span class="detail-value">${currentPrice}元</span>
+                    <span class="detail-label" style="margin-left: 20px;">预测方向：</span>
+                    <span class="detail-value ${predClass}">${prediction}</span>
+                </div>
+                <div class="detail-section">
+                    <span class="detail-label">上涨概率：</span>
+                    <span class="detail-value" style="color: #27ae60;">${upProb}</span>
+                    <span class="detail-label" style="margin-left: 20px;">下跌概率：</span>
+                    <span class="detail-value" style="color: #e74c3c;">${downProb}</span>
+                    <span class="detail-label" style="margin-left: 20px;">置信度：</span>
+                    <span class="detail-value">${confidence}</span>
+                </div>
+                <div class="detail-section">
+                    <span class="detail-label">最终得分：</span>
+                    <span class="detail-value">${finalScore}</span>
+                </div>
+            `;
+            
+            // 如果有实际数据，显示对比
+            if (record.actual_price !== null && record.actual_price !== undefined) {
+                html += `
+                    <div class="detail-section" style="border-top: 2px solid #ffc107; padding-top: 15px; margin-top: 15px;">
+                        <div class="comparison-section">
+                            <h3 style="margin-top: 0; color: #2c3e50;">预测与实际对比</h3>
+                            <div class="comparison-item">
+                                <span class="comparison-label">预测方向：</span>
+                                <span class="comparison-value ${predClass}">${prediction}</span>
+                            </div>
+                            <div class="comparison-item">
+                                <span class="comparison-label">实际方向：</span>
+                                <span class="comparison-value ${actualClass}">${actualDirection}</span>
+                            </div>
+                            <div class="comparison-item">
+                                <span class="comparison-label">预测时价格：</span>
+                                <span class="comparison-value">${currentPrice}元</span>
+                            </div>
+                            <div class="comparison-item">
+                                <span class="comparison-label">实际收盘价：</span>
+                                <span class="comparison-value ${actualClass}">${actualPrice}元</span>
+                            </div>
+                            <div class="comparison-item">
+                                <span class="comparison-label">实际涨跌幅：</span>
+                                <span class="comparison-value ${actualClass}">${actualChangePct}</span>
+                            </div>
+                            <div class="comparison-item">
+                                <span class="comparison-label">预测命中：</span>
+                                <span class="comparison-value ${hitClass}">${predictionHit}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 预测分析摘要
+            if (record.summary) {
+                html += `
+                    <div class="detail-section" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+                        <div class="detail-label" style="display: block; margin-bottom: 5px;">预测分析摘要：</div>
+                        <div class="detail-value" style="white-space: pre-wrap; line-height: 1.8;">${record.summary}</div>
+                    </div>
+                `;
+            }
+            
+            // 如果有因子数据，显示因子详情
+            if (record.factors) {
+                html += `
+                    <div class="detail-section" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+                        <div class="detail-label" style="display: block; margin-bottom: 5px;">预测因子详情：</div>
+                `;
+                
+                const factors = record.factors;
+                if (factors.technical) {
+                    html += `
+                        <div style="margin-left: 20px; margin-top: 5px;">
+                            <strong>技术指标:</strong> 得分 ${factors.technical.score.toFixed(2)} | 
+                            权重 ${(factors.technical.weight * 100).toFixed(1)}% | 
+                            趋势: ${factors.technical.trend || '中性'}
+                        </div>
+                    `;
+                }
+                if (factors.news) {
+                    html += `
+                        <div style="margin-left: 20px; margin-top: 5px;">
+                            <strong>新闻情感:</strong> 得分 ${factors.news.score.toFixed(2)} | 
+                            权重 ${(factors.news.weight * 100).toFixed(1)}% | 
+                            情感: ${factors.news.sentiment || '中性'} | 
+                            新闻条数: ${factors.news.news_count || 0}
+                        </div>
+                    `;
+                }
+                if (factors.market) {
+                    html += `
+                        <div style="margin-left: 20px; margin-top: 5px;">
+                            <strong>市场情绪:</strong> 得分 ${factors.market.score.toFixed(2)} | 
+                            权重 ${(factors.market.weight * 100).toFixed(1)}% | 
+                            趋势: ${factors.market.trend || '中性'}
+                        </div>
+                    `;
+                }
+                if (factors.history) {
+                    html += `
+                        <div style="margin-left: 20px; margin-top: 5px;">
+                            <strong>历史模式:</strong> 得分 ${factors.history.score.toFixed(2)} | 
+                            权重 ${(factors.history.weight * 100).toFixed(1)}% | 
+                            模式: ${factors.history.pattern || '无'}
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            }
+            
+            return html;
+        }
+        
+        // 切换详情显示
+        function toggleDetail(detailId) {
+            const panel = document.getElementById(detailId);
+            if (panel) {
+                panel.classList.toggle('show');
+                const btn = event.target;
+                if (panel.classList.contains('show')) {
+                    btn.textContent = '收起详情';
+                } else {
+                    btn.textContent = '查看详情';
+                }
+            }
+        }
+        
+        // 页面加载时获取数据
+        window.addEventListener('DOMContentLoaded', loadHistoryData);
+    </script>
+</body>
+</html>

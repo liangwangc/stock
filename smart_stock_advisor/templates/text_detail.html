@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文字详情 - {{symbol}} {{name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .header-info {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .market-section {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+        }
+        .stock-section {
+            background-color: #e8f8e8;
+            border-left: 4px solid #2ecc71;
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 15px;
+        }
+        .stock-section::-webkit-scrollbar {
+            width: 8px;
+        }
+        .stock-section::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        .stock-section::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        .stock-section::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .trading-section {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .realtime-section {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        .summary-text {
+            line-height: 1.8;
+            font-size: 14px;
+            color: #333;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .trading-item {
+            margin: 10px 0;
+            padding: 8px;
+            background-color: white;
+            border-radius: 3px;
+        }
+        .index-item {
+            margin: 8px 0;
+            padding: 5px;
+        }
+        .label {
+            font-weight: bold;
+            color: #555;
+        }
+        .value {
+            color: #2c3e50;
+            font-size: 16px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #e74c3c;
+        }
+        .back-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        .back-button:hover {
+            background-color: #2980b9;
+        }
+        ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        li {
+            margin: 5px 0;
+        }
+        /* Tooltip 样式 */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+            cursor: help;
+        }
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+        .tooltip-text {
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 6px;
+            white-space: normal;
+            width: 300px;
+            font-size: 12px;
+            line-height: 1.6;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #333;
+        }
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        .inline-tooltip {
+            position: relative;
+            cursor: help;
+            border-bottom: 1px dotted #667eea;
+        }
+        .inline-tooltip .tooltip-text {
+            width: 320px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/stock_list" class="back-button">← 返回股票列表</a>
+        
+        <h1 id="stockTitle">📊 股票预测分析报告 - <span id="stockSymbol">{{symbol}}</span> <span id="stockName">{{name}}</span></h1>
+        <div class="header-info" id="headerInfo">
+            预测日期: 加载中... | 预测时间: 加载中...
+        </div>
+        
+        <div id="loading" class="loading">正在加载数据...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="contentContainer" style="display: none;">
+            <!-- 市场整体行情预测 -->
+            <div class="section market-section" id="marketSection">
+                <h2>【市场整体行情预测】</h2>
+                <div id="marketContent"></div>
+            </div>
+            
+            <!-- 个股预测分析 -->
+            <div class="section stock-section" id="stockSection">
+                <h2>【个股预测分析】（可滚动查看完整内容）</h2>
+                <div id="stockContent"></div>
+            </div>
+            
+            <!-- 交易建议 -->
+            <div class="section trading-section" id="tradingSection">
+                <h2>【交易建议】</h2>
+                <div id="tradingContent"></div>
+            </div>
+            
+            <!-- 实时行情与交易决策 -->
+            <div class="section realtime-section" id="realtimeSection" style="display: none;">
+                <h2>【实时行情与交易决策】</h2>
+                <div id="realtimeContent"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 从URL获取股票代码
+        const urlParams = new URLSearchParams(window.location.search);
+        const symbol = urlParams.get('symbol') || '{{symbol}}';
+        
+        // 加载数据
+        async function loadDetailData() {
+            try {
+                const response = await fetch(`/api/text_detail?symbol=${symbol}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('error').style.display = 'block';
+                    document.getElementById('error').textContent = '加载失败: ' + (result.message || '未知错误');
+                    return;
+                }
+                
+                const data = result.data;
+                
+                // 更新头部信息
+                document.getElementById('stockSymbol').textContent = data.symbol || symbol;
+                document.getElementById('stockName').textContent = data.name || '';
+                const predictionDate = data.prediction_date || '-';
+                const targetDate = data.target_date || '-';
+                const predictionTime = data.prediction_time || '-';
+                document.getElementById('headerInfo').textContent = 
+                    `预测日期: ${predictionDate} | 目标日期: ${targetDate} | 预测时间: ${predictionTime}`;
+                
+                // 渲染市场整体行情预测
+                renderMarketSection(data);
+                
+                // 渲染个股预测分析
+                renderStockSection(data);
+                
+                // 渲染交易建议
+                renderTradingSection(data);
+                
+                // 渲染实时行情与交易决策（如果有）
+                if (data.realtime_data && (data.realtime_data.quote || data.realtime_data.decision)) {
+                    renderRealtimeSection(data);
+                }
+                
+                // 显示内容容器
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('contentContainer').style.display = 'block';
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = '加载失败: ' + error.message;
+            }
+        }
+        
+        // 渲染市场整体行情预测
+        function renderMarketSection(data) {
+            const marketContent = document.getElementById('marketContent');
+            const marketOverall = data.market_overall || {};
+            
+            if (marketOverall.success) {
+                const marketPred = marketOverall.overall_prediction || '震荡';
+                const marketUpProb = (marketOverall.overall_up_probability || 0.5) * 100;
+                const marketDownProb = (marketOverall.overall_down_probability || 0.5) * 100;
+                
+                let html = `<p><strong>沪深股市整体预计${marketPred}</strong></p>`;
+                html += `<p>上涨概率: ${marketUpProb.toFixed(1)}%，下跌概率: ${marketDownProb.toFixed(1)}%</p>`;
+                
+                const indexPredictions = marketOverall.index_predictions || {};
+                if (Object.keys(indexPredictions).length > 0) {
+                    html += '<h3>各指数预测详情：</h3>';
+                    for (const [indexName, pred] of Object.entries(indexPredictions)) {
+                        html += `
+                            <div class="index-item">
+                                <strong>${indexName}:</strong> ${pred.prediction} 
+                                (上涨${(pred.up_probability * 100).toFixed(1)}%，当前${pred.current_value.toFixed(2)}，今日${pred.change_pct >= 0 ? '+' : ''}${pred.change_pct.toFixed(2)}%)
+                            </div>
+                        `;
+                    }
+                }
+                
+                marketContent.innerHTML = html;
+            } else {
+                marketContent.innerHTML = '<p>暂无市场整体行情预测数据</p>';
+            }
+        }
+        
+        // 渲染个股预测分析
+        function renderStockSection(data) {
+            const stockContent = document.getElementById('stockContent');
+            const factors = data.factors || {};
+            let html = '';
+            
+            // 1. 技术指标
+            if (factors.technical) {
+                const tech = factors.technical;
+                html += `
+                    <div class="index-item">
+                        <strong>技术指标:</strong> 
+                        <span class="inline-tooltip">得分 ${tech.score.toFixed(2)}
+                        <span class="tooltip-text">技术指标得分：综合考虑MACD、RSI、KDJ、均线等技术指标信号。得分范围-1到1，正值表示偏多，负值表示偏空。</span></span> | 
+                        权重 ${(tech.weight * 100).toFixed(1)}% | 
+                        趋势: ${tech.trend || '中性'}
+                    </div>
+                `;
+                if (tech.signals && Object.keys(tech.signals).length > 0) {
+                    const signalText = Object.entries(tech.signals).map(([k, v]) => `${k}: ${v}`).join(' | ');
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+                            信号: ${signalText}
+                        </div>
+                    `;
+                }
+            }
+            
+            // 2. 新闻情感
+            if (factors.news) {
+                const news = factors.news;
+                html += `
+                    <div class="index-item">
+                        <strong>新闻情感:</strong> 
+                        <span class="inline-tooltip">得分 ${news.score.toFixed(2)}
+                        <span class="tooltip-text">新闻情感得分：分析股票相关新闻的正面/负面情感。正面新闻越多得分越高，负面新闻越多得分越低。得分范围-1到1。</span></span> | 
+                        权重 ${(news.weight * 100).toFixed(1)}% | 
+                        情感: ${news.sentiment || '中性'} | 
+                        新闻条数: ${news.news_count || 0}
+                    </div>
+                `;
+                if (news.direct_news_count > 0 || news.industry_news_count > 0) {
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+                            直接相关: ${news.direct_news_count || 0} 条 | 行业相关: ${news.industry_news_count || 0} 条
+                        </div>
+                    `;
+                }
+                if (news.positive_count > 0 || news.negative_count > 0) {
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+                            利好消息: ${news.positive_count || 0} 条 | 利空消息: ${news.negative_count || 0} 条
+                        </div>
+                    `;
+                }
+                if (news.weight_multiplier && news.weight_multiplier !== 1.0) {
+                    const multiplier = news.weight_multiplier;
+                    const color = multiplier > 1.0 ? '#27ae60' : '#e74c3c';
+                    const text = multiplier > 1.0 ? 
+                        `权重调整: 提升 ${((multiplier - 1) * 100).toFixed(0)}%` :
+                        `权重调整: 降低 ${((1 - multiplier) * 100).toFixed(0)}%`;
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: ${color};">
+                            ${text}
+                        </div>
+                    `;
+                }
+            }
+            
+            // 3. 市场情绪
+            if (factors.market) {
+                const market = factors.market;
+                html += `
+                    <div class="index-item">
+                        <strong>市场情绪:</strong> 
+                        <span class="inline-tooltip">得分 ${market.score.toFixed(2)}
+                        <span class="tooltip-text">市场情绪得分：分析大盘指数（上证、深证、创业板等）的整体走势。大盘上涨时得分高，下跌时得分低。得分范围-1到1。</span></span> | 
+                        权重 ${(market.weight * 100).toFixed(1)}% | 
+                        趋势: ${market.trend || '中性'}
+                    </div>
+                `;
+            }
+            
+            // 4. 历史模式
+            if (factors.history) {
+                const history = factors.history;
+                html += `
+                    <div class="index-item">
+                        <strong>历史模式:</strong> 
+                        <span class="inline-tooltip">得分 ${history.score.toFixed(2)}
+                        <span class="tooltip-text">历史模式得分：分析股票历史走势中相似的模式。如果当前走势与历史上上涨前的模式相似，得分高；与下跌前的模式相似，得分低。得分范围-1到1。</span></span> | 
+                        权重 ${(history.weight * 100).toFixed(1)}% | 
+                        模式: ${history.pattern || '无'}
+                    </div>
+                `;
+            }
+            
+            // 5. 美股板块
+            if (factors.us_sector && factors.us_sector.sector) {
+                const usSector = factors.us_sector;
+                html += `
+                    <div class="index-item">
+                        <strong>美股板块:</strong> 
+                        <span class="inline-tooltip">得分 ${usSector.score.toFixed(2)}
+                        <span class="tooltip-text">美股板块得分：分析对应美股板块（如科技、金融等）的走势。美股板块上涨时得分高，下跌时得分低。得分范围-1到1。</span></span> | 
+                        权重 ${(usSector.weight * 100).toFixed(1)}% | 
+                        板块: ${usSector.sector} | 
+                        趋势: ${usSector.trend || '中性'}
+                    </div>
+                `;
+                if (usSector.change_pct) {
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+                            涨跌幅: ${usSector.change_pct >= 0 ? '+' : ''}${usSector.change_pct.toFixed(2)}%
+                        </div>
+                    `;
+                }
+            }
+            
+            // 6. 估值指标
+            if (factors.valuation) {
+                const valuation = factors.valuation;
+                html += `
+                    <div class="index-item">
+                        <strong>估值指标:</strong> 
+                        <span class="inline-tooltip">得分 ${valuation.score.toFixed(2)}
+                        <span class="tooltip-text">估值指标得分：分析股票的PE（市盈率）、PB（市净率）等估值指标。估值合理或偏低时得分高，估值偏高时得分低。得分范围-1到1。</span></span> | 
+                        权重 ${(valuation.weight * 100).toFixed(1)}% | 
+                        估值: ${valuation.valuation || '未知'}
+                    </div>
+                `;
+                const valInfo = [];
+                if (valuation.pe_ratio) valInfo.push(`PE: ${valuation.pe_ratio}`);
+                if (valuation.pb_ratio) valInfo.push(`PB: ${valuation.pb_ratio}`);
+                if (valInfo.length > 0) {
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+                            ${valInfo.join(', ')}
+                        </div>
+                    `;
+                }
+            }
+            
+            // 7. 成本分布
+            const costDistribution = data.cost_distribution || {};
+            if (costDistribution.history || costDistribution.intraday) {
+                html += `
+                    <div class="index-item" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #2ecc71;">
+                        <strong>成本分布（历史 & 当日）:</strong>
+                    </div>
+                `;
+                
+                if (costDistribution.history && costDistribution.history.top_levels) {
+                    const hTexts = costDistribution.history.top_levels
+                        .map(lvl => `${parseFloat(lvl.price).toFixed(2)}元(${parseFloat(lvl.volume_pct).toFixed(1)}%)`)
+                        .join('，');
+                    const historyFormula = "计算公式：使用最近N天日线收盘价与对应成交量，将价格划分为若干档位，每档成交量 = 落在该价位区间内的成交量之和，成交量占比 = 该档成交量 / 全部档成交量 × 100%。";
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 13px; color: #2c3e50;" title="${historyFormula}">
+                            历史成本分布: 主要成本区 ${hTexts}
+                        </div>
+                    `;
+                }
+                
+                if (costDistribution.intraday && costDistribution.intraday.top_levels) {
+                    const iTexts = costDistribution.intraday.top_levels
+                        .map(lvl => `${parseFloat(lvl.price).toFixed(2)}元(${parseFloat(lvl.volume_pct).toFixed(1)}%)`)
+                        .join('，');
+                    const intradayFormula = "计算公式：使用当日分时价格与对应成交量，将价格划分为若干档位，每档成交量 = 落在该价位区间内的成交量之和，成交量占比 = 该档成交量 / 全部档成交量 × 100%。";
+                    html += `
+                        <div class="index-item" style="margin-left: 20px; font-size: 13px; color: #2c3e50;" title="${intradayFormula}">
+                            当日成本分布: 主要成本区 ${iTexts}
+                        </div>
+                    `;
+                }
+            }
+            
+            // 8. 综合预测结果
+            const predictionText = data.prediction || '震荡';
+            const predictionTooltip = predictionText === '上涨' ? 
+                '上涨：上涨概率 > 60%。综合得分通过sigmoid函数转换为概率，得分越高上涨概率越大。' :
+                (predictionText === '下跌' ? 
+                    '下跌：下跌概率 > 60%。综合得分越低，下跌概率越大。' :
+                    '震荡：上涨和下跌概率都 ≤ 60%。表示走势不明确，可能横盘整理。');
+            
+            html += `
+                <div class="index-item" style="margin-top: 15px; padding-top: 10px; border-top: 2px solid #2ecc71;">
+                    <strong>综合预测:</strong> 
+                    <span class="inline-tooltip">预测方向: ${predictionText}
+                    <span class="tooltip-text">${predictionTooltip}<br><br>预测方向由综合得分确定：<br>• 综合得分 = 技术指标×权重 + 新闻×权重 + 资金流向×权重 + 市场情绪×权重 + 其他因子×权重<br>• 得分通过sigmoid函数转换为上涨概率<br>• 根据概率判断方向</span></span> | 
+                    <span class="inline-tooltip">上涨概率: ${(data.up_probability * 100).toFixed(1)}%
+                    <span class="tooltip-text">上涨概率：综合得分通过sigmoid函数转换为概率值。得分越高，上涨概率越大。计算公式：1 / (1 + e^(-得分×3))</span></span> | 
+                    <span class="inline-tooltip">下跌概率: ${(data.down_probability * 100).toFixed(1)}%
+                    <span class="tooltip-text">下跌概率：1 - 上涨概率。表示股票下跌的可能性。</span></span> | 
+                    <span class="inline-tooltip">置信度: ${(data.confidence * 100).toFixed(1)}%
+                    <span class="tooltip-text">置信度表示预测的可靠程度。综合考虑：<br>• 各因子得分的一致性<br>• 历史预测准确率<br>• 数据质量和时效性<br>• 市场状态<br>置信度越高，预测越可靠。</span></span>
+                </div>
+            `;
+            
+            // 8.1. 明日大概收盘价格和涨幅
+            if (data.predicted_close_price || (data.predicted_change_pct !== null && data.predicted_change_pct !== undefined)) {
+                const predictedPrice = data.predicted_close_price ? data.predicted_close_price.toFixed(2) : '-';
+                const predictedChange = data.predicted_change_pct !== null && data.predicted_change_pct !== undefined ? 
+                    (data.predicted_change_pct >= 0 ? '+' : '') + data.predicted_change_pct.toFixed(2) : '-';
+                const changeColor = data.predicted_change_pct >= 0 ? '#e74c3c' : '#27ae60';
+                html += `
+                    <div class="index-item" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #2ecc71;">
+                        <strong>明日预测:</strong> 
+                        <span class="inline-tooltip">大概收盘价格: <span style="color: #2c3e50; font-weight: bold;">${predictedPrice}元</span>
+                        <span class="tooltip-text">明日大概收盘价格。计算公式：当前价格 × (1 + 预期涨跌幅%)<br><br>预期涨跌幅由上涨概率与下跌概率的差异决定，并考虑置信度。概率差异越大、置信度越高，涨幅越大。最大涨跌幅限制在±10%以内。</span></span> | 
+                        <span class="inline-tooltip">大概涨幅: <span style="color: ${changeColor}; font-weight: bold;">${predictedChange}%</span>
+                        <span class="tooltip-text">明日大概涨幅。基于上涨概率与下跌概率的差异，结合置信度计算。计算公式：tanh(概率差异×3) × 10% × 置信度<br><br>概率差异 = 上涨概率 - 下跌概率（范围-1到1）</span></span>
+                    </div>
+                `;
+            }
+            
+            // 9. 详细摘要
+            if (data.summary) {
+                html += `
+                    <div class="index-item" style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <strong>详细分析摘要:</strong>
+                    </div>
+                    <div class="summary-text" style="margin-left: 20px; margin-top: 5px;">
+                        ${data.summary.replace(/。/g, '。\n')}
+                    </div>
+                `;
+            }
+            
+            stockContent.innerHTML = html;
+        }
+        
+        // 渲染交易建议
+        function renderTradingSection(data) {
+            const tradingContent = document.getElementById('tradingContent');
+            const tradingSuggestions = data.trading_suggestions || {};
+            let html = '';
+            
+            if (tradingSuggestions.buy_price) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">买入建议价:</span>
+                        <span class="value"> ${tradingSuggestions.buy_price.toFixed(2)}元</span>
+                    </div>
+                `;
+            }
+            
+            if (tradingSuggestions.sell_price) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">卖出建议价:</span>
+                        <span class="value"> ${tradingSuggestions.sell_price.toFixed(2)}元</span>
+                    </div>
+                `;
+            }
+            
+            if (tradingSuggestions.auction_entry && tradingSuggestions.auction_price) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">竞价进入:</span>
+                        <span class="value"> 建议，价格: ${tradingSuggestions.auction_price.toFixed(2)}元</span>
+                    </div>
+                `;
+                if (tradingSuggestions.auction_reason) {
+                    html += `
+                        <div class="trading-item" style="font-size: 12px; color: #555; font-style: italic;">
+                            <span class="label">理由:</span>
+                            <span>${tradingSuggestions.auction_reason}</span>
+                        </div>
+                    `;
+                }
+            } else if (tradingSuggestions.auction_reason) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">竞价建议:</span>
+                        <span class="value">${tradingSuggestions.auction_reason}</span>
+                    </div>
+                `;
+            }
+            
+            if (tradingSuggestions.stop_loss) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">止损价:</span>
+                        <span class="value"> ${tradingSuggestions.stop_loss.toFixed(2)}元</span>
+                    </div>
+                `;
+            }
+            
+            if (tradingSuggestions.take_profit) {
+                html += `
+                    <div class="trading-item">
+                        <span class="label">止盈价:</span>
+                        <span class="value"> ${tradingSuggestions.take_profit.toFixed(2)}元</span>
+                    </div>
+                `;
+            }
+            
+            if (!html) {
+                html = '<p>暂无交易建议</p>';
+            }
+            
+            tradingContent.innerHTML = html;
+        }
+        
+        // 渲染实时行情与交易决策
+        function renderRealtimeSection(data) {
+            const realtimeSection = document.getElementById('realtimeSection');
+            const realtimeContent = document.getElementById('realtimeContent');
+            const realtimeData = data.realtime_data || {};
+            const quote = realtimeData.quote || {};
+            const decision = realtimeData.decision || {};
+            const capitalFlow = realtimeData.capital_flow || {};
+            const tradingTime = realtimeData.trading_time || {};
+            const limitUpStrategy = realtimeData.limit_up_strategy || {};
+            const limitDownStrategy = realtimeData.limit_down_strategy || {};
+            const holdingPeriodOptimization = realtimeData.holding_period_optimization || {};
+            const auctionStrategy = realtimeData.auction_strategy || {};
+            const dragonTigerAnalysis = realtimeData.dragon_tiger_analysis || decision.dragon_tiger || {};
+            const restrictedSharesInfo = realtimeData.restricted_shares_info || decision.restricted_shares || {};
+            
+            let html = '';
+            
+            // 集合竞价策略显示（如果在集合竞价时段）
+            if (auctionStrategy && auctionStrategy.available && tradingTime.session === 'pre_open') {
+                const shouldParticipate = auctionStrategy.should_participate || false;
+                const auctionPrice = auctionStrategy.auction_price || 0;
+                const suggestedPrice = auctionStrategy.suggested_price;
+                const priceDeviation = auctionStrategy.price_deviation || 0;
+                const volumeRatio = auctionStrategy.volume_ratio || 0;
+                const riskLevel = auctionStrategy.risk_level || 'medium';
+                const reason = auctionStrategy.reason || '';
+                const suggestion = auctionStrategy.suggestion || '';
+                
+                let riskColor = '#e74c3c'; // 高风险红色
+                if (riskLevel === 'medium') riskColor = '#f39c12'; // 中风险橙色
+                if (riskLevel === 'low') riskColor = '#27ae60'; // 低风险绿色
+                
+                html += `
+                    <div class="trading-item" style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${riskColor};">
+                        <h3 style="margin-top: 0; color: #1976d2;">⏰ 集合竞价策略分析（9:15-9:25）</h3>
+                        <div style="margin: 10px 0;">
+                            <strong>建议:</strong> 
+                            <span style="color: ${shouldParticipate ? '#27ae60' : '#e74c3c'}; font-weight: bold;">
+                                ${shouldParticipate ? '✅ 建议参与集合竞价' : '❌ 不建议参与集合竞价'}
+                            </span>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>集合竞价价格:</strong> ${auctionPrice.toFixed(2)}元 | 
+                            ${suggestedPrice ? `<strong>建议价格:</strong> <span style="color: #27ae60; font-weight: bold;">${suggestedPrice.toFixed(2)}元</span> | ` : ''}
+                            <strong>价格偏离:</strong> <span style="color: ${Math.abs(priceDeviation) > 2 ? '#e74c3c' : '#27ae60'};">${priceDeviation >= 0 ? '+' : ''}${priceDeviation.toFixed(2)}%</span>
+                        </div>
+                        ${volumeRatio > 0 ? `
+                            <div style="margin: 10px 0;">
+                                <strong>成交量比例:</strong> ${(volumeRatio * 100).toFixed(2)}%
+                                <span class="inline-tooltip" style="margin-left: 5px;">
+                                    ℹ️
+                                    <span class="tooltip-text">成交量比例 = 匹配成交量 / 总申报量。比例越高，说明集合竞价成交活跃，价格更可靠。</span>
+                                </span>
+                            </div>
+                        ` : ''}
+                        ${reason ? `
+                            <div style="margin: 10px 0; color: #1976d2;">
+                                <strong>分析:</strong> ${reason}
+                            </div>
+                        ` : ''}
+                        ${suggestion ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #fff; border-left: 3px solid ${riskColor};">
+                                <strong>建议:</strong> ${suggestion}
+                            </div>
+                        ` : ''}
+                        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                            <span class="inline-tooltip">
+                                ℹ️ 集合竞价说明
+                                <span class="tooltip-text">集合竞价时段：9:15-9:25（可撤单：9:15-9:20，不可撤单：9:20-9:25）。集合竞价价格是开盘价的重要参考，但最终开盘价可能与集合竞价价格不同。建议根据预测结果和价格偏离度决定是否参与。</span>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 涨跌停板策略显示
+            if (limitUpStrategy && limitUpStrategy.available) {
+                const isLimitUp = limitUpStrategy.is_limit_up;
+                const isNearLimit = limitUpStrategy.is_near_limit;
+                const distance = limitUpStrategy.distance_to_limit || 0;
+                const sealStrength = (limitUpStrategy.seal_strength || 0) * 100;
+                const riskLevel = limitUpStrategy.risk_level || 'high';
+                const canChase = limitUpStrategy.can_chase || false;
+                const canQueue = limitUpStrategy.can_queue || false;
+                const reason = limitUpStrategy.reason || '';
+                const suggestion = limitUpStrategy.suggestion || '';
+                
+                let riskColor = '#e74c3c'; // 高风险红色
+                if (riskLevel === 'medium') riskColor = '#f39c12'; // 中风险橙色
+                if (riskLevel === 'low') riskColor = '#27ae60'; // 低风险绿色
+                
+                html += `
+                    <div class="trading-item" style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${riskColor};">
+                        <h3 style="margin-top: 0; color: #856404;">📈 涨停板策略分析</h3>
+                        <div style="margin: 10px 0;">
+                            <strong>状态:</strong> 
+                            ${isLimitUp ? '<span style="color: #e74c3c; font-weight: bold;">已涨停</span>' : 
+                              isNearLimit ? `<span style="color: #f39c12; font-weight: bold;">接近涨停（距离${distance.toFixed(2)}%）</span>` : 
+                              `<span>正常（距离涨停${distance.toFixed(2)}%）</span>`}
+                        </div>
+                        ${sealStrength > 0 ? `
+                            <div style="margin: 10px 0;">
+                                <strong>封板强度:</strong> <span style="color: ${sealStrength > 10 ? '#27ae60' : sealStrength > 5 ? '#f39c12' : '#e74c3c'};">${sealStrength.toFixed(2)}%</span>
+                                <span class="inline-tooltip" style="margin-left: 5px;">
+                                    ℹ️
+                                    <span class="tooltip-text">封板强度 = 涨停封单量 / 流通市值 × 100%。封板强度越高，涨停越稳定，开板风险越低。一般>10%为强封板，5%-10%为中等，<5%为弱封板。</span>
+                                </span>
+                            </div>
+                        ` : ''}
+                        ${canChase || canQueue ? `
+                            <div style="margin: 10px 0; padding: 10px; background-color: #d4edda; border-radius: 3px;">
+                                <strong style="color: #155724;">✅ 操作建议:</strong>
+                                ${canChase ? '<div style="margin-top: 5px;">可考虑追涨</div>' : ''}
+                                ${canQueue ? '<div style="margin-top: 5px;">可考虑排队买入</div>' : ''}
+                            </div>
+                        ` : ''}
+                        ${reason ? `
+                            <div style="margin: 10px 0; color: #856404;">
+                                <strong>分析:</strong> ${reason}
+                            </div>
+                        ` : ''}
+                        ${suggestion ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #fff; border-left: 3px solid ${riskColor};">
+                                <strong>建议:</strong> ${suggestion}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            if (limitDownStrategy && limitDownStrategy.available) {
+                const isLimitDown = limitDownStrategy.is_limit_down;
+                const isNearLimit = limitDownStrategy.is_near_limit;
+                const distance = limitDownStrategy.distance_to_limit || 0;
+                const riskLevel = limitDownStrategy.risk_level || 'high';
+                const canBuy = limitDownStrategy.can_buy || false;
+                const hasNegativeNews = limitDownStrategy.has_negative_news || false;
+                const reason = limitDownStrategy.reason || '';
+                const suggestion = limitDownStrategy.suggestion || '';
+                
+                let riskColor = '#e74c3c'; // 高风险红色
+                if (riskLevel === 'medium') riskColor = '#f39c12'; // 中风险橙色
+                if (riskLevel === 'low') riskColor = '#27ae60'; // 低风险绿色
+                
+                html += `
+                    <div class="trading-item" style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${riskColor};">
+                        <h3 style="margin-top: 0; color: #721c24;">📉 跌停板策略分析</h3>
+                        <div style="margin: 10px 0;">
+                            <strong>状态:</strong> 
+                            ${isLimitDown ? '<span style="color: #e74c3c; font-weight: bold;">已跌停</span>' : 
+                              isNearLimit ? `<span style="color: #f39c12; font-weight: bold;">接近跌停（距离${distance.toFixed(2)}%）</span>` : 
+                              `<span>正常（距离跌停${distance.toFixed(2)}%）</span>`}
+                        </div>
+                        ${hasNegativeNews ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #f5c6cb; border-radius: 3px;">
+                                <strong style="color: #721c24;">⚠️ 存在重大利空消息</strong>
+                            </div>
+                        ` : `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #d1ecf1; border-radius: 3px;">
+                                <strong style="color: #0c5460;">ℹ️ 无重大利空消息</strong>
+                            </div>
+                        `}
+                        ${canBuy ? `
+                            <div style="margin: 10px 0; padding: 10px; background-color: #d4edda; border-radius: 3px;">
+                                <strong style="color: #155724;">✅ 操作建议:</strong> 可考虑小仓位抄底
+                            </div>
+                        ` : ''}
+                        ${reason ? `
+                            <div style="margin: 10px 0; color: #721c24;">
+                                <strong>分析:</strong> ${reason}
+                            </div>
+                        ` : ''}
+                        ${suggestion ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #fff; border-left: 3px solid ${riskColor};">
+                                <strong>建议:</strong> ${suggestion}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            // 实时行情
+            if (quote.current_price) {
+                const changePct = quote.change_pct || 0;
+                const changeAmount = quote.change_amount || 0;
+                const priceColor = changePct < 0 ? 'red' : (changePct > 0 ? 'green' : 'black');
+                
+                html += `
+                    <h3>实时行情</h3>
+                    <div class="trading-item">
+                        <span class="label">当前价格:</span>
+                        <span class="value" style="color: ${priceColor}; font-size: 18px; font-weight: bold;">
+                            ${quote.current_price.toFixed(2)}元
+                        </span>
+                        <span style="color: ${priceColor}; margin-left: 10px;">
+                            ${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}% (${changeAmount >= 0 ? '+' : ''}${changeAmount.toFixed(2)}元)
+                        </span>
+                    </div>
+                `;
+                
+                const priceInfo = [];
+                if (quote.open_price) priceInfo.push(`开盘: ${quote.open_price.toFixed(2)}元`);
+                if (quote.high_price) priceInfo.push(`<span style="color: red;">最高: ${quote.high_price.toFixed(2)}元</span>`);
+                if (quote.low_price) priceInfo.push(`<span style="color: green;">最低: ${quote.low_price.toFixed(2)}元</span>`);
+                if (quote.pre_close) priceInfo.push(`昨收: ${quote.pre_close.toFixed(2)}元`);
+                
+                if (priceInfo.length > 0) {
+                    html += `
+                        <div class="trading-item" style="display: flex; gap: 20px;">
+                            ${priceInfo.join('')}
+                        </div>
+                    `;
+                }
+                
+                const turnoverInfo = [];
+                if (quote.turnover_rate) turnoverInfo.push(`换手率: ${quote.turnover_rate.toFixed(2)}%`);
+                if (quote.amplitude) turnoverInfo.push(`振幅: ${quote.amplitude.toFixed(2)}%`);
+                
+                if (turnoverInfo.length > 0) {
+                    html += `
+                        <div class="trading-item" style="display: flex; gap: 20px;">
+                            ${turnoverInfo.join('')}
+                        </div>
+                    `;
+                }
+            }
+            
+            // 资金流向
+            if (capitalFlow.flow_trend) {
+                const flowColor = capitalFlow.flow_trend.includes('流入') ? 'green' : 
+                                (capitalFlow.flow_trend.includes('流出') ? 'red' : 'gray');
+                
+                html += `
+                    <h3 style="margin-top: 15px;">资金流向</h3>
+                    <div class="trading-item">
+                        <span class="label">资金流向趋势:</span>
+                        <span class="value" style="color: ${flowColor}; font-weight: bold;">${capitalFlow.flow_trend}</span>
+                    </div>
+                `;
+                
+                if (capitalFlow.main_net_inflow) {
+                    const inflowColor = capitalFlow.main_net_inflow > 0 ? 'green' : 'red';
+                    html += `
+                        <div class="trading-item">
+                            <span class="label">主力净流入:</span>
+                            <span style="color: ${inflowColor};">
+                                ${(capitalFlow.main_net_inflow / 10000).toFixed(2)}万元
+                            </span>
+                        </div>
+                    `;
+                }
+                
+                if (capitalFlow.total_net_inflow) {
+                    const totalColor = capitalFlow.total_net_inflow > 0 ? 'green' : 'red';
+                    html += `
+                        <div class="trading-item">
+                            <span class="label">总净流入:</span>
+                            <span style="color: ${totalColor};">
+                                ${(capitalFlow.total_net_inflow / 10000).toFixed(2)}万元
+                            </span>
+                        </div>
+                    `;
+                }
+            }
+            
+            // 龙虎榜分析显示
+            if (dragonTigerAnalysis && dragonTigerAnalysis.available) {
+                const institutionNet = dragonTigerAnalysis.institution_net || 0;
+                const hotMoneyNet = dragonTigerAnalysis.hot_money_net || 0;
+                const totalNet = dragonTigerAnalysis.total_net || 0;
+                const impact = dragonTigerAnalysis.impact || 'neutral';
+                const suggestion = dragonTigerAnalysis.suggestion || '';
+                const score = dragonTigerAnalysis.score || 0;
+                
+                let impactColor = '#666'; // 中性灰色
+                if (impact === 'positive') impactColor = '#27ae60'; // 正面绿色
+                if (impact === 'negative') impactColor = '#e74c3c'; // 负面红色
+                
+                html += `
+                    <h3 style="margin-top: 15px;">龙虎榜数据分析</h3>
+                    <div class="trading-item" style="border-left: 4px solid ${impactColor};">
+                        <div style="margin: 10px 0;">
+                            <strong>影响评估:</strong>
+                            <span style="color: ${impactColor}; font-weight: bold; margin-left: 10px;">
+                                ${impact === 'positive' ? '✅ 正面影响（短期看涨）' : 
+                                  impact === 'negative' ? '❌ 负面影响（短期看跌）' : 
+                                  '⚪ 中性影响'}
+                            </span>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>机构席位:</strong>
+                            <span style="color: ${institutionNet >= 0 ? '#27ae60' : '#e74c3c'}; margin-left: 10px;">
+                                净${institutionNet >= 0 ? '买入' : '卖出'} ${Math.abs(institutionNet / 10000).toFixed(2)}万元
+                            </span>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>游资席位:</strong>
+                            <span style="color: ${hotMoneyNet >= 0 ? '#27ae60' : '#e74c3c'}; margin-left: 10px;">
+                                净${hotMoneyNet >= 0 ? '买入' : '卖出'} ${Math.abs(hotMoneyNet / 10000).toFixed(2)}万元
+                            </span>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>总净流入:</strong>
+                            <span style="color: ${totalNet >= 0 ? '#27ae60' : '#e74c3c'}; margin-left: 10px;">
+                                ${(totalNet / 10000).toFixed(2)}万元
+                            </span>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong>分析得分:</strong>
+                            <span style="margin-left: 10px; font-weight: bold; color: ${score >= 0 ? '#27ae60' : '#e74c3c'};">
+                                ${score >= 0 ? '+' : ''}${score.toFixed(2)}
+                            </span>
+                            <span class="inline-tooltip" style="margin-left: 5px;">
+                                ℹ️
+                                <span class="tooltip-text">龙虎榜分析得分：-1到1之间，正数表示看涨，负数表示看跌。得分越高，短期看涨信号越强。</span>
+                            </span>
+                        </div>
+                        ${suggestion ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: ${impact === 'positive' ? '#d4edda' : impact === 'negative' ? '#f8d7da' : '#d1ecf1'}; border-radius: 3px;">
+                                <strong>分析建议:</strong> ${suggestion}
+                            </div>
+                        ` : ''}
+                        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                            <span class="inline-tooltip">
+                                ℹ️ 龙虎榜说明
+                                <span class="tooltip-text">龙虎榜是交易所公布的异常交易数据，包括机构席位和游资席位的买卖情况。机构净买入通常表示长期看好，游资净买入可能带来短期波动。数据来源于最近5个交易日的龙虎榜记录。</span>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 限售股解禁追踪显示
+            if (restrictedSharesInfo && restrictedSharesInfo.has_restricted) {
+                const nextLiftDate = restrictedSharesInfo.next_lift_date;
+                const daysToLift = restrictedSharesInfo.days_to_lift;
+                const liftVolume = restrictedSharesInfo.lift_volume || 0;
+                const restrictedShares = restrictedSharesInfo.restricted_shares || 0;
+                const totalShares = restrictedSharesInfo.total_shares || 0;
+                const liftRatio = restrictedSharesInfo.lift_ratio || 0;
+                const restrictedRatio = restrictedSharesInfo.restricted_ratio || 0;
+                const impact = restrictedSharesInfo.impact || 'minimal';
+                const warning = restrictedSharesInfo.warning || '';
+                const suggestion = restrictedSharesInfo.suggestion || '';
+                
+                let impactColor = '#27ae60'; // 低影响绿色
+                if (impact === 'high') impactColor = '#e74c3c'; // 高影响红色
+                if (impact === 'medium') impactColor = '#f39c12'; // 中等影响橙色
+                if (impact === 'low') impactColor = '#3498db'; // 低影响蓝色
+                
+                html += `
+                    <h3 style="margin-top: 15px;">限售股解禁追踪</h3>
+                    <div class="trading-item" style="border-left: 4px solid ${impactColor};">
+                        <div style="margin: 10px 0;">
+                            <strong>影响评估:</strong>
+                            <span style="color: ${impactColor}; font-weight: bold; margin-left: 10px;">
+                                ${impact === 'high' ? '⚠️ 高影响' : 
+                                  impact === 'medium' ? '⚡ 中等影响' : 
+                                  impact === 'low' ? 'ℹ️ 低影响' : 
+                                  '✓ 影响极小'}
+                            </span>
+                        </div>
+                        ${nextLiftDate ? `
+                            <div style="margin: 10px 0;">
+                                <strong>最近解禁日期:</strong>
+                                <span style="margin-left: 10px; font-weight: bold; color: ${daysToLift !== null && daysToLift <= 7 ? '#e74c3c' : daysToLift !== null && daysToLift <= 30 ? '#f39c12' : '#3498db'};">
+                                    ${nextLiftDate}
+                                    ${daysToLift !== null ? `（${daysToLift > 0 ? daysToLift + '天后' : daysToLift === 0 ? '今天' : Math.abs(daysToLift) + '天前'}）` : ''}
+                                </span>
+                            </div>
+                        ` : ''}
+                        ${liftVolume > 0 ? `
+                            <div style="margin: 10px 0;">
+                                <strong>解禁数量:</strong>
+                                <span style="margin-left: 10px;">${(liftVolume / 100000000).toFixed(2)}亿股</span>
+                            </div>
+                        ` : ''}
+                        ${liftRatio > 0 ? `
+                            <div style="margin: 10px 0;">
+                                <strong>解禁比例:</strong>
+                                <span style="margin-left: 10px; font-weight: bold; color: ${liftRatio > 0.1 ? '#e74c3c' : liftRatio > 0.05 ? '#f39c12' : '#3498db'};">
+                                    ${(liftRatio * 100).toFixed(2)}%
+                                </span>
+                            </div>
+                        ` : ''}
+                        ${restrictedRatio > 0 ? `
+                            <div style="margin: 10px 0;">
+                                <strong>限售股比例:</strong>
+                                <span style="margin-left: 10px;">${(restrictedRatio * 100).toFixed(2)}%</span>
+                                <span style="margin-left: 10px; color: #666;">（限售股: ${(restrictedShares / 100000000).toFixed(2)}亿股 / 总股本: ${(totalShares / 100000000).toFixed(2)}亿股）</span>
+                            </div>
+                        ` : ''}
+                        ${warning ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: ${impact === 'high' ? '#f8d7da' : impact === 'medium' ? '#fff3cd' : '#d1ecf1'}; border-radius: 3px; border-left: 3px solid ${impactColor};">
+                                <strong style="color: ${impact === 'high' ? '#721c24' : impact === 'medium' ? '#856404' : '#0c5460'};">⚠️ 风险提示:</strong>
+                                <div style="margin-top: 5px; color: ${impact === 'high' ? '#721c24' : impact === 'medium' ? '#856404' : '#0c5460'};">${warning}</div>
+                            </div>
+                        ` : ''}
+                        ${suggestion ? `
+                            <div style="margin: 10px 0; padding: 8px; background-color: #e3f2fd; border-radius: 3px;">
+                                <strong>操作建议:</strong> ${suggestion}
+                            </div>
+                        ` : ''}
+                        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                            <span class="inline-tooltip">
+                                ℹ️ 限售股解禁说明
+                                <span class="tooltip-text">限售股解禁是指原本不能流通的股票（如IPO限售股、定增限售股等）到期后可以流通。大量解禁可能对股价造成压力，特别是解禁比例较高（>5%）或解禁日期临近时。建议关注解禁日期和解禁比例，提前做好风险控制。</span>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 实时交易决策
+            if (decision.action_cn) {
+                const actionColor = ['BUY', 'ADD'].includes(decision.action) ? 'green' :
+                                  (['SELL', 'REDUCE'].includes(decision.action) ? 'red' : 'orange');
+                
+                html += `
+                    <h3 style="margin-top: 15px;">实时交易决策</h3>
+                    <div class="trading-item">
+                        <span class="label">操作建议:</span>
+                        <span class="value" style="color: ${actionColor}; font-size: 16px; font-weight: bold;">
+                            ${decision.action_cn}
+                        </span>
+                        <span style="margin-left: 10px; color: #555;">(${decision.strength_cn || '未知'})</span>
+                    </div>
+                `;
+                
+                if (decision.reasons && decision.reasons.length > 0) {
+                    html += `
+                        <div class="trading-item">
+                            <span class="label">决策理由:</span>
+                            <ul>
+                                ${decision.reasons.slice(0, 3).map(r => `<li>${r}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+                
+                if (decision.price_suggestions) {
+                    html += `
+                        <div class="trading-item">
+                            <span class="label">价格建议:</span>
+                            <div style="margin-left: 20px; margin-top: 5px;">
+                    `;
+                    if (decision.price_suggestions.ideal_buy) {
+                        html += `
+                            <div>理想买入价: <span style="color: green; font-weight: bold;">${decision.price_suggestions.ideal_buy.toFixed(2)}元</span></div>
+                            <div>止损价: <span style="color: red;">${decision.price_suggestions.stop_loss || 'N/A'}</span></div>
+                            <div>目标价: <span style="color: blue;">${decision.price_suggestions.target || 'N/A'}</span></div>
+                        `;
+                    }
+                    if (decision.price_suggestions.ideal_sell) {
+                        html += `
+                            <div>理想卖出价: <span style="color: red; font-weight: bold;">${decision.price_suggestions.ideal_sell.toFixed(2)}元</span></div>
+                        `;
+                    }
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // 交易时段
+            if (tradingTime.message) {
+                const sessionColor = tradingTime.is_trading ? 'green' : 'orange';
+                html += `
+                    <div class="trading-item" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <span class="label">交易时段:</span>
+                        <span style="color: ${sessionColor}; font-weight: bold;">${tradingTime.message}</span>
+                    </div>
+                `;
+            }
+            
+            if (html) {
+                realtimeContent.innerHTML = html;
+                realtimeSection.style.display = 'block';
+            }
+        }
+        
+        // 页面加载时获取数据
+        window.addEventListener('DOMContentLoaded', loadDetailData);
+    </script>
+</body>
+</html>

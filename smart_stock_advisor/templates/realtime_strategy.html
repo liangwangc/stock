@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时策略 - {{symbol}} {{name}}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .header .info {
+            color: #666;
+            font-size: 14px;
+        }
+        .back-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        .back-button:hover {
+            background-color: #2980b9;
+        }
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+        }
+        .chart-section {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .advice-section {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .chart-wrapper {
+            width: 100%;
+            height: 500px;
+        }
+        .advice-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+        }
+        .advice-item {
+            margin: 15px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        .advice-label {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+        }
+        .advice-value {
+            font-size: 18px;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .advice-value.buy {
+            color: #27ae60;
+        }
+        .advice-value.sell {
+            color: #e74c3c;
+        }
+        .advice-value.hold {
+            color: #f39c12;
+        }
+        .advice-value.wait {
+            color: #95a5a6;
+        }
+        .reasons-list {
+            margin-top: 10px;
+            padding-left: 20px;
+        }
+        .reasons-list li {
+            margin: 5px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .price-suggestions {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        .price-item {
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        .price-label {
+            color: #666;
+        }
+        .price-value {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #e74c3c;
+        }
+        .refresh-info {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .holding-info {
+            background-color: #e8f4f8;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .holding-info strong {
+            color: #2c3e50;
+        }
+        .risk-warnings {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 5px;
+            font-size: 13px;
+        }
+        .risk-warnings strong {
+            color: #856404;
+        }
+        .position-advice {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            border-radius: 5px;
+            font-size: 13px;
+        }
+        .position-advice strong {
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/stock_list" class="back-button">← 返回股票列表</a>
+        
+        <div class="header">
+            <h1>📈 实时策略 - <span id="stockSymbol">{{symbol}}</span> <span id="stockName">{{name}}</span></h1>
+            <div class="info">
+                <span id="currentTime">加载中...</span> | 
+                <span id="refreshInfo">每10秒自动刷新</span>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">正在加载数据...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="contentContainer" style="display: none;">
+            <div class="main-layout">
+                <!-- 左侧：当日走势图 -->
+                <div class="chart-section">
+                    <div class="chart-title">当日走势图</div>
+                    <div id="intradayChart" class="chart-wrapper"></div>
+                </div>
+                
+                <!-- 右侧：实时建议 -->
+                <div class="advice-section">
+                    <div class="advice-title">实时交易建议</div>
+                    
+                    <!-- 持仓信息 -->
+                    <div id="holdingInfo" class="holding-info" style="display: none;">
+                        <strong>持仓信息：</strong>
+                        <div id="holdingDetails"></div>
+                    </div>
+                    
+                    <!-- 当前价格 -->
+                    <div class="advice-item">
+                        <div class="advice-label">当前价格</div>
+                        <div class="advice-value" id="currentPrice">-</div>
+                    </div>
+                    
+                    <!-- 今日涨跌 -->
+                    <div class="advice-item">
+                        <div class="advice-label">今日涨跌</div>
+                        <div class="advice-value" id="changeInfo">-</div>
+                    </div>
+                    
+                    <!-- 操作建议 -->
+                    <div class="advice-item">
+                        <div class="advice-label">操作建议</div>
+                        <div class="advice-value" id="actionAdvice">-</div>
+                        <div style="font-size: 12px; color: #666; margin-top: 5px;" id="strengthInfo">-</div>
+                    </div>
+                    
+                    <!-- 决策理由 -->
+                    <div class="advice-item" id="reasonsItem" style="display: none;">
+                        <div class="advice-label">决策理由</div>
+                        <ul class="reasons-list" id="reasonsList"></ul>
+                    </div>
+                    
+                    <!-- 价格建议 -->
+                    <div class="advice-item" id="priceSuggestionsItem" style="display: none;">
+                        <div class="advice-label">价格建议</div>
+                        <div class="price-suggestions" id="priceSuggestions"></div>
+                    </div>
+                    
+                    <!-- 风险警告 -->
+                    <div id="riskWarnings" class="risk-warnings" style="display: none;">
+                        <strong>⚠️ 风险警告：</strong>
+                        <ul class="reasons-list" id="riskWarningsList"></ul>
+                    </div>
+                    
+                    <!-- 仓位建议 -->
+                    <div id="positionAdvice" class="position-advice" style="display: none;">
+                        <strong>💡 仓位建议：</strong>
+                        <div id="positionAdviceText"></div>
+                    </div>
+                    
+                    <!-- 预测信息 -->
+                    <div class="advice-item" style="margin-top: 20px; border-top: 2px solid #eee; padding-top: 15px;">
+                        <div class="advice-label">预测信息</div>
+                        <div style="font-size: 14px; color: #666; margin-top: 5px;">
+                            <div>预测方向: <span id="predictionDirection">-</span></div>
+                            <div>上涨概率: <span id="upProbability">-</span></div>
+                            <div>下跌概率: <span id="downProbability">-</span></div>
+                            <div>置信度: <span id="confidence">-</span></div>
+                            <div id="marketStateInfo" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee;">
+                                <strong>市场状态:</strong> <span id="marketState">-</span>
+                                <div style="font-size: 12px; color: #999; margin-top: 3px;" id="marketStateDesc">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 资金流向 -->
+                    <div class="advice-item" id="capitalFlowItem" style="display: none;">
+                        <div class="advice-label">资金流向</div>
+                        <div style="font-size: 14px; color: #666; margin-top: 5px;" id="capitalFlowInfo"></div>
+                    </div>
+                    
+                    <!-- 数据质量 -->
+                    <div class="advice-item" id="dataQualityItem" style="display: none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 15px;">
+                        <div class="advice-label">数据质量</div>
+                        <div style="font-size: 14px; color: #666; margin-top: 5px;" id="dataQualityInfo"></div>
+                        <div style="font-size: 12px; color: #999; margin-top: 5px;" id="dataQualityWarnings"></div>
+                    </div>
+                    
+                    <!-- 风险控制 -->
+                    <div class="advice-item" id="riskControlItem" style="display: none; margin-top: 15px;">
+                        <div class="advice-label">风险控制</div>
+                        <div style="font-size: 14px; color: #666; margin-top: 5px;" id="riskControlInfo"></div>
+                        <div style="font-size: 12px; color: #999; margin-top: 5px;" id="riskControlWarnings"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 从URL获取参数
+        const urlParams = new URLSearchParams(window.location.search);
+        const symbol = urlParams.get('symbol') || '{{symbol}}';
+        const name = urlParams.get('name') || '{{name}}';
+        const holding = urlParams.get('holding') === 'true';
+        const costPrice = parseFloat(urlParams.get('cost_price') || '0');
+        
+        let refreshInterval = null;
+        
+        // 加载数据
+        async function loadRealtimeData() {
+            try {
+                const params = new URLSearchParams({
+                    symbol: symbol,
+                    holding: holding ? 'true' : 'false',
+                    cost_price: costPrice > 0 ? costPrice.toString() : ''
+                });
+                
+                const response = await fetch(`/api/realtime_strategy?${params}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('error').style.display = 'block';
+                    document.getElementById('error').textContent = '加载失败: ' + (result.message || '未知错误');
+                    return;
+                }
+                
+                const data = result.data;
+                
+                // 更新头部信息
+                document.getElementById('stockSymbol').textContent = data.symbol || symbol;
+                document.getElementById('stockName').textContent = data.name || name;
+                document.getElementById('currentTime').textContent = '更新时间: ' + (data.timestamp || '-');
+                
+                // 渲染当日走势图
+                renderIntradayChart(data.intraday_data || []);
+                
+                // 渲染实时建议
+                renderAdvice(data);
+                
+                // 显示内容容器
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('contentContainer').style.display = 'block';
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = '加载失败: ' + error.message;
+            }
+        }
+        
+        // 渲染当日走势图
+        function renderIntradayChart(intradayData) {
+            if (!intradayData || intradayData.length === 0) {
+                document.getElementById('intradayChart').innerHTML = 
+                    '<div style="text-align: center; padding: 40px; color: #999;">暂无分时数据</div>';
+                return;
+            }
+            
+            const times = intradayData.map(d => d.time);
+            const prices = intradayData.map(d => parseFloat(d.price || d.close || 0));
+            const volumes = intradayData.map(d => parseFloat(d.volume || 0));
+            
+            // 计算均价线
+            const avgPrices = [];
+            let sum = 0;
+            for (let i = 0; i < prices.length; i++) {
+                sum += prices[i];
+                avgPrices.push(sum / (i + 1));
+            }
+            
+            const trace1 = {
+                x: times,
+                y: prices,
+                type: 'scatter',
+                mode: 'lines',
+                name: '价格',
+                line: { color: '#3498db', width: 2 },
+                yaxis: 'y'
+            };
+            
+            const trace2 = {
+                x: times,
+                y: avgPrices,
+                type: 'scatter',
+                mode: 'lines',
+                name: '均价',
+                line: { color: '#e74c3c', width: 1, dash: 'dash' },
+                yaxis: 'y'
+            };
+            
+            const trace3 = {
+                x: times,
+                y: volumes,
+                type: 'bar',
+                name: '成交量',
+                marker: { color: 'rgba(200, 200, 200, 0.5)' },
+                yaxis: 'y2'
+            };
+            
+            const layout = {
+                title: {
+                    text: '当日走势图',
+                    font: { size: 16 }
+                },
+                xaxis: {
+                    title: '时间'
+                },
+                yaxis: {
+                    title: '价格 (元)',
+                    side: 'left'
+                },
+                yaxis2: {
+                    title: '成交量',
+                    overlaying: 'y',
+                    side: 'right'
+                },
+                height: 500,
+                hovermode: 'x unified',
+                legend: {
+                    x: 0,
+                    y: 1,
+                    xanchor: 'left',
+                    yanchor: 'top'
+                }
+            };
+            
+            Plotly.newPlot('intradayChart', [trace1, trace2, trace3], layout, {responsive: true});
+        }
+        
+        // 渲染实时建议
+        function renderAdvice(data) {
+            const quote = data.realtime_quote || {};
+            const decision = data.decision || {};
+            const prediction = data.prediction || {};
+            const capitalFlow = data.capital_flow || {};
+            
+            // 当前价格
+            const currentPrice = quote.current_price || 0;
+            const changePct = quote.change_pct || 0;
+            const changeAmount = quote.change_amount || 0;
+            
+            document.getElementById('currentPrice').textContent = currentPrice.toFixed(2) + '元';
+            const changeColor = changePct >= 0 ? '#27ae60' : '#e74c3c';
+            const changeSign = changePct >= 0 ? '+' : '';
+            document.getElementById('changeInfo').innerHTML = 
+                `<span style="color: ${changeColor};">${changeSign}${changePct.toFixed(2)}% (${changeSign}${changeAmount.toFixed(2)}元)</span>`;
+            
+            // 操作建议
+            const action = decision.action_cn || '观望';
+            const strength = decision.strength_cn || '中性';
+            let actionClass = 'hold';
+            if (decision.action === 'BUY' || decision.action === 'ADD') {
+                actionClass = 'buy';
+            } else if (decision.action === 'SELL' || decision.action === 'REDUCE') {
+                actionClass = 'sell';
+            } else if (decision.action === 'WAIT' || decision.action === 'AVOID') {
+                actionClass = 'wait';
+            }
+            
+            document.getElementById('actionAdvice').textContent = action;
+            document.getElementById('actionAdvice').className = 'advice-value ' + actionClass;
+            document.getElementById('strengthInfo').textContent = '强度: ' + strength;
+            
+            // 持仓信息
+            if (data.holding && data.cost_price > 0) {
+                const profit = currentPrice - data.cost_price;
+                const profitPct = (profit / data.cost_price) * 100;
+                const profitColor = profit >= 0 ? '#27ae60' : '#e74c3c';
+                document.getElementById('holdingDetails').innerHTML = `
+                    持仓成本: ${data.cost_price.toFixed(2)}元<br>
+                    当前盈亏: <span style="color: ${profitColor};">${profit >= 0 ? '+' : ''}${profit.toFixed(2)}元 (${profitPct >= 0 ? '+' : ''}${profitPct.toFixed(2)}%)</span>
+                `;
+                document.getElementById('holdingInfo').style.display = 'block';
+            } else {
+                document.getElementById('holdingInfo').style.display = 'none';
+            }
+            
+            // 决策理由
+            const reasons = decision.reasons || [];
+            if (reasons.length > 0) {
+                const reasonsList = document.getElementById('reasonsList');
+                reasonsList.innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
+                document.getElementById('reasonsItem').style.display = 'block';
+            } else {
+                document.getElementById('reasonsItem').style.display = 'none';
+            }
+            
+            // 价格建议
+            const priceSuggestions = decision.price_suggestions || {};
+            if (Object.keys(priceSuggestions).length > 0) {
+                let priceHtml = '';
+                if (priceSuggestions.ideal_buy) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">理想买入价:</span>
+                            <span class="price-value" style="color: #27ae60;">${priceSuggestions.ideal_buy.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.max_buy) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">最高买入价:</span>
+                            <span class="price-value">${priceSuggestions.max_buy.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.ideal_sell) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">理想卖出价:</span>
+                            <span class="price-value" style="color: #e74c3c;">${priceSuggestions.ideal_sell.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.min_sell) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">最低卖出价:</span>
+                            <span class="price-value">${priceSuggestions.min_sell.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.stop_loss) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">止损价:</span>
+                            <span class="price-value" style="color: #e74c3c;">${priceSuggestions.stop_loss.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.target) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">目标价:</span>
+                            <span class="price-value" style="color: #27ae60;">${priceSuggestions.target.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                if (priceSuggestions.trailing_stop) {
+                    priceHtml += `
+                        <div class="price-item">
+                            <span class="price-label">移动止损价:</span>
+                            <span class="price-value" style="color: #f39c12;">${priceSuggestions.trailing_stop.toFixed(2)}元</span>
+                        </div>
+                    `;
+                }
+                document.getElementById('priceSuggestions').innerHTML = priceHtml;
+                document.getElementById('priceSuggestionsItem').style.display = 'block';
+            } else {
+                document.getElementById('priceSuggestionsItem').style.display = 'none';
+            }
+            
+            // 风险警告
+            const riskWarnings = decision.risk_warnings || [];
+            if (riskWarnings.length > 0) {
+                const riskList = document.getElementById('riskWarningsList');
+                riskList.innerHTML = riskWarnings.map(w => `<li>${w}</li>`).join('');
+                document.getElementById('riskWarnings').style.display = 'block';
+            } else {
+                document.getElementById('riskWarnings').style.display = 'none';
+            }
+            
+            // 仓位建议
+            const positionAdvice = decision.position_advice || '';
+            if (positionAdvice) {
+                document.getElementById('positionAdviceText').textContent = positionAdvice;
+                document.getElementById('positionAdvice').style.display = 'block';
+            } else {
+                document.getElementById('positionAdvice').style.display = 'none';
+            }
+            
+            // 预测信息
+            document.getElementById('predictionDirection').textContent = prediction.direction || '-';
+            document.getElementById('upProbability').textContent = prediction.up_probability ? 
+                (prediction.up_probability * 100).toFixed(1) + '%' : '-';
+            document.getElementById('downProbability').textContent = prediction.down_probability ? 
+                (prediction.down_probability * 100).toFixed(1) + '%' : '-';
+            document.getElementById('confidence').textContent = prediction.confidence ? 
+                (prediction.confidence * 100).toFixed(1) + '%' : '-';
+            
+            // 市场状态信息
+            const marketState = data.market_state || decision.market_state || {};
+            if (marketState && marketState.state && marketState.state !== 'unknown') {
+                const stateNames = {
+                    'bull_market': '🐂 牛市',
+                    'bear_market': '🐻 熊市',
+                    'sideways': '📊 震荡市'
+                };
+                const stateName = stateNames[marketState.state] || marketState.state;
+                const stateColor = marketState.state === 'bull_market' ? '#27ae60' : 
+                                 marketState.state === 'bear_market' ? '#e74c3c' : '#f39c12';
+                
+                document.getElementById('marketState').innerHTML = 
+                    `<span style="color: ${stateColor};">${stateName}</span>`;
+                document.getElementById('marketStateDesc').textContent = 
+                    marketState.description || marketState.state || '-';
+                document.getElementById('marketStateInfo').style.display = 'block';
+            } else {
+                document.getElementById('marketStateInfo').style.display = 'none';
+            }
+            
+            // 资金流向
+            if (capitalFlow.flow_trend) {
+                const flowColor = capitalFlow.flow_trend.includes('流入') ? '#27ae60' : 
+                                (capitalFlow.flow_trend.includes('流出') ? '#e74c3c' : '#95a5a6');
+                let flowHtml = `<div style="color: ${flowColor}; font-weight: bold;">${capitalFlow.flow_trend}</div>`;
+                if (capitalFlow.main_net_inflow) {
+                    const inflowColor = capitalFlow.main_net_inflow > 0 ? '#27ae60' : '#e74c3c';
+                    flowHtml += `<div style="margin-top: 5px;">主力净流入: <span style="color: ${inflowColor};">${(capitalFlow.main_net_inflow / 10000).toFixed(2)}万元</span></div>`;
+                }
+                if (capitalFlow.total_net_inflow) {
+                    const totalColor = capitalFlow.total_net_inflow > 0 ? '#27ae60' : '#e74c3c';
+                    flowHtml += `<div style="margin-top: 5px;">总净流入: <span style="color: ${totalColor};">${(capitalFlow.total_net_inflow / 10000).toFixed(2)}万元</span></div>`;
+                }
+                document.getElementById('capitalFlowInfo').innerHTML = flowHtml;
+                document.getElementById('capitalFlowItem').style.display = 'block';
+            } else {
+                document.getElementById('capitalFlowItem').style.display = 'none';
+            }
+            
+            // 数据质量
+            const dataQuality = data.data_quality || {};
+            if (dataQuality.quality_score !== undefined) {
+                const qualityScore = (dataQuality.quality_score * 100).toFixed(1);
+                const qualityColor = dataQuality.quality_score >= 0.8 ? '#27ae60' : 
+                                    dataQuality.quality_score >= 0.6 ? '#f39c12' : '#e74c3c';
+                const qualityStatus = dataQuality.is_valid ? '✓ 数据有效' : '✗ 数据异常';
+                
+                document.getElementById('dataQualityInfo').innerHTML = `
+                    <span style="color: ${qualityColor};">${qualityStatus}</span> | 
+                    质量得分: <strong>${qualityScore}%</strong>
+                `;
+                
+                const warnings = dataQuality.warnings || [];
+                if (warnings.length > 0) {
+                    document.getElementById('dataQualityWarnings').innerHTML = 
+                        '警告: ' + warnings.join('; ');
+                } else {
+                    document.getElementById('dataQualityWarnings').textContent = '';
+                }
+                
+                document.getElementById('dataQualityItem').style.display = 'block';
+            } else {
+                document.getElementById('dataQualityItem').style.display = 'none';
+            }
+            
+            // 风险控制（如果有风险控制数据）
+            const riskControl = data.risk_control || {};
+            if (riskControl.risk_score !== undefined) {
+                const riskScore = (riskControl.risk_score * 100).toFixed(1);
+                const riskColor = riskControl.risk_score <= 0.3 ? '#27ae60' : 
+                                 riskControl.risk_score <= 0.6 ? '#f39c12' : '#e74c3c';
+                const riskLevel = riskControl.risk_score <= 0.3 ? '低风险' : 
+                                 riskControl.risk_score <= 0.6 ? '中风险' : '高风险';
+                
+                let riskInfoHtml = `
+                    <span style="color: ${riskColor};">风险等级: ${riskLevel}</span> | 
+                    风险得分: <strong>${riskScore}%</strong>
+                `;
+                
+                if (riskControl.total_position_pct !== undefined) {
+                    riskInfoHtml += `<br>总仓位: ${riskControl.total_position_pct.toFixed(1)}%`;
+                }
+                if (riskControl.position_count !== undefined) {
+                    riskInfoHtml += ` | 持仓数量: ${riskControl.position_count}`;
+                }
+                
+                document.getElementById('riskControlInfo').innerHTML = riskInfoHtml;
+                
+                const riskWarnings = riskControl.warnings || [];
+                if (riskWarnings.length > 0) {
+                    document.getElementById('riskControlWarnings').innerHTML = 
+                        '⚠️ ' + riskWarnings.join('; ');
+                } else {
+                    document.getElementById('riskControlWarnings').textContent = '';
+                }
+                
+                document.getElementById('riskControlItem').style.display = 'block';
+            } else {
+                document.getElementById('riskControlItem').style.display = 'none';
+            }
+        }
+        
+        // 开始定时刷新
+        function startAutoRefresh() {
+            // 立即加载一次
+            loadRealtimeData();
+            
+            // 每10秒刷新一次
+            refreshInterval = setInterval(loadRealtimeData, 10000);
+        }
+        
+        // 停止定时刷新
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+        
+        // 页面加载时开始刷新
+        window.addEventListener('DOMContentLoaded', startAutoRefresh);
+        
+        // 页面卸载时停止刷新
+        window.addEventListener('beforeunload', stopAutoRefresh);
+    </script>
+</body>
+</html>
