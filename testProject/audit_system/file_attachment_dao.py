@@ -70,12 +70,12 @@ class FileAttachmentDAO:
         SET description = %s
         WHERE id = %s
         """
-        return self.db_manager.execute_query(sql, (description, attachment_id))
+        return self.db_manager.execute_update(sql, (description, attachment_id)) > 0
     
     def delete_attachment(self, attachment_id: int) -> bool:
         """删除附件记录"""
         sql = "DELETE FROM file_attachments WHERE id = %s"
-        return self.db_manager.execute_query(sql, (attachment_id,))
+        return self.db_manager.execute_delete(sql, (attachment_id,)) > 0
     
     def get_attachments_by_user(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """获取用户上传的所有附件"""

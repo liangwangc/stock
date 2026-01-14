@@ -36,7 +36,11 @@
                 <label for="user_id" class="form-label">操作用户</label>
                 <select class="form-select" id="user_id" name="user_id">
                     <option value="">全部用户</option>
-                    <!-- 这里可以动态加载用户列表 -->
+                    {% for user in users %}
+                    <option value="{{ user.id }}" {% if request.args.get('user_id')|string == user.id|string %}selected{% endif %}>
+                        {{ user.real_name or user.username }}
+                    </option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-md-3">
@@ -164,9 +168,129 @@
 {% block scripts %}
 <script>
 function viewLogDetails(logId) {
-    // 这里可以实现查看日志详情的功能
-    console.log('查看日志详情:', logId);
-    // 可以发送AJAX请求获取详细信息
+    // 显示加载状态
+    document.getElementById('logDetailContent').innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">加载中...</span></div></div>';
+    
+    // 显示模态框
+    const modal = new bootstrap.Modal(document.getElementById('logDetailModal'));
+    modal.show();
+    
+    // 发送AJAX请求获取日志详情
+    fetch(`/logs/${logId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const log = data.log;
+                displayLogDetails(log);
+            } else {
+                document.getElementById('logDetailContent').innerHTML = 
+                    `<div class="alert alert-danger">获取日志详情失败: ${data.message}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('logDetailContent').innerHTML = 
+                '<div class="alert alert-danger">获取日志详情时发生错误</div>';
+        });
+}
+
+function displayLogDetails(log) {
+    const content = document.getElementById('logDetailContent');
+    
+    // 格式化操作类型显示
+    const actionLabels = {
+        'web_login': 'Web登录',
+        'web_logout': 'Web登出',
+        'create_file': '创建档案',
+        'update_file': '更新档案',
+        'delete_file': '删除档案',
+        'create_user': '创建用户',
+        'update_user': '更新用户'
+    };
+    
+    const actionLabel = actionLabels[log.action] || log.action;
+    const actionClass = {
+        'web_login': 'success',
+        'web_logout': 'warning',
+        'create_file': 'info',
+        'update_file': 'primary',
+        'delete_file': 'danger',
+        'create_user': 'success',
+        'update_user': 'warning'
+    }[log.action] || 'secondary';
+    
+    // 格式化时间
+    const createdAt = log.created_at ? new Date(log.created_at).toLocaleString('zh-CN') : 'N/A';
+    
+    content.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="fw-bold">基本信息</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td class="fw-bold">日志ID:</td>
+                        <td>#${log.id}</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-bold">操作时间:</td>
+                        <td>${createdAt}</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-bold">操作用户:</td>
+                        <td>
+                            <span class="badge bg-primary">${log.user_name || log.username || '未知用户'}</span>
+                            ${log.user_department ? `<small class="text-muted">(${log.user_department})</small>` : ''}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="fw-bold">操作类型:</td>
+                        <td><span class="badge bg-${actionClass}">${actionLabel}</span></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="fw-bold">操作对象</h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td class="fw-bold">对象类型:</td>
+                        <td>${log.target_type || 'N/A'}</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-bold">对象ID:</td>
+                        <td>${log.target_id || 'N/A'}</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-bold">IP地址:</td>
+                        <td><code>${log.ip_address || 'N/A'}</code></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6 class="fw-bold">操作详情</h6>
+                <div class="card">
+                    <div class="card-body">
+                        <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.9rem;">${log.details || '无详细信息'}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        ${log.user_agent ? `
+        <div class="row mt-3">
+            <div class="col-12">
+                <h6 class="fw-bold">用户代理</h6>
+                <div class="card">
+                    <div class="card-body">
+                        <code style="font-size: 0.8rem; word-break: break-all;">${log.user_agent}</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+    `;
 }
 
 function exportLogs() {

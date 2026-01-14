@@ -16,7 +16,7 @@ import os
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from config import config
+from scripts.database.config import config
 
 
 class DatabaseManager:
@@ -453,4 +453,15 @@ class AuditLogDAO:
         query += " ORDER BY al.created_at DESC LIMIT %s"
         params.append(limit)
         
-        return self.db.execute_query(query, tuple(params)) 
+        return self.db.execute_query(query, tuple(params))
+    
+    def get_log_by_id(self, log_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取单个日志详情"""
+        query = """
+        SELECT al.*, u.username, u.real_name as user_name, u.department as user_department
+        FROM audit_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        WHERE al.id = %s
+        """
+        results = self.db.execute_query(query, (log_id,))
+        return results[0] if results else None 

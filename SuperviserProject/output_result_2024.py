@@ -273,12 +273,12 @@ class Output(object):
             # 更新cleaned_data中各类对应的oe值
             print("hospital_patient_result1.1", df.shape)
             print("df_g.shape", df_g.shape)
-            # print("df_g.shapeV2", df_g.drop_duplicates('temp_id').shape)
+            # print("df_g.s·hapeV2", df_g.drop_duplicates('temp_id').shape)
             # df_g = df_g.drop_duplicates('temp_id')
             df = pd.merge(left=df, right=df_g[['temp_id', 'patient_odd_oe', 'level_{}_mean'.format(i)]], how='left', on='temp_id')
             df.rename(columns={'patient_odd_oe': '{}_oe'.format(i)}, inplace=True)
             print("hospital_patient_result2", df.shape)
-            df_g['patient_e']=df_g['patient_charge'].astype(float) / df_g['patient_odd_oe'].astype(float)
+           
             
             # OE值归一化
             df_g['nor_patient_odd_oe'] = normalization(df_g['patient_odd_oe'],
@@ -582,7 +582,6 @@ class Output(object):
 
             df_oe_g.columns = ['area_city_code', 'area_city_name', 'area_code', 'area_name', 'o_value', 'e_value']
             df_oe_g['patient_odd_oe'] = df_oe_g['o_value'] / df_oe_g['e_value']
-            
 
             df_g = pd.merge(df_g, df_oe_g, how='left',
                             on=['area_city_code', 'area_city_name', 'area_code', 'area_name'])
@@ -677,20 +676,20 @@ class Output(object):
 
         for i in Output.supplies_drug_dict.keys():
 
-            df_g = df.groupby(['area_code', 'hospital_id', 'basy_caption', 'basy_yydj']).agg(
+            df_g = df.groupby(['area_code', 'hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj']).agg(
                 {i: ['mean', 'count'], '{}_odd'.format(i): 'sum'}).reset_index()
-            df_g.columns = ['area_code', 'hospital_id', 'hospital_name', 'hospital_lv',
+            df_g.columns = ['area_code', 'hospital_id', 'hospital_wjw_id', 'hospital_name', 'hospital_lv',
                             'cost_mean', 'patient_count', 'patient_odd_count']
 
             df_oe = df[df['{}_odd'.format(i)] == 1].copy()
             df_oe.loc[:, '{}_nor_e_value'.format(i)] = df_oe['{}'.format(i)] / df_oe['{}_odd_nor_oe'.format(i)]
-            df_oe_g = df_oe.groupby(['area_code', 'hospital_id', 'basy_caption', 'basy_yydj']).agg(
+            df_oe_g = df_oe.groupby(['area_code', 'hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj']).agg(
                 {'{}'.format(i): 'sum', '{}_nor_e_value'.format(i): 'sum'}).reset_index()
-            df_oe_g.columns = ['area_code', 'hospital_id', 'hospital_name', 'hospital_lv', 'o_value', 'e_value']
+            df_oe_g.columns = ['area_code', 'hospital_id', 'hospital_wjw_id', 'hospital_name', 'hospital_lv', 'o_value', 'e_value']
             df_oe_g['patient_odd_oe'] = df_oe_g['o_value'] / df_oe_g['e_value']
 
             df_g = pd.merge(df_g, df_oe_g, how='left',
-                            on=['area_code', 'hospital_id', 'hospital_name', 'hospital_lv'])
+                            on=['area_code', 'hospital_id', 'hospital_wjw_id', 'hospital_name', 'hospital_lv'])
 
             df_g['years_months'] = self.year + self.month
             df_g['patient_odd_prop'] = round((df_g['patient_odd_count'] / df_g['patient_count']), 4)
@@ -703,10 +702,11 @@ class Output(object):
 
             hospital_df = pd.concat(
                 [hospital_df,
-                 df_g[['area_code', 'years_months', 'hospital_id', 'hospital_name', 'hospital_lv',
+                 df_g[['area_code', 'years_months', 'hospital_id', 'hospital_wjw_id', 'hospital_name', 'hospital_lv',
                        'patient_count', 'patient_odd_oe', 'patient_odd_count',
                        'patient_odd_prop', 'supplies_drug']]
                  ], axis=0)
+        hospital_df['hospital_wjw_id'] = hospital_df['hospital_wjw_id'].str[3:]
         hospital_df['patient_odd_oe'] = round(hospital_df['patient_odd_oe'], 2)
         hospital_df.sort_values(by='patient_odd_oe', ascending=0, inplace=True)
         hospital_df.reset_index(drop=True, inplace=True)
@@ -723,23 +723,23 @@ class Output(object):
         hospital_dept_df = pd.DataFrame()
 
         for i in Output.supplies_drug_dict.keys():
-            df_g = df.groupby(['hospital_id', 'basy_caption', 'basy_yydj', 'discipline_id', 'discipline_name',
+            df_g = df.groupby(['hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj', 'discipline_id', 'discipline_name',
                                'dept_name'])['{}'.format(i)].mean().reset_index(name='cost_mean')
 
-            df_g.columns = ['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id',
+            df_g.columns = ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id',
                             'discipline_name', 'dept_name', 'cost_mean']
 
             df_oe = df[df['{}_odd'.format(i)] == 1].copy()
             df_oe.loc[:, '{}_nor_e_value'.format(i)] = df_oe['{}'.format(i)] / df_oe['{}_odd_nor_oe'.format(i)]
-            df_oe_g = df_oe.groupby(['hospital_id', 'basy_caption', 'basy_yydj', 'discipline_id', 'discipline_name',
+            df_oe_g = df_oe.groupby(['hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj', 'discipline_id', 'discipline_name',
                                      'dept_name']).agg(
                 {'{}'.format(i): 'sum', '{}_nor_e_value'.format(i): 'sum'}).reset_index()
-            df_oe_g.columns = ['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id',
+            df_oe_g.columns = ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id',
                                'discipline_name', 'dept_name', 'o_value', 'e_value']
             df_oe_g['patient_odd_oe'] = df_oe_g['o_value'] / df_oe_g['e_value']
 
             df_g = pd.merge(df_g, df_oe_g, how='left',
-                            on=['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id',
+                            on=['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id',
                                 'discipline_name', 'dept_name'])
 
             df_g['years_months'] = self.year + self.month
@@ -751,8 +751,9 @@ class Output(object):
             df_g = pd.merge(df_g, odd_dept_df, on=['hospital_id', 'discipline_id', 'dept_name'], how='inner')
 
             hospital_dept_df = pd.concat(
-                [hospital_dept_df, df_g[['hospital_id', 'hospital_name', 'years_months', 'discipline_id',
+                [hospital_dept_df, df_g[['hospital_id', 'hospital_wjw_id', 'hospital_name', 'years_months', 'discipline_id',
                                          'discipline_name', 'dept_name', 'patient_odd_oe', 'supplies_drug']]], axis=0)
+        hospital_dept_df['hospital_wjw_id'] = hospital_dept_df['hospital_wjw_id'].str[3:]
         hospital_dept_df['patient_odd_oe'] = round(hospital_dept_df['patient_odd_oe'], 2)
         hospital_dept_df.sort_values(by='patient_odd_oe', ascending=0, inplace=True)
         hospital_dept_df.reset_index(drop=True, inplace=True)
@@ -771,24 +772,24 @@ class Output(object):
 
         for i in Output.supplies_drug_dict.keys():
 
-            df_g = df.groupby(['hospital_id', 'basy_caption', 'basy_yydj', 'discipline_id',
+            df_g = df.groupby(['hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj', 'discipline_id',
                                'discipline_name', 'zzys']).agg(
                 {i: ['mean', 'count'], '{}_odd'.format(i): 'sum'}).reset_index()
 
-            df_g.columns = ['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
+            df_g.columns = ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
                             'doctor_name', 'cost_mean', 'patient_count', 'patient_odd_count']
 
             df_oe = df[df['{}_odd'.format(i)] == 1].copy()
             df_oe.loc[:, '{}_nor_e_value'.format(i)] = df_oe['{}'.format(i)] / df_oe['{}_odd_nor_oe'.format(i)]
-            df_oe_g = df_oe.groupby(['hospital_id', 'basy_caption', 'basy_yydj', 'discipline_id',
+            df_oe_g = df_oe.groupby(['hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj', 'discipline_id',
                                      'discipline_name', 'zzys']).agg(
                 {'{}'.format(i): 'sum', '{}_nor_e_value'.format(i): 'sum'}).reset_index()
-            df_oe_g.columns = ['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
+            df_oe_g.columns = ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
                                'doctor_name', 'o_value', 'e_value']
             df_oe_g['patient_odd_oe'] = df_oe_g['o_value'] / df_oe_g['e_value']
 
             df_g = pd.merge(df_g, df_oe_g, how='left',
-                            on=['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
+                            on=['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
                                 'doctor_name'])
 
             df_g['years_months'] = self.year + self.month
@@ -802,17 +803,17 @@ class Output(object):
             df_g = pd.merge(df_g, odd_doctor_df, on=['hospital_id', 'discipline_id', 'doctor_name'], how='inner')
 
             hospital_doctor_df = pd.concat(
-                [hospital_doctor_df, df_g[['hospital_id', 'hospital_name', 'years_months', 'discipline_id',
+                [hospital_doctor_df, df_g[['hospital_id', 'hospital_wjw_id', 'hospital_name', 'years_months', 'discipline_id',
                                            'discipline_name', 'doctor_name', 'patient_count', 'patient_odd_oe',
                                            'patient_odd_count', 'patient_odd_prop', 'supplies_drug']]], axis=0)
+        hospital_doctor_df['hospital_wjw_id'] = hospital_doctor_df['hospital_wjw_id'].str[3:]
         hospital_doctor_df['patient_odd_oe'] = round(hospital_doctor_df['patient_odd_oe'], 2)
         hospital_doctor_df.sort_values(by='patient_odd_oe', ascending=0, inplace=True)
         hospital_doctor_df.reset_index(drop=True, inplace=True)
         hospital_doctor_df.index = hospital_doctor_df.index + 1
         return hospital_doctor_df
 
-
-def hospital_overview_result(self, df, hospital_df):
+    def hospital_overview_result(self, df, hospital_df):
         """
         按各个医院，各个临床学科统计O/E值，
         O为各个医院，各个临床学科耗材费/药品费/检查检验费/总费用的均值，
@@ -823,11 +824,11 @@ def hospital_overview_result(self, df, hospital_df):
 
         for i in Output.supplies_drug_dict.keys():
 
-            df_g = df.groupby(['hospital_id', 'basy_caption', 'basy_yydj',
+            df_g = df.groupby(['hospital_id', 'basy_yljgid', 'basy_caption', 'basy_yydj',
                                'discipline_id', 'discipline_name']).agg(
                 {i: ['mean', 'count'], '{}_odd'.format(i): 'sum', '{}_oe'.format(i): 'mean'}).reset_index()
 
-            df_g.columns = ['hospital_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
+            df_g.columns = ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'basy_yydj', 'discipline_id', 'discipline_name',
                             'cost_mean', 'patient_count', 'patient_odd_count', 'oe']
 
             df_g['years_months'] = self.year + self.month
@@ -837,13 +838,13 @@ def hospital_overview_result(self, df, hospital_df):
             df_g['supplies_drug'] = Output.supplies_drug_dict[i]
 
             hospital_overview_df = pd.concat(
-                [hospital_overview_df, df_g[['hospital_id', 'hospital_name', 'years_months',
+                [hospital_overview_df, df_g[['hospital_id', 'hospital_wjw_id', 'hospital_name', 'years_months',
                                              'discipline_id', 'discipline_name', 'patient_normal_count',
                                              'patient_odd_count', 'oe', 'ranking', 'extent_count',
                                              'supplies_drug']]], axis=0)
 
         #  discipline_id = 0 时
-        hospital_df = hospital_df.loc[:, ['hospital_id', 'hospital_name', 'years_months', 'patient_count',
+        hospital_df = hospital_df.loc[:, ['hospital_id', 'hospital_wjw_id', 'hospital_name', 'years_months', 'patient_count',
                                           'patient_odd_count', 'patient_odd_oe', 'supplies_drug']]
         hospital_df.rename(columns={'patient_odd_oe': 'oe'}, inplace=True)
         hospital_df['patient_normal_count'] = hospital_df['patient_count'] - hospital_df['patient_odd_count']
@@ -851,15 +852,15 @@ def hospital_overview_result(self, df, hospital_df):
         hospital_df[['discipline_id', 'extent_count']] = 0
 
         hospital_overview_df = pd.concat(
-            [hospital_overview_df, hospital_df[['hospital_id', 'hospital_name', 'years_months',
+            [hospital_overview_df, hospital_df[['hospital_id', 'hospital_wjw_id', 'hospital_name', 'years_months',
                                                 'discipline_id', 'discipline_name', 'patient_normal_count',
                                                 'patient_odd_count', 'oe', 'ranking', 'extent_count',
                                                 'supplies_drug']]], axis=0)
 
+        hospital_overview_df['hospital_wjw_id'] = hospital_overview_df['hospital_wjw_id'].str[3:]
         hospital_overview_df['oe'] = round(hospital_overview_df['oe'], 2)
         hospital_overview_df.sort_values(by='oe', ascending=0, inplace=True)
         hospital_overview_df['ranking'] = range(1, hospital_overview_df.shape[0] + 1, 1)
         hospital_overview_df.reset_index(drop=True, inplace=True)
         hospital_overview_df.index = hospital_overview_df.index + 1
         return hospital_overview_df
-
