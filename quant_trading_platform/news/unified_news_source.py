@@ -18,12 +18,6 @@ try:
 except ImportError:
     EASTMONEY_AVAILABLE = False
 
-try:
-    from .xueqiu_news_source import XueqiuNewsSource
-    XUEQIU_AVAILABLE = True
-except ImportError:
-    XUEQIU_AVAILABLE = False
-
 # 尝试导入新增的新闻源
 try:
     from .tushare_news_source import TuShareNewsSource
@@ -85,18 +79,27 @@ try:
 except ImportError:
     CLS_AVAILABLE = False
 
+try:
+    from .tushare_web_news_source import TushareWebNewsSource
+    TUSHARE_WEB_AVAILABLE = True
+except ImportError:
+    TUSHARE_WEB_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 class UnifiedNewsSource(BaseNewsSource):
     """统一新闻源，聚合多个新闻源"""
     
-    def __init__(self, jin10_api_key: str = "", tushare_token: str = None):
+    def __init__(self, jin10_api_key: str = "", tushare_token: str = None, 
+                 tushare_username: str = None, tushare_password: str = None):
         """
         初始化统一新闻源
         
         Args:
             jin10_api_key: 金十数据API密钥（可选）
             tushare_token: TuShare API token（可选）
+            tushare_username: Tushare账号（可选，用于网页登录）
+            tushare_password: Tushare密码（可选，用于网页登录）
         """
         self.logger = logger
         
@@ -138,14 +141,6 @@ class UnifiedNewsSource(BaseNewsSource):
                 self.sources.append(('东方财富', self.eastmoney))
             except Exception as e:
                 self.logger.warning(f"初始化东方财富数据源失败: {str(e)}")
-        
-        # 雪球
-        if XUEQIU_AVAILABLE:
-            try:
-                self.xueqiu = XueqiuNewsSource()
-                self.sources.append(('雪球', self.xueqiu))
-            except Exception as e:
-                self.logger.warning(f"初始化雪球数据源失败: {str(e)}")
         
         # TuShare
         if TUSHARE_AVAILABLE:
@@ -227,6 +222,19 @@ class UnifiedNewsSource(BaseNewsSource):
             except Exception as e:
                 self.logger.warning(f"初始化财联社数据源失败: {str(e)}")
         
+        # Tushare网页新闻源（聚合多个新闻源）
+        # 如果提供了账号密码，可以启用网页登录方式
+        if TUSHARE_WEB_AVAILABLE and tushare_username and tushare_password:
+            try:
+                self.tushare_web = TushareWebNewsSource(username=tushare_username, password=tushare_password)
+                if self.tushare_web._logged_in:
+                    self.sources.append(('Tushare网页聚合', self.tushare_web))
+                    self.logger.info("Tushare网页新闻源已启用（已登录）")
+                else:
+                    self.logger.warning("Tushare网页新闻源登录失败，已禁用")
+            except Exception as e:
+                self.logger.warning(f"初始化Tushare网页新闻源失败: {str(e)}")
+        
         self.logger.info(f"已初始化 {len(self.sources)} 个新闻源")
     
     def get_stock_news(self, symbol: str, limit: int = 10, industry_keywords: List[str] = None, only_today: bool = True) -> List[Dict]:
@@ -250,13 +258,41 @@ class UnifiedNewsSource(BaseNewsSource):
         for source_name, source in self.sources:
             try:
                 self.logger.debug(f"从 {source_name} 获取 {symbol} 的新闻...")
-                news = source.get_stock_news(symbol, limit // len(self.sources) + 1)
-                for n in news:
-                    n['relevance'] = 'direct'  # 直接相关
-                all_news.extend(news)
-                self.logger.debug(f"从 {source_name} 获取到 {len(news)} 条新闻")
+                
+                # 使用超时控制，避免单个新闻源阻塞整个流程
+                import threading
+                news_result = [None]
+                exception_result = [None]
+                
+                def fetch_news():
+                    try:
+                        news_result[0] = source.get_stock_news(symbol, limit // len(self.sources) + 1)
+                    except Exception as e:
+                        exception_result[0] = e
+                
+                thread = threading.Thread(target=fetch_news, daemon=True)
+                thread.start()
+                thread.join(timeout=30)  # 30秒超时
+                
+                if thread.is_alive():
+                    self.logger.warning(f"从 {source_name} 获取股票新闻超时（>30秒），跳过")
+                    continue
+                
+                if exception_result[0]:
+                    raise exception_result[0]
+                
+                news = news_result[0]
+                
+                if news:
+                    for n in news:
+                        n['relevance'] = 'direct'  # 直接相关
+                    all_news.extend(news)
+                    self.logger.debug(f"从 {source_name} 获取到 {len(news)} 条新闻")
+                else:
+                    self.logger.debug(f"从 {source_name} 未获取到新闻")
             except Exception as e:
                 self.logger.warning(f"从 {source_name} 获取新闻失败: {str(e)}")
+                continue  # 继续下一个新闻源，不中断
         
         # 2. 如果提供了行业关键词，获取行业相关新闻
         if industry_keywords:
@@ -284,34 +320,34 @@ class UnifiedNewsSource(BaseNewsSource):
                 continue
             
             # 如果只获取当天新闻，过滤掉非当天的新闻
+            # 优化：如果没有获取到新闻时间，则不需要存储，避免干扰
+            news_time = news.get('time') or news.get('publish_time') or news.get('pub_time')
+            if not news_time:
+                # 没有时间信息，跳过，不进行存储
+                continue
+            
             if only_today:
-                # 尝试多个时间字段
-                news_time = news.get('time') or news.get('publish_time') or news.get('pub_time')
-                if news_time:
-                    # 处理datetime对象
-                    if isinstance(news_time, datetime):
-                        news_date = news_time.date()
-                    elif isinstance(news_time, str):
-                        try:
-                            # 尝试多种日期格式
-                            if len(news_time) >= 10:
-                                news_date = datetime.strptime(news_time[:10], '%Y-%m-%d').date()
-                            else:
-                                # 如果字符串太短，默认保留（可能是"今天"、"1小时前"等）
-                                news_date = today
-                        except:
-                            # 如果无法解析日期，默认保留（可能是"今天"、"1小时前"等）
+                # 处理datetime对象
+                if isinstance(news_time, datetime):
+                    news_date = news_time.date()
+                elif isinstance(news_time, str):
+                    try:
+                        # 尝试多种日期格式
+                        if len(news_time) >= 10:
+                            news_date = datetime.strptime(news_time[:10], '%Y-%m-%d').date()
+                        else:
+                            # 如果字符串太短，默认保留（可能是"今天"、"1小时前"等）
                             news_date = today
-                    else:
-                        # 其他类型，默认保留
+                    except:
+                        # 如果无法解析日期，默认保留（可能是"今天"、"1小时前"等）
                         news_date = today
-                    
-                    # 只保留当天的新闻
-                    if news_date != today:
-                        continue
                 else:
-                    # 如果没有时间信息，默认保留（可能是实时新闻）
-                    pass
+                    # 其他类型，默认保留
+                    news_date = today
+                
+                # 只保留当天的新闻
+                if news_date != today:
+                    continue
             
             seen_titles.add(title)
             unique_news.append(news)
@@ -352,14 +388,48 @@ class UnifiedNewsSource(BaseNewsSource):
         all_news = []
         today = datetime.now().date()
         
+        # 优化：增大每个新闻源的获取数量，确保有足够的新闻
+        # 原逻辑：limit // len(self.sources) + 1，对于limit=30，6个源，每个只获取6条
+        # 优化后：每个新闻源获取 limit 条，然后去重和限制总数
+        source_limit = max(limit, limit * 2 // max(len(self.sources), 1))  # 至少每个源获取 limit 条，或者 limit*2/源数量
+        
         for source_name, source in self.sources:
             try:
-                self.logger.debug(f"从 {source_name} 获取市场新闻...")
-                news = source.get_market_news(limit // len(self.sources) + 1)
-                all_news.extend(news)
-                self.logger.debug(f"从 {source_name} 获取到 {len(news)} 条新闻")
+                self.logger.debug(f"从 {source_name} 获取市场新闻（限制: {source_limit}条）...")
+                
+                # 使用超时控制，避免单个新闻源阻塞整个流程
+                import threading
+                news_result = [None]
+                exception_result = [None]
+                
+                def fetch_news():
+                    try:
+                        news_result[0] = source.get_market_news(source_limit)
+                    except Exception as e:
+                        exception_result[0] = e
+                
+                thread = threading.Thread(target=fetch_news, daemon=True)
+                thread.start()
+                thread.join(timeout=30)  # 30秒超时
+                
+                if thread.is_alive():
+                    self.logger.warning(f"从 {source_name} 获取新闻超时（>30秒），跳过")
+                    continue
+                
+                if exception_result[0]:
+                    raise exception_result[0]
+                
+                news = news_result[0]
+                
+                if news:
+                    all_news.extend(news)
+                    self.logger.debug(f"从 {source_name} 获取到 {len(news)} 条新闻")
+                else:
+                    self.logger.debug(f"从 {source_name} 未获取到新闻")
             except Exception as e:
                 self.logger.warning(f"从 {source_name} 获取市场新闻失败: {str(e)}")
+                # 不打印完整traceback，避免日志过多
+                continue  # 继续下一个新闻源，不中断
         
         # 去重和过滤当天新闻
         seen_titles = set()
@@ -370,34 +440,34 @@ class UnifiedNewsSource(BaseNewsSource):
                 continue
             
             # 如果只获取当天新闻，过滤掉非当天的新闻
+            # 优化：如果没有获取到新闻时间，则不需要存储，避免干扰
+            news_time = news.get('time') or news.get('publish_time') or news.get('pub_time')
+            if not news_time:
+                # 没有时间信息，跳过，不进行存储
+                continue
+            
             if only_today:
-                # 尝试多个时间字段
-                news_time = news.get('time') or news.get('publish_time') or news.get('pub_time')
-                if news_time:
-                    # 处理datetime对象
-                    if isinstance(news_time, datetime):
-                        news_date = news_time.date()
-                    elif isinstance(news_time, str):
-                        try:
-                            # 尝试多种日期格式
-                            if len(news_time) >= 10:
-                                news_date = datetime.strptime(news_time[:10], '%Y-%m-%d').date()
-                            else:
-                                # 如果字符串太短，默认保留（可能是"今天"、"1小时前"等）
-                                news_date = today
-                        except:
-                            # 如果无法解析日期，默认保留（可能是"今天"、"1小时前"等）
+                # 处理datetime对象
+                if isinstance(news_time, datetime):
+                    news_date = news_time.date()
+                elif isinstance(news_time, str):
+                    try:
+                        # 尝试多种日期格式
+                        if len(news_time) >= 10:
+                            news_date = datetime.strptime(news_time[:10], '%Y-%m-%d').date()
+                        else:
+                            # 如果字符串太短，默认保留（可能是"今天"、"1小时前"等）
                             news_date = today
-                    else:
-                        # 其他类型，默认保留
+                    except:
+                        # 如果无法解析日期，默认保留（可能是"今天"、"1小时前"等）
                         news_date = today
-                    
-                    # 只保留当天的新闻
-                    if news_date != today:
-                        continue
                 else:
-                    # 如果没有时间信息，默认保留（可能是实时新闻）
-                    pass
+                    # 其他类型，默认保留
+                    news_date = today
+                
+                # 只保留当天的新闻
+                if news_date != today:
+                    continue
             
             seen_titles.add(title)
             unique_news.append(news)

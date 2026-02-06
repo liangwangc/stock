@@ -4,8 +4,8 @@
 """
 import sys
 import os
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta, date
+from typing import Dict, List, Optional, Any
 import json
 import itertools
 
@@ -20,6 +20,55 @@ from utils.prediction_config_manager import PredictionConfigManager
 
 logger = get_logger(__name__)
 
+# 全局进度存储（用于实时进度反馈）
+_optimization_progress = {}
+_optimization_progress_lock = None
+
+
+def _convert_to_serializable(obj: Any) -> Any:
+    """
+    将对象转换为可JSON序列化的格式
+    处理 date、datetime 等特殊类型
+    
+    Args:
+        obj: 要转换的对象
+        
+    Returns:
+        可序列化的对象
+    """
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: _convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, set):
+        return [_convert_to_serializable(item) for item in obj]
+    else:
+        return obj
+
+
+def _safe_json_dumps(obj: Any, ensure_ascii: bool = False) -> str:
+    """
+    安全地将对象转换为JSON字符串
+    自动处理 date、datetime 等特殊类型
+    
+    Args:
+        obj: 要转换的对象
+        ensure_ascii: 是否确保ASCII编码
+        
+    Returns:
+        JSON字符串
+    """
+    serializable_obj = _convert_to_serializable(obj)
+    return json.dumps(serializable_obj, ensure_ascii=ensure_ascii)
+
+try:
+    import threading
+    _optimization_progress_lock = threading.Lock()
+except ImportError:
+    pass
+
 
 class ModelOptimizer:
     """模型参数优化器"""
@@ -31,14 +80,18 @@ class ModelOptimizer:
         self.config_manager = PredictionConfigManager()
     
     def optimize_weights_grid_search(self, start_date: str, end_date: str,
-                                    optimization_config: Optional[Dict] = None) -> Dict:
+                                    optimization_config: Optional[Dict] = None,
+                                    progress_id: Optional[str] = None) -> Dict:
         """
-        使用网格搜索优化权重参数
+        使用网格搜索优化权重参数（支持时间序列交叉验证）
         
         Args:
             start_date: 回测开始日期
             end_date: 回测结束日期
             optimization_config: 优化配置
+                - use_cross_validation: 是否使用交叉验证（默认False）
+                - train_ratio: 训练集比例（默认0.8，即80%训练，20%验证）
+                - search_space: 自定义搜索空间
             
         Returns:
             优化结果字典
@@ -54,9 +107,29 @@ class ModelOptimizer:
             
             current_prediction_config = current_config.get('prediction', {})
             
+            # 检查是否使用交叉验证
+            use_cross_validation = optimization_config.get('use_cross_validation', False) if optimization_config else False
+            train_ratio = optimization_config.get('train_ratio', 0.8) if optimization_config else 0.8
+            
+            # 如果使用交叉验证，分割数据
+            if use_cross_validation:
+                # 计算日期范围
+                from datetime import datetime as dt
+                start_dt = dt.strptime(start_date, '%Y-%m-%d')
+                end_dt = dt.strptime(end_date, '%Y-%m-%d')
+                total_days = (end_dt - start_dt).days
+                train_days = int(total_days * train_ratio)
+                
+                train_end_dt = start_dt + timedelta(days=train_days)
+                train_end_date = train_end_dt.strftime('%Y-%m-%d')
+                
+                self.logger.info(f"使用时间序列交叉验证：训练集 {start_date} 到 {train_end_date}，验证集 {train_end_date} 到 {end_date}")
+            else:
+                train_end_date = end_date
+            
             # 定义参数搜索空间
-            if optimization_config:
-                search_space = optimization_config.get('search_space', {})
+            if optimization_config and optimization_config.get('search_space'):
+                search_space = optimization_config.get('search_space')
             else:
                 # 默认搜索空间（围绕当前值±10%）
                 search_space = self._generate_default_search_space(current_prediction_config)
@@ -67,6 +140,7 @@ class ModelOptimizer:
             best_params = None
             best_performance = None
             best_score = float('-inf')
+            best_validation_score = float('-inf') if use_cross_validation else None
             
             all_results = []
             iteration = 0
@@ -77,38 +151,91 @@ class ModelOptimizer:
             
             self.logger.info(f"总共需要测试 {total_combinations} 个参数组合")
             
+            # 初始化进度
+            if progress_id:
+                self._update_progress(progress_id, {
+                    'status': 'running',
+                    'current': 0,
+                    'total': total_combinations,
+                    'percentage': 0.0,
+                    'message': f'开始优化，共 {total_combinations} 个参数组合',
+                    'best_score': None,
+                    'current_score': None
+                })
+            
             for params in param_combinations:
                 iteration += 1
                 
-                # 每10个组合输出一次进度
-                if iteration % 10 == 0 or iteration == 1:
+                # 更新进度（每5个组合更新一次，或第一个和最后一个）
+                if progress_id and (iteration % 5 == 0 or iteration == 1 or iteration == total_combinations):
                     progress_pct = (iteration / total_combinations) * 100
                     self.logger.info(f"优化进度: {iteration}/{total_combinations} ({progress_pct:.1f}%)")
+                    
+                    self._update_progress(progress_id, {
+                        'status': 'running',
+                        'current': iteration,
+                        'total': total_combinations,
+                        'percentage': progress_pct,
+                        'message': f'正在测试参数组合 {iteration}/{total_combinations} ({progress_pct:.1f}%)',
+                        'best_score': best_score if best_score != float('-inf') else None,
+                        'current_score': None
+                    })
                 
-                # 使用该参数组合回测
+                # 在训练集上回测
                 backtest_result = self.backtest_engine.backtest_with_parameters(
-                    start_date, end_date, params
+                    start_date, train_end_date, params
                 )
                 
                 if not backtest_result.get('success'):
                     continue
                 
-                # 计算评分（综合考虑收益率、夏普比率、最大回撤等）
-                score = self._calculate_optimization_score(backtest_result)
+                # 计算训练集评分
+                train_score = self._calculate_optimization_score(backtest_result)
+                
+                # 如果使用交叉验证，在验证集上验证
+                validation_score = None
+                if use_cross_validation:
+                    validation_backtest = self.backtest_engine.backtest_with_parameters(
+                        train_end_date, end_date, params
+                    )
+                    if validation_backtest.get('success'):
+                        validation_score = self._calculate_optimization_score(validation_backtest)
+                        # 使用验证集评分作为主要评分（避免过拟合）
+                        score = validation_score
+                    else:
+                        score = train_score * 0.5  # 验证失败，降低评分
+                else:
+                    score = train_score
                 
                 all_results.append({
                     'parameters': params,
                     'backtest_result': backtest_result,
+                    'train_score': train_score,
+                    'validation_score': validation_score,
                     'score': score
                 })
                 
-                # 更新最佳参数
+                # 更新最佳参数（使用验证集评分或训练集评分）
                 if score > best_score:
                     best_score = score
                     best_params = params
                     best_performance = backtest_result
-                    improvement = ((best_score - current_score) / abs(current_score) * 100) if current_score != 0 else 0
-                    self.logger.info(f"找到更好的参数组合，评分: {score:.4f} (改进: {improvement:.2f}%)")
+                    if use_cross_validation and validation_score is not None:
+                        best_validation_score = validation_score
+                    self.logger.info(f"找到更好的参数组合，评分: {score:.4f} (训练集: {train_score:.4f}, 验证集: {validation_score if validation_score else 'N/A'})")
+                    
+                    # 更新进度（找到更好的参数时）
+                    if progress_id:
+                        progress_pct = (iteration / total_combinations) * 100
+                        self._update_progress(progress_id, {
+                            'status': 'running',
+                            'current': iteration,
+                            'total': total_combinations,
+                            'percentage': progress_pct,
+                            'message': f'找到更好的参数组合！评分: {score:.4f} ({iteration}/{total_combinations})',
+                            'best_score': best_score,
+                            'current_score': None
+                        })
             
             if not best_params:
                 return {
@@ -116,7 +243,19 @@ class ModelOptimizer:
                     'message': '没有找到有效的参数组合'
                 }
             
-            # 获取当前参数的性能（用于对比）
+            # 更新进度：计算当前参数性能
+            if progress_id:
+                self._update_progress(progress_id, {
+                    'status': 'running',
+                    'current': total_combinations,
+                    'total': total_combinations,
+                    'percentage': 95.0,
+                    'message': '正在计算当前参数性能...',
+                    'best_score': best_score if best_score != float('-inf') else None,
+                    'current_score': None
+                })
+            
+            # 获取当前参数的性能（用于对比，在完整数据集上）
             current_backtest = self.backtest_engine.backtest_with_parameters(
                 start_date, end_date, current_prediction_config
             )
@@ -128,6 +267,19 @@ class ModelOptimizer:
             # 判断是否自动应用（改进超过阈值）
             auto_apply_threshold = optimization_config.get('auto_apply_threshold', 5.0) if optimization_config else 5.0  # 默认5%
             should_auto_apply = improvement_pct >= auto_apply_threshold
+            
+            # 更新进度：优化完成
+            if progress_id:
+                self._update_progress(progress_id, {
+                    'status': 'completed',
+                    'current': total_combinations,
+                    'total': total_combinations,
+                    'percentage': 100.0,
+                    'message': f'优化完成！改进: {improvement_pct:.2f}%',
+                    'best_score': best_score,
+                    'current_score': current_score,
+                    'improvement_pct': improvement_pct
+                })
             
             # 保存优化历史
             optimization_record = {
@@ -162,7 +314,21 @@ class ModelOptimizer:
                 except Exception as e:
                     self.logger.warning(f"自动应用优化参数时出错: {str(e)}")
             
-            return {
+            # 提取权重信息（用于前端展示）
+            best_weights = {}
+            current_weights = {}
+            
+            # 提取best_params中的权重
+            for key in best_params:
+                if key.endswith('_weight'):
+                    best_weights[key] = best_params[key]
+            
+            # 提取current_prediction_config中的权重
+            for key in current_prediction_config:
+                if key.endswith('_weight'):
+                    current_weights[key] = current_prediction_config[key]
+            
+            result = {
                 'success': True,
                 'optimization_id': optimization_record_id,
                 'best_parameters': best_params,
@@ -172,17 +338,307 @@ class ModelOptimizer:
                 'improvement_pct': round(improvement_pct, 2),
                 'is_auto_applied': should_auto_apply,  # 是否已自动应用
                 'total_combinations_tested': total_combinations,
-                'all_results': sorted(all_results, key=lambda x: x['score'], reverse=True)[:10]  # 返回前10个最佳结果
+                'all_results': sorted(all_results, key=lambda x: x['score'], reverse=True)[:10],  # 返回前10个最佳结果
+                'optimization_method': 'grid_search',
+                'best_weights': best_weights,  # 最优权重（用于前端展示）
+                'current_weights': current_weights  # 当前权重（用于前端展示）
             }
+            
+            # 如果使用了交叉验证，添加验证集信息
+            if use_cross_validation:
+                result['use_cross_validation'] = True
+                result['train_ratio'] = train_ratio
+                result['best_validation_score'] = round(best_validation_score, 4) if best_validation_score is not None else None
+            
+            # 清理进度（延迟清理，给前端时间获取最终结果）
+            if progress_id:
+                try:
+                    import threading
+                    def cleanup_progress():
+                        import time
+                        time.sleep(5)  # 5秒后清理
+                        self._clear_progress(progress_id)
+                    threading.Thread(target=cleanup_progress, daemon=True).start()
+                except Exception as e:
+                    self.logger.debug(f"清理进度失败: {str(e)}")
+            
+            return result
             
         except Exception as e:
             self.logger.error(f"参数优化失败: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
+            
+            # 更新进度：失败
+            if progress_id:
+                self._update_progress(progress_id, {
+                    'status': 'failed',
+                    'current': iteration if 'iteration' in locals() else 0,
+                    'total': total_combinations if 'total_combinations' in locals() else 0,
+                    'percentage': 0.0,
+                    'message': f'优化失败: {str(e)}',
+                    'error': str(e)
+                })
+            
             return {
                 'success': False,
-                'message': f'优化失败: {str(e)}'
+                'message': f'参数优化失败: {str(e)}'
             }
+    
+    def _update_progress(self, progress_id: str, progress_data: Dict):
+        """更新优化进度"""
+        global _optimization_progress, _optimization_progress_lock
+        
+        if _optimization_progress_lock:
+            with _optimization_progress_lock:
+                _optimization_progress[progress_id] = {
+                    **progress_data,
+                    'update_time': datetime.now().isoformat()
+                }
+        else:
+            _optimization_progress[progress_id] = {
+                **progress_data,
+                'update_time': datetime.now().isoformat()
+            }
+    
+    def _clear_progress(self, progress_id: str):
+        """清理优化进度"""
+        global _optimization_progress, _optimization_progress_lock
+        
+        if _optimization_progress_lock:
+            with _optimization_progress_lock:
+                if progress_id in _optimization_progress:
+                    del _optimization_progress[progress_id]
+        else:
+            if progress_id in _optimization_progress:
+                del _optimization_progress[progress_id]
+    
+    @staticmethod
+    def get_progress(progress_id: str) -> Optional[Dict]:
+        """获取优化进度"""
+        global _optimization_progress
+        
+        return _optimization_progress.get(progress_id)
+    
+    def optimize_weights_bayesian(self, start_date: str, end_date: str,
+                                  optimization_config: Optional[Dict] = None) -> Dict:
+        """
+        使用贝叶斯优化优化权重参数（如果scikit-optimize可用）
+        
+        Args:
+            start_date: 回测开始日期
+            end_date: 回测结束日期
+            optimization_config: 优化配置
+                - n_calls: 评估次数（默认100）
+                - use_cross_validation: 是否使用交叉验证
+            
+        Returns:
+            优化结果字典
+        """
+        try:
+            # 尝试导入scikit-optimize
+            try:
+                from skopt import gp_minimize
+                from skopt.space import Real
+                from skopt.utils import use_named_args
+                BAYESIAN_AVAILABLE = True
+            except ImportError:
+                BAYESIAN_AVAILABLE = False
+                self.logger.warning("scikit-optimize未安装，无法使用贝叶斯优化，回退到网格搜索")
+                return self.optimize_weights_grid_search(start_date, end_date, optimization_config)
+            
+            # 获取当前参数
+            current_config = self.config_manager.get_config()
+            if not current_config:
+                return {
+                    'success': False,
+                    'message': '无法获取当前配置'
+                }
+            
+            current_prediction_config = current_config.get('prediction', {})
+            
+            # 检查是否使用交叉验证
+            use_cross_validation = optimization_config.get('use_cross_validation', False) if optimization_config else False
+            train_ratio = optimization_config.get('train_ratio', 0.8) if optimization_config else 0.8
+            n_calls = optimization_config.get('n_calls', 100) if optimization_config else 100
+            
+            # 如果使用交叉验证，分割数据
+            if use_cross_validation:
+                from datetime import datetime as dt
+                start_dt = dt.strptime(start_date, '%Y-%m-%d')
+                end_dt = dt.strptime(end_date, '%Y-%m-%d')
+                total_days = (end_dt - start_dt).days
+                train_days = int(total_days * train_ratio)
+                
+                train_end_dt = start_dt + timedelta(days=train_days)
+                train_end_date = train_end_dt.strftime('%Y-%m-%d')
+                
+                self.logger.info(f"使用时间序列交叉验证：训练集 {start_date} 到 {train_end_date}，验证集 {train_end_date} 到 {end_date}")
+            else:
+                train_end_date = end_date
+            
+            # 定义搜索空间（使用Real类型，连续值）
+            dimensions = []
+            param_names = []
+            
+            # 核心权重参数
+            core_params = {
+                'news_weight': (0.15, 0.30),
+                'capital_flow_weight': (0.12, 0.25),
+                'market_weight': (0.12, 0.25),
+                'technical_weight': (0.15, 0.30)
+            }
+            
+            # 辅助权重参数
+            # 【已优化移除】以下三个因子已从预测模型中移除：sector_rotation_weight, us_sector_weight, valuation_weight
+            auxiliary_params = {
+                'history_weight': (0.05, 0.15)
+            }
+            
+            # 添加所有参数到搜索空间
+            for param_name, (min_val, max_val) in {**core_params, **auxiliary_params}.items():
+                dimensions.append(Real(min_val, max_val, name=param_name))
+                param_names.append(param_name)
+            
+            # 定义目标函数（负评分，因为gp_minimize是最小化）
+            @use_named_args(dimensions=dimensions)
+            def objective(**params):
+                # 归一化权重
+                total_weight = sum(params.values())
+                if total_weight > 0:
+                    normalized_params = {k: v / total_weight for k, v in params.items()}
+                else:
+                    normalized_params = params
+                
+                # 在训练集上回测
+                backtest_result = self.backtest_engine.backtest_with_parameters(
+                    start_date, train_end_date, normalized_params
+                )
+                
+                if not backtest_result.get('success'):
+                    return 1000.0  # 返回很大的值（表示很差）
+                
+                # 计算评分
+                train_score = self._calculate_optimization_score(backtest_result)
+                
+                # 如果使用交叉验证，在验证集上验证
+                if use_cross_validation:
+                    validation_backtest = self.backtest_engine.backtest_with_parameters(
+                        train_end_date, end_date, normalized_params
+                    )
+                    if validation_backtest.get('success'):
+                        validation_score = self._calculate_optimization_score(validation_backtest)
+                        # 使用验证集评分（避免过拟合）
+                        score = validation_score
+                    else:
+                        score = train_score * 0.5
+                else:
+                    score = train_score
+                
+                # 返回负评分（因为gp_minimize是最小化）
+                return -score
+            
+            self.logger.info(f"开始贝叶斯优化，评估次数: {n_calls}")
+            
+            # 执行贝叶斯优化
+            result = gp_minimize(
+                func=objective,
+                dimensions=dimensions,
+                n_calls=n_calls,
+                random_state=42,
+                n_initial_points=10  # 初始随机采样点数
+            )
+            
+            # 提取最佳参数
+            best_params_dict = dict(zip(param_names, result.x))
+            
+            # 归一化权重
+            total_weight = sum(best_params_dict.values())
+            if total_weight > 0:
+                best_params = {k: v / total_weight for k, v in best_params_dict.items()}
+            else:
+                best_params = best_params_dict
+            
+            best_score = -result.fun  # 取负号（因为返回的是负评分）
+            
+            # 在完整数据集上回测最佳参数
+            best_backtest = self.backtest_engine.backtest_with_parameters(
+                start_date, end_date, best_params
+            )
+            
+            if not best_backtest.get('success'):
+                return {
+                    'success': False,
+                    'message': '最佳参数回测失败'
+                }
+            
+            # 获取当前参数的性能
+            current_backtest = self.backtest_engine.backtest_with_parameters(
+                start_date, end_date, current_prediction_config
+            )
+            current_score = self._calculate_optimization_score(current_backtest) if current_backtest.get('success') else 0
+            
+            # 计算改进百分比
+            improvement_pct = ((best_score - current_score) / abs(current_score) * 100) if current_score != 0 else 0
+            
+            # 判断是否自动应用
+            auto_apply_threshold = optimization_config.get('auto_apply_threshold', 5.0) if optimization_config else 5.0
+            should_auto_apply = improvement_pct >= auto_apply_threshold
+            
+            # 保存优化历史
+            optimization_record = {
+                'optimization_date': datetime.now(),
+                'optimization_method': 'bayesian',
+                'old_parameters': current_prediction_config,
+                'new_parameters': best_params,
+                'old_performance': current_backtest.get('metrics', {}) if current_backtest.get('success') else {},
+                'new_performance': best_backtest.get('metrics', {}) if best_backtest else {},
+                'improvement_pct': round(improvement_pct, 2),
+                'is_applied': 1 if should_auto_apply else 0,
+                'backtest_result': best_backtest,
+                'optimization_config': optimization_config or {}
+            }
+            
+            optimization_record_id = self._save_optimization_history(optimization_record)
+            
+            # 如果改进超过阈值，自动应用优化参数
+            if should_auto_apply:
+                try:
+                    from utils.model_parameter_updater import ModelParameterUpdater
+                    updater = ModelParameterUpdater()
+                    apply_result = updater.apply_optimized_parameters(
+                        optimization_id=optimization_record_id,
+                        user_id=None,
+                        force=False
+                    )
+                    if apply_result.get('success'):
+                        self.logger.info(f"优化参数已自动应用（改进 {improvement_pct:.2f}% >= {auto_apply_threshold}%）")
+                    else:
+                        self.logger.warning(f"优化参数自动应用失败: {apply_result.get('message', '未知错误')}")
+                except Exception as e:
+                    self.logger.warning(f"自动应用优化参数时出错: {str(e)}")
+            
+            return {
+                'success': True,
+                'optimization_id': optimization_record_id,
+                'best_parameters': best_params,
+                'best_performance': best_backtest,
+                'best_score': round(best_score, 4),
+                'current_score': round(current_score, 4),
+                'improvement_pct': round(improvement_pct, 2),
+                'is_auto_applied': should_auto_apply,
+                'total_evaluations': n_calls,
+                'optimization_method': 'bayesian',
+                'use_cross_validation': use_cross_validation
+            }
+            
+        except Exception as e:
+            self.logger.error(f"贝叶斯优化失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            # 如果贝叶斯优化失败，回退到网格搜索
+            self.logger.info("回退到网格搜索优化")
+            return self.optimize_weights_grid_search(start_date, end_date, optimization_config)
     
     def _generate_default_search_space(self, current_config: Dict) -> Dict:
         """
@@ -190,7 +646,7 @@ class ModelOptimizer:
         
         优化策略：
         1. 核心权重（news, capital_flow, market, technical）使用较小步长（3%）
-        2. 辅助权重（sector_rotation, history, us_sector, valuation）使用较大步长（5%）
+        2. 辅助权重（history）使用较大步长（5%）
         3. 减少搜索空间大小，提高优化效率
         """
         search_space = {}
@@ -201,9 +657,9 @@ class ModelOptimizer:
         ]
         
         # 辅助权重参数（使用较大步长，快速搜索）
+        # 【已优化移除】以下三个因子已从预测模型中移除：sector_rotation_weight, us_sector_weight, valuation_weight
         auxiliary_weight_params = [
-            'sector_rotation_weight', 'history_weight',
-            'us_sector_weight', 'valuation_weight'
+            'history_weight'
         ]
         
         # 生成核心权重搜索空间（当前值±15%，步长3%）
@@ -333,14 +789,14 @@ class ModelOptimizer:
             params = (
                 record.get('optimization_date'),
                 record.get('optimization_method'),
-                json.dumps(record.get('old_parameters', {}), ensure_ascii=False),
-                json.dumps(record.get('new_parameters', {}), ensure_ascii=False),
-                json.dumps(record.get('old_performance', {}), ensure_ascii=False),
-                json.dumps(record.get('new_performance', {}), ensure_ascii=False),
+                _safe_json_dumps(record.get('old_parameters', {}), ensure_ascii=False),
+                _safe_json_dumps(record.get('new_parameters', {}), ensure_ascii=False),
+                _safe_json_dumps(record.get('old_performance', {}), ensure_ascii=False),
+                _safe_json_dumps(record.get('new_performance', {}), ensure_ascii=False),
                 record.get('improvement_pct'),
                 record.get('is_applied', 0),
-                json.dumps(record.get('backtest_result', {}), ensure_ascii=False),
-                json.dumps(record.get('optimization_config', {}), ensure_ascii=False)
+                _safe_json_dumps(record.get('backtest_result', {}), ensure_ascii=False),
+                _safe_json_dumps(record.get('optimization_config', {}), ensure_ascii=False)
             )
             
             cursor = conn.cursor()

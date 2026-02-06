@@ -81,6 +81,15 @@ class RealtimeTradingAdvisor:
         self._cache_lock = threading.Lock()  # 线程安全锁
         self._default_cache_duration = 600  # 默认缓存10分钟（600秒）
         
+        # 实时数据缓存（价格、资金流向、买卖盘等）
+        # 格式: {symbol: {'realtime_data': {...}, 'timestamp': datetime}}
+        self._realtime_data_cache = {}
+        self._realtime_cache_lock = threading.Lock()  # 线程安全锁
+        self._realtime_cache_duration = 10  # 实时数据缓存10秒（默认值，会从配置加载）
+        
+        # 从配置加载缓存参数
+        self._load_cache_config()
+        
         # 交易决策配置（从 config.py 读取，如果不可用则使用默认值）
         try:
             config_spec = importlib.util.spec_from_file_location(
@@ -187,9 +196,16 @@ class RealtimeTradingAdvisor:
             'success': False
         }
         
-        # 2. 获取实时行情（带数据质量检查）
+        # 2. 获取实时行情（带数据质量检查）- 使用缓存优化
         self.logger.info("\n步骤1: 获取实时行情数据...")
-        realtime_quote = self.data_source.get_realtime_quote(symbol)
+        # 使用缓存的实时数据（缓存时长10秒）
+        cached_realtime_data = self._get_cached_realtime_data(symbol, force_refresh=False)
+        
+        if cached_realtime_data:
+            realtime_quote = cached_realtime_data.get('realtime_quote')
+        else:
+            # 如果缓存获取失败，直接调用API
+            realtime_quote = self.data_source.get_realtime_quote(symbol)
         
         if not realtime_quote:
             result['message'] = '无法获取实时行情数据'
@@ -228,7 +244,18 @@ class RealtimeTradingAdvisor:
         
         # 3. 执行预测分析（预测明天走势）- 使用缓存优化
         self.logger.info("\n步骤2: 执行预测分析（预测明天走势）...")
+        # 先获取预测结果（用于判断市场状态）
         prediction_result = self._get_cached_prediction(symbol, force_refresh=False)
+        
+        # 如果预测结果不存在，使用默认市场状态
+        if prediction_result and prediction_result.get('success'):
+            market_state = prediction_result.get('market_state', {}).get('state', 'normal')
+            # 如果缓存已过期，使用动态缓存时长重新获取
+            if not prediction_result:
+                prediction_result = self._get_cached_prediction(symbol, force_refresh=False, market_state=market_state)
+        else:
+            # 如果预测失败，使用默认缓存时长
+            prediction_result = self._get_cached_prediction(symbol, force_refresh=False, market_state='normal')
         
         if not prediction_result or not prediction_result.get('success', False):
             result['message'] = '预测分析失败'
@@ -247,9 +274,12 @@ class RealtimeTradingAdvisor:
         self.logger.info(f"下跌概率: {prediction_result['down_probability']:.1%}")
         self.logger.info(f"置信度: {prediction_result['confidence']:.1%}")
         
-        # 4. 获取实时资金流向
+        # 4. 获取实时资金流向（使用缓存）
         self.logger.info("\n步骤3: 分析实时资金流向...")
-        capital_flow = self.data_source.get_realtime_capital_flow(symbol)
+        if cached_realtime_data:
+            capital_flow = cached_realtime_data.get('capital_flow')
+        else:
+            capital_flow = self.data_source.get_realtime_capital_flow(symbol)
         result['capital_flow'] = capital_flow
         
         if capital_flow:
@@ -257,9 +287,12 @@ class RealtimeTradingAdvisor:
             main_inflow = capital_flow.get('main_net_inflow', 0)
             self.logger.info(f"主力净流入: {main_inflow/10000:.2f}万元" if main_inflow else "主力净流入: 数据不可用")
         
-        # 5. 分析买卖盘
+        # 5. 分析买卖盘（使用缓存）
         self.logger.info("\n步骤4: 分析买卖盘...")
-        bid_ask = self.data_source.get_bid_ask_data(symbol)
+        if cached_realtime_data:
+            bid_ask = cached_realtime_data.get('bid_ask')
+        else:
+            bid_ask = self.data_source.get_bid_ask_data(symbol)
         result['bid_ask'] = bid_ask
         
         bid_ask_score = self._analyze_bid_ask(bid_ask)
@@ -578,21 +611,85 @@ class RealtimeTradingAdvisor:
         
         return result
     
+    def _load_cache_config(self):
+        """
+        从配置加载缓存参数（优化：复用StockPredictor的配置管理器）
+        
+        注意：PredictionConfigManager 是单例且有缓存机制，重复调用影响不大。
+        如果predictor已初始化，尝试复用其配置管理器；否则创建新实例（单例模式，实际是同一个实例）。
+        """
+        try:
+            # 优化：如果predictor已初始化，复用其配置管理器（避免重复创建，但单例模式下实际是同一个实例）
+            if hasattr(self, 'predictor') and hasattr(self.predictor, '_config_manager') and self.predictor._config_manager:
+                config_manager = self.predictor._config_manager
+            else:
+                from utils.prediction_config_manager import PredictionConfigManager
+                config_manager = PredictionConfigManager()  # 单例模式，实际是同一个实例
+            
+            active_config = config_manager.get_config()
+            
+            if active_config and active_config.get('performance'):
+                perf_config = active_config['performance']
+                # 缓存时长从分钟转换为秒
+                self._cache_min_duration = perf_config.get('prediction_cache_min_duration', 5) * 60
+                self._cache_max_duration = perf_config.get('prediction_cache_max_duration', 15) * 60
+                self._realtime_cache_duration = perf_config.get('realtime_data_cache_duration', 10)
+            else:
+                # 使用默认值
+                self._cache_min_duration = 5 * 60  # 5分钟
+                self._cache_max_duration = 15 * 60  # 15分钟
+                self._realtime_cache_duration = 10  # 10秒
+        except Exception as e:
+            self.logger.warning(f"加载缓存配置失败，使用默认值: {str(e)}")
+            self._cache_min_duration = 5 * 60
+            self._cache_max_duration = 15 * 60
+            self._realtime_cache_duration = 10
+    
+    def _get_cache_duration(self, market_state: str = None) -> int:
+        """
+        根据市场状态返回缓存时长（从配置读取）
+        
+        Args:
+            market_state: 市场状态
+                - 预测结果中的状态：'bull_market'（牛市）, 'bear_market'（熊市）, 'sideways'（震荡市）
+                - 或波动状态：'high_volatility'（高波动）, 'normal'（正常）, 'low_volatility'（低波动）
+        
+        Returns:
+            缓存时长（秒）
+        """
+        # 转换预测结果的市场状态到波动状态（用于缓存时长调整）
+        if market_state:
+            # 牛市和熊市通常波动较大，使用较短缓存时长
+            if market_state == 'bull_market' or market_state == 'bear_market':
+                return self._cache_min_duration  # 高波动：使用最小缓存时长（5分钟）
+            # 震荡市波动较小，使用较长缓存时长
+            elif market_state == 'sideways':
+                return self._cache_max_duration  # 低波动：使用最大缓存时长（15分钟）
+            # 直接使用波动状态
+            elif market_state == 'high_volatility':
+                return self._cache_min_duration  # 高波动：使用最小缓存时长
+            elif market_state == 'low_volatility':
+                return self._cache_max_duration  # 低波动：使用最大缓存时长
+        
+        # 默认：正常状态，使用中间值
+        return (self._cache_min_duration + self._cache_max_duration) // 2  # 正常：使用中间值（10分钟）
+    
     def _get_cached_prediction(self, symbol: str, force_refresh: bool = False, 
-                                cache_duration: int = None) -> Optional[Dict]:
+                                cache_duration: int = None, market_state: str = None) -> Optional[Dict]:
         """
         获取缓存的预测结果，如果缓存不存在或已过期，则执行新的预测
         
         Args:
             symbol: 股票代码
             force_refresh: 是否强制刷新（忽略缓存）
-            cache_duration: 缓存时长（秒），默认使用 self._default_cache_duration
+            cache_duration: 缓存时长（秒），如果为None则根据市场状态动态计算
+            market_state: 市场状态（用于动态调整缓存时长）
         
         Returns:
             预测结果字典，如果失败返回None
         """
         if cache_duration is None:
-            cache_duration = self._default_cache_duration
+            cache_duration = self._get_cache_duration(market_state)
         
         with self._cache_lock:
             # 检查缓存是否存在且未过期
@@ -631,6 +728,67 @@ class RealtimeTradingAdvisor:
                     return None
             except Exception as e:
                 self.logger.error(f"执行预测时发生异常: {str(e)}")
+                return None
+    
+    def _get_cached_realtime_data(self, symbol: str, force_refresh: bool = False) -> Optional[Dict]:
+        """
+        获取缓存的实时数据（价格、资金流向、买卖盘等），如果缓存不存在或已过期，则获取新数据
+        
+        Args:
+            symbol: 股票代码
+            force_refresh: 是否强制刷新（忽略缓存）
+        
+        Returns:
+            实时数据字典，包含：
+            - realtime_quote: 实时行情
+            - capital_flow: 资金流向
+            - bid_ask: 买卖盘数据
+            如果失败返回None
+        """
+        with self._realtime_cache_lock:
+            # 检查缓存是否存在且未过期
+            if not force_refresh and symbol in self._realtime_data_cache:
+                cached_data = self._realtime_data_cache[symbol]
+                cache_time = cached_data.get('timestamp')
+                
+                if cache_time:
+                    age_seconds = (datetime.now() - cache_time).total_seconds()
+                    if age_seconds < self._realtime_cache_duration:
+                        # 缓存有效，返回缓存结果
+                        self.logger.debug(f"使用缓存的实时数据: {symbol}（缓存年龄: {age_seconds:.1f}秒）")
+                        return cached_data.get('realtime_data')
+                    else:
+                        # 缓存已过期，删除
+                        del self._realtime_data_cache[symbol]
+            
+            # 缓存不存在或已过期，获取新数据
+            try:
+                self.logger.debug(f"获取新的实时数据: {symbol}")
+                realtime_data = {}
+                
+                # 获取实时行情
+                realtime_quote = self.data_source.get_realtime_quote(symbol)
+                realtime_data['realtime_quote'] = realtime_quote
+                
+                # 获取资金流向
+                capital_flow = self.data_source.get_realtime_capital_flow(symbol)
+                realtime_data['capital_flow'] = capital_flow
+                
+                # 获取买卖盘数据
+                bid_ask = self.data_source.get_bid_ask_data(symbol)
+                realtime_data['bid_ask'] = bid_ask
+                
+                # 保存到缓存
+                self._realtime_data_cache[symbol] = {
+                    'realtime_data': realtime_data,
+                    'timestamp': datetime.now()
+                }
+                
+                self.logger.debug(f"实时数据已缓存: {symbol}（缓存时长: {self._realtime_cache_duration}秒）")
+                return realtime_data
+                
+            except Exception as e:
+                self.logger.error(f"获取实时数据时发生异常: {str(e)}")
                 return None
     
     def clear_prediction_cache(self, symbol: str = None):

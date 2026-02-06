@@ -20,6 +20,42 @@ from utils.db_connection import DatabaseConnection
 logger = get_logger(__name__)
 
 
+def clean_nan_value(value):
+    """
+    清理NaN值，将NaN/None转换为None（MySQL兼容）
+    
+    Args:
+        value: 要清理的值
+    
+    Returns:
+        清理后的值（NaN转换为None）
+    """
+    if value is None:
+        return None
+    
+    # 处理pandas/numpy的NaN值
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    
+    # 处理numpy的NaN值
+    try:
+        if isinstance(value, (float, np.floating)):
+            if np.isnan(value):
+                return None
+    except (TypeError, ValueError):
+        pass
+    
+    # 处理字符串形式的NaN
+    if isinstance(value, str):
+        if value.lower() in ['nan', 'none', '']:
+            return None
+    
+    return value
+
+
 class StockHistoryStorage:
     """股票历史数据存储管理器"""
     
@@ -101,7 +137,7 @@ class StockHistoryStorage:
                     VALUES 
                     (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                     %s, %s, %s, %s, %s, %s, %s, %s)
+                     %s, %s, %s, %s, %s, %s, %s)
                 """
                 update_sql = """
                     ON DUPLICATE KEY UPDATE
@@ -262,81 +298,81 @@ class StockHistoryStorage:
                 # 实时数据：全量字段（58个参数）
                 params = (
                     str(symbol).zfill(6),
-                    data.get('name'),
+                    clean_nan_value(data.get('name')),
                     date,
                     period_type,
-                    data.get('open_price'),
-                    data.get('close_price'),
-                    data.get('high_price'),
-                    data.get('low_price'),
-                    data.get('pre_close'),
-                    data.get('change_amount'),
-                    data.get('change_pct'),
-                    data.get('volume'),
-                    data.get('amount'),
-                    data.get('turnover_rate'),  # 实时数据可用
-                    data.get('volume_ratio'),
-                    data.get('outer_volume'),  # 实时数据可用
-                    data.get('inner_volume'),  # 实时数据可用
-                    data.get('bid_ask_ratio'),  # 实时数据可用
+                    clean_nan_value(data.get('open_price')),
+                    clean_nan_value(data.get('close_price')),
+                    clean_nan_value(data.get('high_price')),
+                    clean_nan_value(data.get('low_price')),
+                    clean_nan_value(data.get('pre_close')),
+                    clean_nan_value(data.get('change_amount')),
+                    clean_nan_value(data.get('change_pct')),
+                    clean_nan_value(data.get('volume')),
+                    clean_nan_value(data.get('amount')),
+                    clean_nan_value(data.get('turnover_rate')),  # 实时数据可用
+                    clean_nan_value(data.get('volume_ratio')),
+                    clean_nan_value(data.get('outer_volume')),  # 实时数据可用
+                    clean_nan_value(data.get('inner_volume')),  # 实时数据可用
+                    clean_nan_value(data.get('bid_ask_ratio')),  # 实时数据可用
                     bid_levels_json,  # 实时数据可用
                     ask_levels_json,  # 实时数据可用
-                    data.get('bid_total_volume'),  # 实时数据可用
-                    data.get('ask_total_volume'),  # 实时数据可用
+                    clean_nan_value(data.get('bid_total_volume')),  # 实时数据可用
+                    clean_nan_value(data.get('ask_total_volume')),  # 实时数据可用
                     cost_distribution_json,
                     cost_distribution_history_json,
                     cost_distribution_intraday_json,  # 实时数据可用
-                    data.get('total_market_cap'),  # 实时数据可用
-                    data.get('float_market_cap'),  # 实时数据可用
-                    data.get('pe_ratio'),
-                    data.get('pb_ratio'),
-                    data.get('limit_up'),
-                    data.get('limit_down'),
-                    data.get('limit_pct'),
+                    clean_nan_value(data.get('total_market_cap')),  # 实时数据可用
+                    clean_nan_value(data.get('float_market_cap')),  # 实时数据可用
+                    clean_nan_value(data.get('pe_ratio')),
+                    clean_nan_value(data.get('pb_ratio')),
+                    clean_nan_value(data.get('limit_up')),
+                    clean_nan_value(data.get('limit_down')),
+                    clean_nan_value(data.get('limit_pct')),
                     1 if data.get('is_limit_up', False) else 0,
                     1 if data.get('is_limit_down', False) else 0,
-                    data.get('amplitude'),
-                    data.get('price_range'),
-                    data.get('ma5'),
-                    data.get('ma10'),
-                    data.get('ma20'),
-                    data.get('ma60'),
-                    data.get('rsi'),
-                    data.get('x2'),
-                    data.get('macd'),
-                    data.get('macd_signal'),
-                    data.get('macd_hist'),
-                    data.get('main_net_inflow'),  # 实时数据可用
-                    data.get('super_large_inflow'),  # 实时数据可用
-                    data.get('large_inflow'),  # 实时数据可用
-                    data.get('medium_inflow'),  # 实时数据可用
-                    data.get('small_inflow'),  # 实时数据可用
-                    data.get('margin_balance'),
-                    data.get('short_balance'),
-                    data.get('margin_ratio'),
+                    clean_nan_value(data.get('amplitude')),
+                    clean_nan_value(data.get('price_range')),
+                    clean_nan_value(data.get('ma5')),
+                    clean_nan_value(data.get('ma10')),
+                    clean_nan_value(data.get('ma20')),
+                    clean_nan_value(data.get('ma60')),
+                    clean_nan_value(data.get('rsi')),
+                    clean_nan_value(data.get('x2')),
+                    clean_nan_value(data.get('macd')),
+                    clean_nan_value(data.get('macd_signal')),
+                    clean_nan_value(data.get('macd_hist')),
+                    clean_nan_value(data.get('main_net_inflow')),  # 实时数据可用
+                    clean_nan_value(data.get('super_large_inflow')),  # 实时数据可用
+                    clean_nan_value(data.get('large_inflow')),  # 实时数据可用
+                    clean_nan_value(data.get('medium_inflow')),  # 实时数据可用
+                    clean_nan_value(data.get('small_inflow')),  # 实时数据可用
+                    clean_nan_value(data.get('margin_balance')),
+                    clean_nan_value(data.get('short_balance')),
+                    clean_nan_value(data.get('margin_ratio')),
                     extra_data_json,
                     data.get('data_source', 'akshare'),
-                    data.get('data_quality_score', 1.0),
+                    clean_nan_value(data.get('data_quality_score', 1.0)),
                     1 if data.get('is_valid', True) else 0
                 )
             else:
                 # 历史数据：优化后的字段（41个参数）
                 params = (
                     str(symbol).zfill(6),
-                    data.get('name'),
+                    clean_nan_value(data.get('name')),
                     date,
                     period_type,
-                    data.get('open_price'),
-                    data.get('close_price'),
-                    data.get('high_price'),
-                    data.get('low_price'),
-                    data.get('pre_close'),
-                    data.get('change_amount'),
-                    data.get('change_pct'),
-                    data.get('volume'),
-                    data.get('amount'),
+                    clean_nan_value(data.get('open_price')),
+                    clean_nan_value(data.get('close_price')),
+                    clean_nan_value(data.get('high_price')),
+                    clean_nan_value(data.get('low_price')),
+                    clean_nan_value(data.get('pre_close')),
+                    clean_nan_value(data.get('change_amount')),
+                    clean_nan_value(data.get('change_pct')),
+                    clean_nan_value(data.get('volume')),
+                    clean_nan_value(data.get('amount')),
                     # data.get('turnover_rate'),  # 历史数据不可用：需要流通股本数据，历史数据通常不可用
-                    data.get('volume_ratio'),
+                    clean_nan_value(data.get('volume_ratio')),
                     # data.get('outer_volume'),  # 历史数据不可用：盘口数据是实时数据，历史数据不可用
                     # data.get('inner_volume'),  # 历史数据不可用：盘口数据是实时数据，历史数据不可用
                     # data.get('bid_ask_ratio'),  # 历史数据不可用：盘口数据是实时数据，历史数据不可用
@@ -349,35 +385,35 @@ class StockHistoryStorage:
                     # cost_distribution_intraday_json,  # 历史数据不可用：当日成本分布历史数据不可用
                     # data.get('total_market_cap'),  # 历史数据不可用：市值数据历史数据通常不可用
                     # data.get('float_market_cap'),  # 历史数据不可用：市值数据历史数据通常不可用
-                    data.get('pe_ratio'),
-                    data.get('pb_ratio'),
-                    data.get('limit_up'),
-                    data.get('limit_down'),
-                    data.get('limit_pct'),
+                    clean_nan_value(data.get('pe_ratio')),
+                    clean_nan_value(data.get('pb_ratio')),
+                    clean_nan_value(data.get('limit_up')),
+                    clean_nan_value(data.get('limit_down')),
+                    clean_nan_value(data.get('limit_pct')),
                     1 if data.get('is_limit_up', False) else 0,
                     1 if data.get('is_limit_down', False) else 0,
-                    data.get('amplitude'),
-                    data.get('price_range'),
-                    data.get('ma5'),
-                    data.get('ma10'),
-                    data.get('ma20'),
-                    data.get('ma60'),
-                    data.get('rsi'),
-                    data.get('x2'),
-                    data.get('macd'),
-                    data.get('macd_signal'),
-                    data.get('macd_hist'),
+                    clean_nan_value(data.get('amplitude')),
+                    clean_nan_value(data.get('price_range')),
+                    clean_nan_value(data.get('ma5')),
+                    clean_nan_value(data.get('ma10')),
+                    clean_nan_value(data.get('ma20')),
+                    clean_nan_value(data.get('ma60')),
+                    clean_nan_value(data.get('rsi')),
+                    clean_nan_value(data.get('x2')),
+                    clean_nan_value(data.get('macd')),
+                    clean_nan_value(data.get('macd_signal')),
+                    clean_nan_value(data.get('macd_hist')),
                     # data.get('main_net_inflow'),  # 历史数据不可用：资金流向是实时数据，历史数据不可用
                     # data.get('super_large_inflow'),  # 历史数据不可用：资金流向是实时数据，历史数据不可用
                     # data.get('large_inflow'),  # 历史数据不可用：资金流向是实时数据，历史数据不可用
                     # data.get('medium_inflow'),  # 历史数据不可用：资金流向是实时数据，历史数据不可用
                     # data.get('small_inflow'),  # 历史数据不可用：资金流向是实时数据，历史数据不可用
-                    data.get('margin_balance'),
-                    data.get('short_balance'),
-                    data.get('margin_ratio'),
+                    clean_nan_value(data.get('margin_balance')),
+                    clean_nan_value(data.get('short_balance')),
+                    clean_nan_value(data.get('margin_ratio')),
                     extra_data_json,
                     data.get('data_source', 'akshare'),
-                    data.get('data_quality_score', 1.0),
+                    clean_nan_value(data.get('data_quality_score', 1.0)),
                     1 if data.get('is_valid', True) else 0
                 )
             
@@ -398,18 +434,19 @@ class StockHistoryStorage:
             self.logger.error(traceback.format_exc())
             return False
     
-    def save_stock_daily_data_batch(self, batch_data: List[Tuple[str, str, Dict]], batch_size: int = 200) -> Dict:
+    def save_stock_daily_data_batch(self, batch_data: List[Tuple[str, str, Dict]], batch_size: int = 200, skip_existence_check: bool = False) -> Dict:
         """
         批量保存股票历史数据（优化版，分离INSERT和UPDATE避免唯一索引锁竞争）
         
         优化策略：
-        1. 先批量查询哪些数据已存在
+        1. 先批量查询哪些数据已存在（可选，对于新数据可以跳过）
         2. 分离为"需要插入"和"需要更新"两部分
         3. 分别批量INSERT和UPDATE，避免ON DUPLICATE KEY UPDATE的唯一索引检查锁竞争
         
         Args:
             batch_data: 数据列表，每个元素为 (symbol, date, data) 元组
             batch_size: 每批插入的记录数（默认200，使用executemany后可以适当增大，但考虑到内存和错误恢复，200较合适）
+            skip_existence_check: 是否跳过存在性检查（对于新数据，可以跳过查询，直接使用ON DUPLICATE KEY UPDATE，性能更好）
         
         Returns:
             保存结果字典：
@@ -427,51 +464,63 @@ class StockHistoryStorage:
         total_count = len(batch_data)
         
         try:
-            # 优化：先批量查询哪些数据已存在，避免ON DUPLICATE KEY UPDATE的唯一索引检查锁竞争
-            # 如果查询失败，回退到原方案（ON DUPLICATE KEY UPDATE）
-            use_separate_insert_update = True
+            # 优化：对于新数据（首次收集），跳过查询，直接使用ON DUPLICATE KEY UPDATE
+            # 这样可以避免查询开销，提升性能（3-5倍）
+            use_separate_insert_update = not skip_existence_check
             existing_keys = set()
             
-            try:
-                # 收集所有唯一的(symbol, trade_date, period_type)组合
-                unique_keys = []
-                for symbol, date, data in batch_data:
-                    period_type = data.get('period_type', 'daily')
-                    unique_keys.append((str(symbol).zfill(6), date, period_type))
-                
-                # 批量查询已存在的记录（分批查询，避免SQL过长）
-                if unique_keys:
-                    query_batch_size = 500
-                    for query_start in range(0, len(unique_keys), query_batch_size):
-                        query_end = min(query_start + query_batch_size, len(unique_keys))
-                        query_keys = unique_keys[query_start:query_end]
-                        
-                        # 构建OR条件查询
-                        conditions = []
-                        params = []
-                        for symbol, date, period in query_keys:
-                            conditions.append('(symbol = %s AND trade_date = %s AND period_type = %s)')
-                            params.extend([symbol, date, period])
-                        
-                        sql = f"""
-                            SELECT symbol, trade_date, period_type 
-                            FROM stock_history_data 
-                            WHERE {' OR '.join(conditions)}
-                        """
-                        
-                        results = self.db.execute_query(sql, tuple(params))
-                        for result in results:
-                            symbol = str(result.get('symbol', '')).zfill(6)
-                            trade_date = result.get('trade_date')
-                            if isinstance(trade_date, datetime):
-                                trade_date = trade_date.strftime('%Y-%m-%d')
-                            elif isinstance(trade_date, str):
-                                trade_date = trade_date.split()[0]
-                            period_type = result.get('period_type', 'daily')
-                            existing_keys.add((symbol, trade_date, period_type))
-            except Exception as e:
-                self.logger.warning(f"批量查询已存在数据失败: {str(e)}，将使用ON DUPLICATE KEY UPDATE")
-                use_separate_insert_update = False
+            if not skip_existence_check:
+                # 优化：先批量查询哪些数据已存在，避免ON DUPLICATE KEY UPDATE的唯一索引检查锁竞争
+                # 如果查询失败，回退到原方案（ON DUPLICATE KEY UPDATE）
+                try:
+                    # 收集所有唯一的(symbol, trade_date, period_type)组合
+                    unique_keys = []
+                    for symbol, date, data in batch_data:
+                        period_type = data.get('period_type', 'daily')
+                        unique_keys.append((str(symbol).zfill(6), date, period_type))
+                    
+                    # 批量查询已存在的记录（分批查询，避免SQL过长）
+                    if unique_keys:
+                        # 根据数据量动态调整查询批次大小（性能优化）
+                        total_keys = len(unique_keys)
+                        if total_keys > 5000:
+                            query_batch_size = 3000  # 超大量数据使用更大批次
+                        elif total_keys > 2000:
+                            query_batch_size = 2000  # 大量数据使用较大批次
+                        else:
+                            query_batch_size = 1500  # 默认批次大小
+                        for query_start in range(0, len(unique_keys), query_batch_size):
+                            query_end = min(query_start + query_batch_size, len(unique_keys))
+                            query_keys = unique_keys[query_start:query_end]
+                            
+                            # 构建OR条件查询
+                            conditions = []
+                            params = []
+                            for symbol, date, period in query_keys:
+                                conditions.append('(symbol = %s AND trade_date = %s AND period_type = %s)')
+                                params.extend([symbol, date, period])
+                            
+                            sql = f"""
+                                SELECT symbol, trade_date, period_type 
+                                FROM stock_history_data 
+                                WHERE {' OR '.join(conditions)}
+                            """
+                            
+                            results = self.db.execute_query(sql, tuple(params))
+                            for result in results:
+                                symbol = str(result.get('symbol', '')).zfill(6)
+                                trade_date = result.get('trade_date')
+                                if isinstance(trade_date, datetime):
+                                    trade_date = trade_date.strftime('%Y-%m-%d')
+                                elif isinstance(trade_date, str):
+                                    trade_date = trade_date.split()[0]
+                                period_type = result.get('period_type', 'daily')
+                                existing_keys.add((symbol, trade_date, period_type))
+                except Exception as e:
+                    self.logger.warning(f"批量查询已存在数据失败: {str(e)}，将使用ON DUPLICATE KEY UPDATE")
+                    use_separate_insert_update = False
+            else:
+                self.logger.debug(f"跳过存在性检查，直接使用ON DUPLICATE KEY UPDATE（性能优化）")
             
             # 分离为"需要插入"和"需要更新"两部分
             insert_batch = []
@@ -491,8 +540,14 @@ class StockHistoryStorage:
                 insert_batch = batch_data
             
             # 分批处理，避免SQL语句过长
-            for batch_start in range(0, total_count, batch_size):
-                batch_end = min(batch_start + batch_size, total_count)
+            # 优化：使用适当的批次大小进行实际保存，平衡性能和锁持有时间
+            # 虽然传入的batch_size可能较大（400-600），但实际保存时使用适中的批次（200-300）
+            # 这样可以减少提交次数，提升批量保存效率
+            # 注意：batch_size用于控制内存使用，actual_save_batch_size用于控制实际提交批次
+            actual_save_batch_size = min(batch_size, 300)  # 实际保存批次大小限制为300，提升批量保存效率
+            
+            for batch_start in range(0, total_count, actual_save_batch_size):
+                batch_end = min(batch_start + actual_save_batch_size, total_count)
                 current_batch = batch_data[batch_start:batch_end]
                 
                 # 分离当前批次
@@ -578,7 +633,7 @@ class StockHistoryStorage:
                                  main_net_inflow, super_large_inflow, large_inflow, medium_inflow, small_inflow,
                                  margin_balance, short_balance, margin_ratio,
                                  extra_data, data_source, data_quality_score, is_valid)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
                         else:
                             insert_sql = """
@@ -625,39 +680,39 @@ class StockHistoryStorage:
                             
                             if use_full_fields_batch:
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('turnover_rate'), data.get('volume_ratio'),
-                                    data.get('outer_volume'), data.get('inner_volume'), data.get('bid_ask_ratio'),
-                                    bid_levels_json, ask_levels_json, data.get('bid_total_volume'), data.get('ask_total_volume'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('turnover_rate')), clean_nan_value(data.get('volume_ratio')),
+                                    clean_nan_value(data.get('outer_volume')), clean_nan_value(data.get('inner_volume')), clean_nan_value(data.get('bid_ask_ratio')),
+                                    bid_levels_json, ask_levels_json, clean_nan_value(data.get('bid_total_volume')), clean_nan_value(data.get('ask_total_volume')),
                                     cost_distribution_json, cost_distribution_history_json, cost_distribution_intraday_json,
-                                    data.get('total_market_cap'), data.get('float_market_cap'), data.get('pe_ratio'), data.get('pb_ratio'),
-                                    data.get('limit_up'), data.get('limit_down'), data.get('limit_pct'),
+                                    clean_nan_value(data.get('total_market_cap')), clean_nan_value(data.get('float_market_cap')), clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')),
+                                    clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')), clean_nan_value(data.get('limit_pct')),
                                     1 if data.get('is_limit_up', False) else 0, 1 if data.get('is_limit_down', False) else 0,
-                                    data.get('amplitude'), data.get('price_range'), data.get('ma5'), data.get('ma10'),
-                                    data.get('ma20'), data.get('ma60'), data.get('rsi'), data.get('x2'),
-                                    data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('main_net_inflow'), data.get('super_large_inflow'), data.get('large_inflow'),
-                                    data.get('medium_inflow'), data.get('small_inflow'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')), clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')),
+                                    clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')), clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')),
+                                    clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('main_net_inflow')), clean_nan_value(data.get('super_large_inflow')), clean_nan_value(data.get('large_inflow')),
+                                    clean_nan_value(data.get('medium_inflow')), clean_nan_value(data.get('small_inflow')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             else:
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('volume_ratio'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('volume_ratio')),
                                     cost_distribution_json, cost_distribution_history_json,
-                                    data.get('pe_ratio'), data.get('pb_ratio'), data.get('limit_up'), data.get('limit_down'),
-                                    data.get('limit_pct'), 1 if data.get('is_limit_up', False) else 0,
-                                    1 if data.get('is_limit_down', False) else 0, data.get('amplitude'), data.get('price_range'),
-                                    data.get('ma5'), data.get('ma10'), data.get('ma20'), data.get('ma60'),
-                                    data.get('rsi'), data.get('x2'), data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')), clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')),
+                                    clean_nan_value(data.get('limit_pct')), 1 if data.get('is_limit_up', False) else 0,
+                                    1 if data.get('is_limit_down', False) else 0, clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')),
+                                    clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')), clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')),
+                                    clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')), clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             insert_params_list.append(params)
@@ -710,7 +765,7 @@ class StockHistoryStorage:
                                  main_net_inflow, super_large_inflow, large_inflow, medium_inflow, small_inflow,
                                  margin_balance, short_balance, margin_ratio,
                                  extra_data, data_source, data_quality_score, is_valid)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON DUPLICATE KEY UPDATE
                                 name = VALUES(name), period_type = VALUES(period_type), open_price = VALUES(open_price),
                                 close_price = VALUES(close_price), high_price = VALUES(high_price), low_price = VALUES(low_price),
@@ -794,39 +849,39 @@ class StockHistoryStorage:
                             
                             if use_full_fields_batch:
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('turnover_rate'), data.get('volume_ratio'),
-                                    data.get('outer_volume'), data.get('inner_volume'), data.get('bid_ask_ratio'),
-                                    bid_levels_json, ask_levels_json, data.get('bid_total_volume'), data.get('ask_total_volume'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('turnover_rate')), clean_nan_value(data.get('volume_ratio')),
+                                    clean_nan_value(data.get('outer_volume')), clean_nan_value(data.get('inner_volume')), clean_nan_value(data.get('bid_ask_ratio')),
+                                    bid_levels_json, ask_levels_json, clean_nan_value(data.get('bid_total_volume')), clean_nan_value(data.get('ask_total_volume')),
                                     cost_distribution_json, cost_distribution_history_json, cost_distribution_intraday_json,
-                                    data.get('total_market_cap'), data.get('float_market_cap'), data.get('pe_ratio'), data.get('pb_ratio'),
-                                    data.get('limit_up'), data.get('limit_down'), data.get('limit_pct'),
+                                    clean_nan_value(data.get('total_market_cap')), clean_nan_value(data.get('float_market_cap')), clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')),
+                                    clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')), clean_nan_value(data.get('limit_pct')),
                                     1 if data.get('is_limit_up', False) else 0, 1 if data.get('is_limit_down', False) else 0,
-                                    data.get('amplitude'), data.get('price_range'), data.get('ma5'), data.get('ma10'),
-                                    data.get('ma20'), data.get('ma60'), data.get('rsi'), data.get('x2'),
-                                    data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('main_net_inflow'), data.get('super_large_inflow'), data.get('large_inflow'),
-                                    data.get('medium_inflow'), data.get('small_inflow'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')), clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')),
+                                    clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')), clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')),
+                                    clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('main_net_inflow')), clean_nan_value(data.get('super_large_inflow')), clean_nan_value(data.get('large_inflow')),
+                                    clean_nan_value(data.get('medium_inflow')), clean_nan_value(data.get('small_inflow')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             else:
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('volume_ratio'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('volume_ratio')),
                                     cost_distribution_json, cost_distribution_history_json,
-                                    data.get('pe_ratio'), data.get('pb_ratio'), data.get('limit_up'), data.get('limit_down'),
-                                    data.get('limit_pct'), 1 if data.get('is_limit_up', False) else 0,
-                                    1 if data.get('is_limit_down', False) else 0, data.get('amplitude'), data.get('price_range'),
-                                    data.get('ma5'), data.get('ma10'), data.get('ma20'), data.get('ma60'),
-                                    data.get('rsi'), data.get('x2'), data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')), clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')),
+                                    clean_nan_value(data.get('limit_pct')), 1 if data.get('is_limit_up', False) else 0,
+                                    1 if data.get('is_limit_down', False) else 0, clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')),
+                                    clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')), clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')),
+                                    clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')), clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             update_params_list.append(params)
@@ -896,7 +951,7 @@ class StockHistoryStorage:
                                  main_net_inflow, super_large_inflow, large_inflow, medium_inflow, small_inflow,
                                  margin_balance, short_balance, margin_ratio,
                                  extra_data, data_source, data_quality_score, is_valid)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON DUPLICATE KEY UPDATE
                                 name = VALUES(name), period_type = VALUES(period_type), open_price = VALUES(open_price),
                                 close_price = VALUES(close_price), high_price = VALUES(high_price), low_price = VALUES(low_price),
@@ -983,41 +1038,41 @@ class StockHistoryStorage:
                             if base_sql and 'turnover_rate' in base_sql and use_full_fields_batch:
                                 # 实时数据SQL模板：58个参数（仅在明确使用全量字段时）
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('turnover_rate'), data.get('volume_ratio'),
-                                    data.get('outer_volume'), data.get('inner_volume'), data.get('bid_ask_ratio'),
-                                    bid_levels_json, ask_levels_json, data.get('bid_total_volume'), data.get('ask_total_volume'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('turnover_rate')), clean_nan_value(data.get('volume_ratio')),
+                                    clean_nan_value(data.get('outer_volume')), clean_nan_value(data.get('inner_volume')), clean_nan_value(data.get('bid_ask_ratio')),
+                                    bid_levels_json, ask_levels_json, clean_nan_value(data.get('bid_total_volume')), clean_nan_value(data.get('ask_total_volume')),
                                     cost_distribution_json, cost_distribution_history_json, cost_distribution_intraday_json,
-                                    data.get('total_market_cap'), data.get('float_market_cap'), data.get('pe_ratio'), data.get('pb_ratio'),
-                                    data.get('limit_up'), data.get('limit_down'), data.get('limit_pct'),
+                                    clean_nan_value(data.get('total_market_cap')), clean_nan_value(data.get('float_market_cap')), clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')),
+                                    clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')), clean_nan_value(data.get('limit_pct')),
                                     1 if data.get('is_limit_up', False) else 0, 1 if data.get('is_limit_down', False) else 0,
-                                    data.get('amplitude'), data.get('price_range'), data.get('ma5'), data.get('ma10'),
-                                    data.get('ma20'), data.get('ma60'), data.get('rsi'), data.get('x2'),
-                                    data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('main_net_inflow'), data.get('super_large_inflow'), data.get('large_inflow'),
-                                    data.get('medium_inflow'), data.get('small_inflow'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')), clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')),
+                                    clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')), clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')),
+                                    clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('main_net_inflow')), clean_nan_value(data.get('super_large_inflow')), clean_nan_value(data.get('large_inflow')),
+                                    clean_nan_value(data.get('medium_inflow')), clean_nan_value(data.get('small_inflow')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             else:
                                 # 历史数据SQL模板：41个参数（默认使用，历史数据收集时统一使用此模板）
                                 # 注意：即使数据中有实时字段（如turnover_rate），也使用历史数据模板，这些字段会被忽略
                                 params = (
-                                    str(symbol).zfill(6), data.get('name'), date, period_type,
-                                    data.get('open_price'), data.get('close_price'), data.get('high_price'), data.get('low_price'),
-                                    data.get('pre_close'), data.get('change_amount'), data.get('change_pct'),
-                                    data.get('volume'), data.get('amount'), data.get('volume_ratio'),
+                                    str(symbol).zfill(6), clean_nan_value(data.get('name')), date, period_type,
+                                    clean_nan_value(data.get('open_price')), clean_nan_value(data.get('close_price')), clean_nan_value(data.get('high_price')), clean_nan_value(data.get('low_price')),
+                                    clean_nan_value(data.get('pre_close')), clean_nan_value(data.get('change_amount')), clean_nan_value(data.get('change_pct')),
+                                    clean_nan_value(data.get('volume')), clean_nan_value(data.get('amount')), clean_nan_value(data.get('volume_ratio')),
                                     cost_distribution_json, cost_distribution_history_json,
-                                    data.get('pe_ratio'), data.get('pb_ratio'), data.get('limit_up'), data.get('limit_down'),
-                                    data.get('limit_pct'), 1 if data.get('is_limit_up', False) else 0,
-                                    1 if data.get('is_limit_down', False) else 0, data.get('amplitude'), data.get('price_range'),
-                                    data.get('ma5'), data.get('ma10'), data.get('ma20'), data.get('ma60'),
-                                    data.get('rsi'), data.get('x2'), data.get('macd'), data.get('macd_signal'), data.get('macd_hist'),
-                                    data.get('margin_balance'), data.get('short_balance'), data.get('margin_ratio'),
-                                    extra_data_json, data.get('data_source', 'akshare'), data.get('data_quality_score', 1.0),
+                                    clean_nan_value(data.get('pe_ratio')), clean_nan_value(data.get('pb_ratio')), clean_nan_value(data.get('limit_up')), clean_nan_value(data.get('limit_down')),
+                                    clean_nan_value(data.get('limit_pct')), 1 if data.get('is_limit_up', False) else 0,
+                                    1 if data.get('is_limit_down', False) else 0, clean_nan_value(data.get('amplitude')), clean_nan_value(data.get('price_range')),
+                                    clean_nan_value(data.get('ma5')), clean_nan_value(data.get('ma10')), clean_nan_value(data.get('ma20')), clean_nan_value(data.get('ma60')),
+                                    clean_nan_value(data.get('rsi')), clean_nan_value(data.get('x2')), clean_nan_value(data.get('macd')), clean_nan_value(data.get('macd_signal')), clean_nan_value(data.get('macd_hist')),
+                                    clean_nan_value(data.get('margin_balance')), clean_nan_value(data.get('short_balance')), clean_nan_value(data.get('margin_ratio')),
+                                    extra_data_json, data.get('data_source', 'akshare'), clean_nan_value(data.get('data_quality_score', 1.0)),
                                     1 if data.get('is_valid', True) else 0
                                 )
                             params_list.append(params)
@@ -1069,6 +1124,13 @@ class StockHistoryStorage:
                             except Exception as e2:
                                 fail_count += 1
                                 self.logger.error(f"逐条保存失败 {symbol} {date}: {str(e2)}")
+                
+                    # 批量操作后，短暂延迟，让查询操作有机会执行（减少锁竞争）
+                    # 注意：这个延迟很小（0.01秒），不会显著影响性能，但可以提升查询响应性
+                    import time
+                    batch_index = batch_start // actual_save_batch_size
+                    if batch_index > 0 and batch_index % 3 == 0:  # 每3个批次延迟一次（跳过第一个批次）
+                        time.sleep(0.01)  # 10毫秒延迟，让查询有机会执行
                 
                 except Exception as e:
                     # 批量插入失败，回退到逐条插入
@@ -1322,6 +1384,118 @@ class StockHistoryStorage:
         except Exception as e:
             self.logger.error(f"获取股票历史数据失败 {symbol}: {str(e)}")
             return []
+    
+    def get_stocks_history_data_batch(self, symbols: List[str], start_date: str = None, 
+                                     end_date: str = None, period_type: str = 'daily') -> Dict[str, List[Dict]]:
+        """
+        批量获取多只股票的历史数据（性能优化：一次查询获取所有股票数据）
+        
+        Args:
+            symbols: 股票代码列表
+            start_date: 开始日期（格式：YYYY-MM-DD）
+            end_date: 结束日期（格式：YYYY-MM-DD）
+            period_type: 周期类型（daily/weekly/monthly/yearly），默认daily
+        
+        Returns:
+            字典，key为股票代码，value为历史数据列表
+            {symbol: [record1, record2, ...]}
+        """
+        if not symbols:
+            return {}
+        
+        try:
+            # 标准化股票代码
+            symbols_normalized = [str(s).zfill(6) for s in symbols]
+            
+            conditions = ["symbol IN ({})".format(','.join(['%s'] * len(symbols_normalized)))]
+            params = symbols_normalized.copy()
+            
+            # 添加period_type过滤条件
+            conditions.append("period_type = %s")
+            params.append(period_type)
+            
+            if start_date:
+                conditions.append("trade_date >= %s")
+                params.append(start_date)
+            
+            if end_date:
+                conditions.append("trade_date <= %s")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(conditions)
+            
+            sql = f"""
+                SELECT * FROM stock_history_data 
+                WHERE {where_clause}
+                ORDER BY symbol, trade_date DESC
+            """
+            
+            results = self.db.execute_query(sql, tuple(params))
+            
+            # 按股票代码分组
+            stocks_data = {}
+            for record in results:
+                symbol = str(record.get('symbol', '')).zfill(6)
+                if symbol not in stocks_data:
+                    stocks_data[symbol] = []
+                
+                # 解析JSON字段
+                if record.get('bid_levels'):
+                    try:
+                        import json
+                        record['bid_levels'] = json.loads(record['bid_levels']) if isinstance(record['bid_levels'], str) else record['bid_levels']
+                    except:
+                        record['bid_levels'] = None
+                
+                if record.get('ask_levels'):
+                    try:
+                        import json
+                        record['ask_levels'] = json.loads(record['ask_levels']) if isinstance(record['ask_levels'], str) else record['ask_levels']
+                    except:
+                        record['ask_levels'] = None
+                
+                if record.get('cost_distribution'):
+                    try:
+                        import json
+                        record['cost_distribution'] = json.loads(record['cost_distribution']) if isinstance(record['cost_distribution'], str) else record['cost_distribution']
+                    except:
+                        record['cost_distribution'] = None
+                
+                if record.get('cost_distribution_history'):
+                    try:
+                        import json
+                        record['cost_distribution_history'] = json.loads(record['cost_distribution_history']) if isinstance(record['cost_distribution_history'], str) else record['cost_distribution_history']
+                    except:
+                        record['cost_distribution_history'] = None
+                
+                if record.get('cost_distribution_intraday'):
+                    try:
+                        import json
+                        record['cost_distribution_intraday'] = json.loads(record['cost_distribution_intraday']) if isinstance(record['cost_distribution_intraday'], str) else record['cost_distribution_intraday']
+                    except:
+                        record['cost_distribution_intraday'] = None
+                
+                if record.get('extra_data'):
+                    try:
+                        import json
+                        record['extra_data'] = json.loads(record['extra_data']) if isinstance(record['extra_data'], str) else record['extra_data']
+                    except:
+                        record['extra_data'] = None
+                
+                stocks_data[symbol].append(record)
+            
+            # 确保所有股票都有条目（即使没有数据）
+            for symbol in symbols_normalized:
+                if symbol not in stocks_data:
+                    stocks_data[symbol] = []
+            
+            return stocks_data
+            
+        except Exception as e:
+            self.logger.error(f"批量获取股票历史数据失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {}
     
     def get_latest_date(self, symbol: str = None, period_type: str = 'daily') -> Optional[str]:
         """

@@ -250,7 +250,7 @@ class NewsTaskManager:
                         result = DBConnection.execute_query(sql, (task_id,))
                         
                         if result:
-                            # 使用统一调度器启动
+                            # 任务在 scheduled_tasks 表中，使用统一调度器启动
                             success = self.unified_scheduler.start_task(task_id)
                             if success:
                                 # 同步更新旧表状态
@@ -258,61 +258,136 @@ class NewsTaskManager:
                                 DBConnection.execute_update(sql_update, (task_id,))
                                 self.logger.info(f"使用统一调度器启动任务 {task_id} 成功")
                                 return True
+                        else:
+                            # 任务不在 scheduled_tasks 表中，尝试从 news_crawl_tasks 表同步
+                            self.logger.info(f"任务 {task_id} 不在 scheduled_tasks 表中，尝试从 news_crawl_tasks 表同步")
+                            
+                            # 从 news_crawl_tasks 表读取任务信息
+                            sql_legacy = "SELECT * FROM news_crawl_tasks WHERE id = %s"
+                            legacy_task = DBConnection.execute_query(sql_legacy, (task_id,))
+                            
+                            if legacy_task and len(legacy_task) > 0:
+                                task = legacy_task[0]
+                                
+                                # 解析任务配置
+                                task_config = {
+                                    'task_type': task.get('task_type', 'market'),
+                                    'symbol': task.get('symbol'),
+                                    'sources': json.loads(task.get('sources', '[]')) if task.get('sources') else [],
+                                    'interval_minutes': task.get('interval_minutes', 60)
+                                }
+                                
+                                # 直接插入到 scheduled_tasks 表，使用原来的 task_id
+                                try:
+                                    task_config_json = json.dumps(task_config, ensure_ascii=False)
+                                    insert_sql = """
+                                        INSERT INTO scheduled_tasks 
+                                        (id, task_name, task_type, schedule_type, schedule_time, 
+                                         schedule_weekdays, task_config, created_by, is_active)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                    """
+                                    DBConnection.execute_update(insert_sql, (
+                                        task_id,
+                                        task.get('task_name', f'新闻抓取任务-{task_id}'),
+                                        'news_crawl',
+                                        'interval',  # 默认使用间隔执行
+                                        None,
+                                        None,
+                                        task_config_json,
+                                        None,
+                                    ))
+                                    
+                                    self.logger.info(f"任务 {task_id} 已同步到 scheduled_tasks 表")
+                                    
+                                    # 同步成功，使用统一调度器启动
+                                    success = self.unified_scheduler.start_task(task_id)
+                                    if success:
+                                        # 同步更新旧表状态
+                                        sql_update = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
+                                        DBConnection.execute_update(sql_update, (task_id,))
+                                        self.logger.info(f"任务 {task_id} 已同步到 scheduled_tasks 表并启动成功")
+                                        return True
+                                    else:
+                                        self.logger.error(f"任务 {task_id} 同步成功但启动失败")
+                                except Exception as sync_error:
+                                    # 如果插入失败，可能是任务已存在（并发情况），尝试直接启动
+                                    self.logger.warning(f"同步任务到 scheduled_tasks 表失败: {str(sync_error)}，尝试直接启动")
+                                    try:
+                                        success = self.unified_scheduler.start_task(task_id)
+                                        if success:
+                                            sql_update = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
+                                            DBConnection.execute_update(sql_update, (task_id,))
+                                            self.logger.info(f"任务 {task_id} 启动成功")
+                                            return True
+                                    except Exception as start_error:
+                                        self.logger.error(f"直接启动任务失败: {str(start_error)}")
+                            else:
+                                self.logger.error(f"任务 {task_id} 在 news_crawl_tasks 表中不存在")
                     except Exception as e:
-                        self.logger.warning(f"使用统一调度器启动任务失败，回退到独立启动: {str(e)}")
+                        self.logger.warning(f"使用统一调度器启动任务失败: {str(e)}")
+                        import traceback
+                        self.logger.debug(traceback.format_exc())
                 else:
-                    self.logger.debug("scheduled_tasks表不存在，使用独立启动")
+                    self.logger.debug("scheduled_tasks表不存在，无法使用统一调度器")
             
-            # 回退到独立启动（保持向后兼容）
-            return self._start_task_legacy(task_id)
+            # 如果统一调度器不可用或启动失败，返回错误（不再使用已禁用的独立启动模式）
+            self.logger.error(f"无法启动任务 {task_id}：统一调度器不可用或任务不存在")
+            return False
             
         except Exception as e:
             self.logger.error(f"启动任务失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     def _start_task_legacy(self, task_id: int) -> bool:
-        """独立启动任务（向后兼容）"""
-        try:
-            # 获取任务信息
-            task = self.get_task(task_id)
-            if not task:
-                self.logger.error(f"任务 {task_id} 不存在")
-                return False
-            
-            # 检查任务是否已在运行（检查爬虫线程）
-            if task_id in self.crawler.crawl_threads:
-                self.logger.warning(f"任务 {task_id} 已在运行（线程已存在）")
-                # 如果数据库状态不一致，更新数据库状态
-                if not task['is_active']:
-                    sql = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
-                    DBConnection.execute_update(sql, (task_id,))
-                return True
-            
-            if task['is_active']:
-                self.logger.warning(f"任务 {task_id} 标记为运行中，但线程不存在，重新启动")
-                # 如果数据库标记为运行中但线程不存在，先更新数据库状态
-                sql = "UPDATE news_crawl_tasks SET is_active = 0 WHERE id = %s"
-                DBConnection.execute_update(sql, (task_id,))
-            
-            # 更新任务状态
-            sql = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
-            DBConnection.execute_update(sql, (task_id,))
-            
-            # 启动抓取任务
-            self.crawler.start_crawl_task(
-                task_id=task_id,
-                interval_minutes=task['interval_minutes'],
-                task_type=task['task_type'],
-                symbol=task.get('symbol')
-            )
-            
-            self.active_tasks[task_id] = self.crawler
-            self.logger.info(f"任务 {task_id} 已启动（独立模式）")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"独立启动任务失败: {str(e)}")
-            return False
+        """独立启动任务（向后兼容）- 【已禁用，不再使用】"""
+        # 【已禁用】当前只使用 news-analysis-system-main 获取新闻，不再使用独立模式
+        self.logger.warning(f"独立启动任务模式已禁用，任务 {task_id} 无法启动。请使用统一调度器（ScheduledTaskManager）")
+        return False
+        
+        # 【已禁用】以下代码已禁用，不再使用 NewsCrawler 调用 API
+        # try:
+        #     # 获取任务信息
+        #     task = self.get_task(task_id)
+        #     if not task:
+        #         self.logger.error(f"任务 {task_id} 不存在")
+        #         return False
+        #     
+        #     # 检查任务是否已在运行（检查爬虫线程）
+        #     if task_id in self.crawler.crawl_threads:
+        #         self.logger.warning(f"任务 {task_id} 已在运行（线程已存在）")
+        #         # 如果数据库状态不一致，更新数据库状态
+        #         if not task['is_active']:
+        #             sql = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
+        #             DBConnection.execute_update(sql, (task_id,))
+        #         return True
+        #     
+        #     if task['is_active']:
+        #         self.logger.warning(f"任务 {task_id} 标记为运行中，但线程不存在，重新启动")
+        #         # 如果数据库标记为运行中但线程不存在，先更新数据库状态
+        #         sql = "UPDATE news_crawl_tasks SET is_active = 0 WHERE id = %s"
+        #         DBConnection.execute_update(sql, (task_id,))
+        #     
+        #     # 更新任务状态
+        #     sql = "UPDATE news_crawl_tasks SET is_active = 1 WHERE id = %s"
+        #     DBConnection.execute_update(sql, (task_id,))
+        #     
+        #     # 启动抓取任务
+        #     self.crawler.start_crawl_task(
+        #         task_id=task_id,
+        #         interval_minutes=task['interval_minutes'],
+        #         task_type=task['task_type'],
+        #         symbol=task.get('symbol')
+        #     )
+        #     
+        #     self.active_tasks[task_id] = self.crawler
+        #     self.logger.info(f"任务 {task_id} 已启动（独立模式）")
+        #     return True
+        #     
+        # except Exception as e:
+        #     self.logger.error(f"独立启动任务失败: {str(e)}")
+        #     return False
     
     def stop_task(self, task_id: int) -> bool:
         """停止任务（优先使用统一调度器）"""

@@ -6,11 +6,141 @@ import pandas as pd
 import random
 import threading
 import time
+import os
+import requests
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Callable, Any
+from contextlib import contextmanager
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _call_akshare_without_proxy(func: Callable, *args, **kwargs) -> Any:
+    """
+    在禁用代理的环境下调用akshare函数（带重试机制）
+    
+    Args:
+        func: 要调用的akshare函数
+        *args: 函数的位置参数
+        **kwargs: 函数的关键字参数
+    
+    Returns:
+        函数返回值
+    
+    Raises:
+        Exception: 如果重试后仍然失败
+    """
+    max_retries = 3  # 最大重试次数
+    retry_delay = 2  # 初始重试延迟（秒）
+    
+    for attempt in range(max_retries):
+        # 保存原始代理设置
+        original_proxy_env = {}
+        proxy_env_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                          'NO_PROXY', 'no_proxy', 'ALL_PROXY', 'all_proxy']
+        
+        for var in proxy_env_vars:
+            original_proxy_env[var] = os.environ.get(var)
+        
+        # 保存requests库的代理设置
+        original_requests_proxies = {}
+        if hasattr(requests, 'proxies'):
+            original_requests_proxies = getattr(requests, 'proxies', {})
+        
+        try:
+            # 临时禁用所有代理环境变量
+            for var in proxy_env_vars:
+                if var in os.environ:
+                    del os.environ[var]
+            
+            # 设置NO_PROXY为*，禁用所有代理
+            os.environ['NO_PROXY'] = '*'
+            os.environ['no_proxy'] = '*'
+            
+            # 禁用requests库的全局代理设置
+            if hasattr(requests, 'proxies'):
+                requests.proxies = {}
+            
+            # 尝试清除akshare内部session的代理设置
+            try:
+                if hasattr(ak, 'tool') and hasattr(ak.tool, 'session'):
+                    # 保存原始session的代理设置
+                    original_session_proxies = {}
+                    if hasattr(ak.tool.session, 'proxies'):
+                        original_session_proxies = ak.tool.session.proxies
+                    
+                    # 清除session的代理设置
+                    ak.tool.session.proxies = {}
+                    
+                    # 尝试重新创建session（如果可能）
+                    try:
+                        import requests as req_module
+                        ak.tool.session = req_module.Session()
+                        ak.tool.session.proxies = {}
+                    except Exception:
+                        pass  # 如果重新创建失败，继续使用原session
+            except Exception as e:
+                logger.debug(f"清除akshare session代理设置失败: {str(e)}")
+            
+            # 调用函数
+            result = func(*args, **kwargs)
+            
+            # 恢复原始代理设置
+            for var, value in original_proxy_env.items():
+                if value is not None:
+                    os.environ[var] = value
+                elif var in os.environ:
+                    del os.environ[var]
+            
+            # 恢复requests库的代理设置
+            if hasattr(requests, 'proxies'):
+                requests.proxies = original_requests_proxies
+            
+            return result
+            
+        except Exception as e:
+            error_str = str(e)
+            error_type = type(e).__name__
+            
+            # 检查是否是网络连接错误（需要重试）
+            is_network_error = (
+                'Connection aborted' in error_str or
+                'RemoteDisconnected' in error_str or
+                'Connection' in error_type or
+                'Timeout' in error_type or
+                'timeout' in error_str.lower() or
+                'ECONNRESET' in error_str or
+                'Broken pipe' in error_str or
+                'Connection reset' in error_str.lower()
+            )
+            
+            # 恢复原始代理设置（即使出错也要恢复）
+            try:
+                for var, value in original_proxy_env.items():
+                    if value is not None:
+                        os.environ[var] = value
+                    elif var in os.environ:
+                        del os.environ[var]
+                
+                if hasattr(requests, 'proxies'):
+                    requests.proxies = original_requests_proxies
+            except Exception:
+                pass
+            
+            # 如果是网络错误且还有重试机会，则重试
+            if is_network_error and attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)  # 指数退避：2秒、4秒、8秒
+                logger.warning(f"调用 {func.__name__} 时遇到网络连接问题（第 {attempt + 1}/{max_retries} 次尝试），等待 {wait_time:.1f} 秒后重试: {error_str}")
+                time.sleep(wait_time)
+                continue
+            else:
+                # 非网络错误或重试次数用完，记录错误并抛出异常
+                if attempt == max_retries - 1:
+                    logger.error(f"调用 {func.__name__} 失败（已重试 {max_retries} 次）: {error_str}")
+                else:
+                    logger.warning(f"调用 {func.__name__} 时遇到错误: {error_str}")
+                raise
 
 # 股票列表缓存（全局）
 _stock_list_cache = {
@@ -59,7 +189,7 @@ class StockDataSource:
         else:
             self.data_storage = None
     
-    def get_stock_data(self, symbol: str, days: int = 60, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    def get_stock_data(self, symbol: str, days: int = 60, start_date: str = None, end_date: str = None, force_api: bool = False, use_db_only: bool = False, pre_queried_data: pd.DataFrame = None) -> pd.DataFrame:
         """
         获取股票历史数据（优先从数据库获取，如果数据库没有则从API获取）
         
@@ -68,6 +198,8 @@ class StockDataSource:
             days: 获取最近多少天的数据（当start_date和end_date为None时使用）
             start_date: 开始日期（格式：YYYY-MM-DD 或 YYYYMMDD），如果提供，则忽略days参数
             end_date: 结束日期（格式：YYYY-MM-DD 或 YYYYMMDD），如果为None，则使用今天
+            force_api: 是否强制从API获取（True=跳过数据库查询，直接从API获取；False=优先从数据库获取）
+            use_db_only: 是否只使用数据库（True=只从数据库获取，如果数据库没有数据则返回空DataFrame；False=数据库没有时fallback到API）
             
         Returns:
             DataFrame with columns: date, open, high, low, close, volume
@@ -96,62 +228,85 @@ class StockDataSource:
             else:
                 end_date_str = datetime.now().strftime('%Y-%m-%d')
             
-            # 优先从数据库获取
-            try:
-                from utils.stock_history_storage import StockHistoryStorage
-                from config_db import USE_DATABASE
-                
-                if USE_DATABASE:
-                    storage = StockHistoryStorage()
-                    db_data = storage.get_stock_history_data(
-                        symbol=symbol,
-                        start_date=start_date_str,
-                        end_date=end_date_str,
-                        limit=None
-                    )
+            # 如果force_api=True，跳过数据库查询，直接从API获取
+            if not force_api:
+                # 优先从数据库获取
+                try:
+                    from utils.stock_history_storage import StockHistoryStorage
+                    from config_db import USE_DATABASE
                     
-                    if db_data and len(db_data) > 0:
-                        # 转换为DataFrame
-                        records = []
-                        for row in db_data:
-                            records.append({
-                                'date': row.get('trade_date'),
-                                'open': float(row.get('open_price', 0)) if row.get('open_price') else None,
-                                'high': float(row.get('high_price', 0)) if row.get('high_price') else None,
-                                'low': float(row.get('low_price', 0)) if row.get('low_price') else None,
-                                'close': float(row.get('close_price', 0)) if row.get('close_price') else None,
-                                'volume': float(row.get('volume', 0)) if row.get('volume') else None,
-                            })
+                    if USE_DATABASE:
+                        storage = StockHistoryStorage()
+                        db_data = storage.get_stock_history_data(
+                            symbol=symbol,
+                            start_date=start_date_str,
+                            end_date=end_date_str,
+                            limit=None
+                        )
                         
-                        df = pd.DataFrame(records)
-                        if not df.empty:
-                            # 转换日期格式
-                            df['date'] = pd.to_datetime(df['date'])
-                            df = df.set_index('date')
-                            df = df.sort_index()
+                        if db_data and len(db_data) > 0:
+                            # 转换为DataFrame
+                            records = []
+                            for row in db_data:
+                                records.append({
+                                    'date': row.get('trade_date'),
+                                    'open': float(row.get('open_price', 0)) if row.get('open_price') else None,
+                                    'high': float(row.get('high_price', 0)) if row.get('high_price') else None,
+                                    'low': float(row.get('low_price', 0)) if row.get('low_price') else None,
+                                    'close': float(row.get('close_price', 0)) if row.get('close_price') else None,
+                                    'volume': float(row.get('volume', 0)) if row.get('volume') else None,
+                                })
                             
-                            # 确保数据类型正确
-                            for col in ['open', 'high', 'low', 'close', 'volume']:
-                                df[col] = pd.to_numeric(df[col], errors='coerce')
-                            
-                            df = df.dropna()
-                            
-                            self.logger.info(f"从数据库获取 {symbol} 数据，共 {len(df)} 条记录（{start_date_str} 至 {end_date_str}）")
-                            return df
+                            df = pd.DataFrame(records)
+                            if not df.empty:
+                                # 转换日期格式
+                                df['date'] = pd.to_datetime(df['date'])
+                                df = df.set_index('date')
+                                df = df.sort_index()
+                                
+                                # 确保数据类型正确
+                                for col in ['open', 'high', 'low', 'close', 'volume']:
+                                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                                
+                                df = df.dropna()
+                                
+                                # 使用debug级别，避免日志过多（批量获取时会调用很多次）
+                                self.logger.debug(f"从数据库获取 {symbol} 数据，共 {len(df)} 条记录（{start_date_str} 至 {end_date_str}）")
+                                return df
+                            else:
+                                if use_db_only:
+                                    self.logger.warning(f"数据库中没有 {symbol} 的数据，且use_db_only=True，返回空DataFrame")
+                                    return pd.DataFrame()
+                                self.logger.debug(f"数据库中没有 {symbol} 的数据，将从API获取")
                         else:
+                            if use_db_only:
+                                self.logger.warning(f"数据库中没有 {symbol} 的数据，且use_db_only=True，返回空DataFrame")
+                                return pd.DataFrame()
                             self.logger.debug(f"数据库中没有 {symbol} 的数据，将从API获取")
-                    else:
-                        self.logger.debug(f"数据库中没有 {symbol} 的数据，将从API获取")
-            except Exception as e:
-                self.logger.debug(f"从数据库获取数据失败，将从API获取: {str(e)}")
+                except Exception as e:
+                    if use_db_only:
+                        self.logger.warning(f"从数据库获取数据失败，且use_db_only=True，返回空DataFrame: {str(e)}")
+                        return pd.DataFrame()
+                    self.logger.debug(f"从数据库获取数据失败，将从API获取: {str(e)}")
             
-            # 如果数据库没有数据，从API获取
+            # 如果use_db_only=True，不调用API，直接返回空DataFrame
+            if use_db_only:
+                self.logger.warning(f"数据库中没有 {symbol} 的数据，且use_db_only=True，返回空DataFrame")
+                return pd.DataFrame()
+            
+            # 如果数据库没有数据或force_api=True，从API获取
             start_date_str_api = start_date_obj.strftime('%Y%m%d')
             end_date_str_api = end_date_obj.strftime('%Y%m%d')
             
-            self.logger.info(f"正在从API获取 {symbol} 的数据: {start_date_str_api} 至 {end_date_str_api}")
+            if force_api:
+                self.logger.info(f"[API调用] 强制从API获取 {symbol} 的数据: {start_date_str_api} 至 {end_date_str_api}")
+            else:
+                # 使用info级别，确保能看到API调用（批量获取时每50个股票打印一次进度）
+                self.logger.info(f"[API调用] 正在从API获取 {symbol} 的数据: {start_date_str_api} 至 {end_date_str_api}")
             
-            df = ak.stock_zh_a_hist(
+            # 使用代理禁用函数调用akshare API
+            df = _call_akshare_without_proxy(
+                ak.stock_zh_a_hist,
                 symbol=symbol,
                 period="daily",
                 start_date=start_date_str_api,
@@ -160,8 +315,10 @@ class StockDataSource:
             )
             
             if df.empty:
-                self.logger.warning(f"未获取到 {symbol} 的数据")
+                self.logger.warning(f"[API调用] {symbol} API返回空数据，请求范围: {start_date_str_api} 至 {end_date_str_api}")
                 return pd.DataFrame()
+            
+            self.logger.info(f"[API调用] {symbol} API返回数据成功，共 {len(df)} 条记录")
             
             # 检查索引是否是日期类型（akshare有时会直接返回日期索引）
             if isinstance(df.index, pd.DatetimeIndex):
@@ -342,9 +499,13 @@ class StockDataSource:
             self.logger.error(f"获取当前价格失败: {str(e)}")
             return 0.0
     
-    def get_stock_industry_info(self, symbol: str) -> Dict:
+    def get_stock_industry_info(self, symbol: str, use_db_only: bool = False) -> Dict:
         """
         获取股票行业和概念板块信息
+        
+        Args:
+            symbol: 股票代码
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
         
         Returns:
             {
@@ -360,9 +521,59 @@ class StockDataSource:
                 'industry_keywords': []
             }
             
-            # 获取股票基本信息
-            stock_info = ak.stock_individual_info_em(symbol=symbol)
-            if not stock_info.empty:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从stock_industry_info表获取行业信息
+                        sql = """
+                            SELECT industry, concepts
+                            FROM stock_industry_info
+                            WHERE symbol = %s
+                            LIMIT 1
+                        """
+                        result = db.execute_query(sql, (symbol,))
+                        
+                        if result and len(result) > 0:
+                            record = result[0]
+                            industry = record.get('industry', '')
+                            concepts_str = record.get('concepts', '')
+                            
+                            if industry:
+                                industry_info['industry'] = industry
+                                industry_info['industry_keywords'].append(industry)
+                            
+                            if concepts_str:
+                                # 解析concepts（可能是JSON字符串或逗号分隔的字符串）
+                                try:
+                                    import json
+                                    concepts = json.loads(concepts_str) if isinstance(concepts_str, str) else concepts_str
+                                    if isinstance(concepts, list):
+                                        industry_info['concepts'] = concepts
+                                        industry_info['industry_keywords'].extend(concepts)
+                                    elif isinstance(concepts, str):
+                                        concepts_list = [c.strip() for c in concepts.split(',') if c.strip()]
+                                        industry_info['concepts'] = concepts_list
+                                        industry_info['industry_keywords'].extend(concepts_list)
+                                except:
+                                    # 如果解析失败，尝试作为逗号分隔的字符串处理
+                                    concepts_list = [c.strip() for c in str(concepts_str).split(',') if c.strip()]
+                                    industry_info['concepts'] = concepts_list
+                                    industry_info['industry_keywords'].extend(concepts_list)
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取股票行业信息失败: {str(e)}")
+                
+                # 设置页面预测：如果数据库没有数据，返回空数据（不做API调用）
+                return industry_info
+            
+            # 如果use_db_only=False，从API获取（实时预测模式）
+            # 获取股票基本信息（使用无代理方式调用，避免代理连接错误）
+            stock_info = _call_akshare_without_proxy(ak.stock_individual_info_em, symbol=symbol)
+            if stock_info is not None and not stock_info.empty:
                 for _, row in stock_info.iterrows():
                     key = str(row.iloc[0]).strip()
                     value = str(row.iloc[1]).strip()
@@ -379,9 +590,10 @@ class StockDataSource:
                             industry_info['concepts'].extend(concepts)
                             industry_info['industry_keywords'].extend(concepts)
             
-            # 尝试从其他接口获取概念板块
+            # 尝试从其他接口获取概念板块（使用无代理方式调用）
+            # 注意：只在use_db_only=False时调用（实时预测模式）
             try:
-                concept_data = ak.stock_board_concept_name_em()
+                concept_data = _call_akshare_without_proxy(ak.stock_board_concept_name_em)
                 if not concept_data.empty:
                     # 查找包含该股票的概念板块
                     for _, row in concept_data.iterrows():
@@ -416,10 +628,10 @@ class StockDataSource:
         global _realtime_spot_cache  # 在函数开始处声明global
         
         try:
-            # 获取股票基本信息
-            stock_info = ak.stock_individual_info_em(symbol=symbol)
+            # 获取股票基本信息（使用无代理方式调用）
+            stock_info = _call_akshare_without_proxy(ak.stock_individual_info_em, symbol=symbol)
             info_dict = {}
-            if not stock_info.empty:
+            if stock_info is not None and not stock_info.empty:
                 for _, row in stock_info.iterrows():
                     key = str(row.iloc[0]).strip()
                     value = row.iloc[1]
@@ -443,7 +655,7 @@ class StockDataSource:
                     
                     # 如果缓存未命中，获取新数据并更新缓存
                     if realtime_data is None:
-                        realtime_data = ak.stock_zh_a_spot_em()
+                        realtime_data = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
                         if not realtime_data.empty:
                             with _realtime_spot_cache['lock']:
                                 _realtime_spot_cache['data'] = realtime_data.copy()
@@ -522,7 +734,7 @@ class StockDataSource:
                     
                     # 如果缓存未命中，获取新数据并更新缓存
                     if realtime_data is None:
-                        realtime_data = ak.stock_zh_a_spot_em()
+                        realtime_data = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
                         if not realtime_data.empty:
                             with _realtime_spot_cache['lock']:
                                 _realtime_spot_cache['data'] = realtime_data.copy()
@@ -588,7 +800,7 @@ class StockDataSource:
                         return cached_data
         
         try:
-            df = ak.stock_zh_a_spot_em()
+            df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
             if df is None or df.empty:
                 return []
 
@@ -705,7 +917,7 @@ class StockDataSource:
             self.logger.error(f"获取股票列表失败: {str(e)}")
             return []
     
-    def get_market_index_data(self, index_code: str = "sh000001", days: int = 60) -> pd.DataFrame:
+    def get_market_index_data(self, index_code: str = "sh000001", days: int = 60, use_db_only: bool = False) -> pd.DataFrame:
         """
         获取市场指数历史数据
         
@@ -715,6 +927,7 @@ class StockDataSource:
                 - "sz399001": 深证成指
                 - "sz399006": 创业板指
             days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
             
         Returns:
             DataFrame with columns: date, open, high, low, close, volume
@@ -723,6 +936,52 @@ class StockDataSource:
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
             
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从stock_history_data表获取指数数据（指数代码作为symbol）
+                        start_date_str = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+                        end_date_str = datetime.now().strftime('%Y-%m-%d')
+                        
+                        sql = """
+                            SELECT trade_date as date, open_price as open, high_price as high, 
+                                   low_price as low, close_price as close, volume
+                            FROM stock_history_data
+                            WHERE symbol = %s
+                            AND period_type = 'daily'
+                            AND trade_date >= %s
+                            AND trade_date <= %s
+                            ORDER BY trade_date ASC
+                        """
+                        records = db.execute_query(sql, (index_code, start_date_str, end_date_str))
+                        
+                        if records and len(records) > 0:
+                            df = pd.DataFrame(records)
+                            if not df.empty:
+                                df['date'] = pd.to_datetime(df['date'])
+                                df = df.set_index('date')
+                                df = df.sort_index()
+                                
+                                # 确保数据类型正确
+                                for col in ['open', 'high', 'low', 'close', 'volume']:
+                                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                                
+                        df = df.dropna()
+                        self.logger.debug(f"从数据库获取指数 {index_code} 数据，共 {len(df)} 条记录")
+                        return df
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取指数 {index_code} 数据失败: {str(e)}")
+                
+                # 如果数据库没有数据或查询失败，且use_db_only=True，返回空DataFrame（设置页面预测：不做API调用）
+                self.logger.debug(f"数据库中没有指数 {index_code} 的数据，且use_db_only=True，返回空DataFrame")
+                return pd.DataFrame()
+            
+            # 如果use_db_only=False，从API获取
             self.logger.info(f"正在获取指数 {index_code} 的数据: {start_date} 至 {end_date}")
             
             # 使用akshare获取指数数据
@@ -831,9 +1090,13 @@ class StockDataSource:
             self.logger.error(f"获取指数 {index_code} 数据失败: {str(e)}")
             return pd.DataFrame()
     
-    def get_all_market_indices(self, days: int = 60) -> Dict[str, pd.DataFrame]:
+    def get_all_market_indices(self, days: int = 60, use_db_only: bool = False) -> Dict[str, pd.DataFrame]:
         """
         获取所有主要市场指数数据
+        
+        Args:
+            days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
         
         Returns:
             字典，包含各指数的数据
@@ -847,7 +1110,7 @@ class StockDataSource:
         result = {}
         for code, name in indices.items():
             try:
-                data = self.get_market_index_data(code, days)
+                data = self.get_market_index_data(code, days, use_db_only=use_db_only)
                 if not data.empty:
                     result[name] = data
             except Exception as e:
@@ -855,18 +1118,72 @@ class StockDataSource:
         
         return result
     
-    def get_us_sector_data(self, sector_name: str = None, days: int = 5) -> pd.DataFrame:
+    def get_us_sector_data(self, sector_name: str = None, days: int = 5, use_db_only: bool = False) -> pd.DataFrame:
         """
         获取美股板块数据
         
         Args:
             sector_name: 板块名称（如：科技、金融、能源等），如果为None则获取主要指数
             days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
             
         Returns:
             DataFrame with columns: date, open, high, low, close, volume
         """
         try:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从us_sector_index_history表获取数据
+                        # 美股板块ETF映射
+                        sector_etf_map = {
+                            '半导体': 'SOXX', '芯片': 'SMH', '云计算': 'CLOU', '互联网': 'QQQ',
+                            '新能源': 'ICLN', '新能源车': 'DRIV', '光伏': 'TAN',
+                            '科技': 'XLK', '金融': 'XLF', '医疗': 'XLV', '能源': 'XLE',
+                            '消费': 'XLY', '工业': 'XLI', '材料': 'XLB', '公用事业': 'XLU',
+                            '房地产': 'XLRE', '通信': 'XLC', '消费必需品': 'XLP',
+                        }
+                        
+                        symbol = sector_etf_map.get(sector_name, 'SPY') if sector_name else 'SPY'
+                        end_date_str = datetime.now().strftime('%Y-%m-%d')
+                        start_date_str = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+                        
+                        sql = """
+                            SELECT trade_date as date, open_price as open, high_price as high, 
+                                   low_price as low, close_price as close, volume
+                            FROM us_sector_index_history
+                            WHERE symbol = %s
+                            AND trade_date >= %s
+                            AND trade_date <= %s
+                            ORDER BY trade_date ASC
+                        """
+                        records = db.execute_query(sql, (symbol, start_date_str, end_date_str))
+                        
+                        if records and len(records) > 0:
+                            df = pd.DataFrame(records)
+                            if not df.empty:
+                                df['date'] = pd.to_datetime(df['date'])
+                                df = df.set_index('date')
+                                df = df.sort_index()
+                                
+                                for col in ['open', 'high', 'low', 'close', 'volume']:
+                                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                                
+                                df = df.dropna()
+                                self.logger.debug(f"从数据库获取美股板块 {symbol} 数据，共 {len(df)} 条记录")
+                                return df
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取美股板块数据失败: {str(e)}")
+                
+                # 如果数据库没有数据，返回空DataFrame（设置页面预测：不做API调用）
+                self.logger.debug(f"数据库中没有美股板块 {sector_name or 'SPY'} 的数据，且use_db_only=True，返回空DataFrame")
+                return pd.DataFrame()
+            
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
             
@@ -1031,12 +1348,13 @@ class StockDataSource:
             '消费必需品': ['食品', '饮料', '农业', '食品饮料', '乳制品', '猪肉']
         }
     
-    def get_north_bound_capital(self, days: int = 5) -> Dict:
+    def get_north_bound_capital(self, days: int = 5, use_db_only: bool = False) -> Dict:
         """
         获取北向资金数据（沪股通+深股通）
         
         Args:
             days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
             
         Returns:
             {
@@ -1047,13 +1365,56 @@ class StockDataSource:
             }
         """
         try:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从north_bound_capital表获取最新数据
+                        sql = """
+                            SELECT today_net_inflow, avg_net_inflow_5d, avg_net_inflow_10d, trend
+                            FROM north_bound_capital
+                            WHERE date = CURDATE()
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        """
+                        result = db.execute_query(sql)
+                        
+                        if result and len(result) > 0:
+                            record = result[0]
+                            return {
+                                'today_net_inflow': float(record.get('today_net_inflow', 0.0)) if record.get('today_net_inflow') is not None else 0.0,
+                                'avg_net_inflow_5d': float(record.get('avg_net_inflow_5d', 0.0)) if record.get('avg_net_inflow_5d') is not None else 0.0,
+                                'avg_net_inflow_10d': float(record.get('avg_net_inflow_10d', 0.0)) if record.get('avg_net_inflow_10d') is not None else 0.0,
+                                'trend': record.get('trend', 'neutral')
+                            }
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取北向资金数据失败: {str(e)}")
+                
+                # 如果数据库没有数据，返回中性数据（设置页面预测：不做API调用）
+                self.logger.debug("数据库中没有北向资金数据，且use_db_only=True，返回中性值")
+                return {
+                    'today_net_inflow': 0.0,
+                    'avg_net_inflow_5d': 0.0,
+                    'avg_net_inflow_10d': 0.0,
+                    'trend': 'neutral'
+                }
+            
             # 尝试多种方法获取北向资金数据
             today_net = 0.0
             
-            # 方法1: 使用 stock_connect_north_flow_em
+            # 方法1: 使用 stock_connect_north_flow_em（使用无代理方式调用）
             try:
-                north_data = ak.stock_connect_north_flow_em(indicator="北向资金")
-                if not north_data.empty:
+                # 检查方法是否存在
+                if hasattr(ak, 'stock_connect_north_flow_em'):
+                    north_data = _call_akshare_without_proxy(ak.stock_connect_north_flow_em, indicator="北向资金")
+                else:
+                    raise AttributeError("stock_connect_north_flow_em方法不存在")
+                
+                if north_data is not None and not north_data.empty:
                     latest = north_data.iloc[-1]
                     # 查找净流入列
                     for col in north_data.columns:
@@ -1107,10 +1468,14 @@ class StockDataSource:
             except Exception as e:
                 self.logger.debug(f"方法1获取北向资金失败: {str(e)}")
             
-            # 方法2: 尝试 stock_connect_north_sina
+            # 方法2: 尝试 stock_connect_north_sina（使用无代理方式调用）
             try:
-                north_data = ak.stock_connect_north_sina()
-                if not north_data.empty:
+                if hasattr(ak, 'stock_connect_north_sina'):
+                    north_data = _call_akshare_without_proxy(ak.stock_connect_north_sina)
+                else:
+                    raise AttributeError("stock_connect_north_sina方法不存在")
+                
+                if north_data is not None and not north_data.empty:
                     latest = north_data.iloc[-1]
                     for col in north_data.columns:
                         col_str = str(col)
@@ -1142,6 +1507,75 @@ class StockDataSource:
             except Exception as e:
                 self.logger.debug(f"方法2获取北向资金失败: {str(e)}")
             
+            # 方法3: 尝试使用Tushare接口（根据测试结果，Tushare成功）
+            try:
+                import tushare as ts
+                from config import TUSHARE_TOKEN
+                if TUSHARE_TOKEN:
+                    ts.set_token(TUSHARE_TOKEN)
+                    pro = ts.pro_api()
+                    
+                    # 使用moneyflow_hsgt接口获取沪深港通资金流向
+                    today = datetime.now().strftime('%Y%m%d')
+                    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+                    north_data_df = pro.moneyflow_hsgt(start_date=start_date, end_date=today)
+                    
+                    if not north_data_df.empty:
+                        # 解析最新数据
+                        latest = north_data_df.iloc[-1]
+                        # 查找净流入列（可能是ggt_ss, ggt_s2h等）
+                        today_net = 0.0
+                        for col in ['ggt_ss', 'ggt_s2h', 'hgt', 'sgt']:
+                            if col in north_data_df.columns:
+                                try:
+                                    val = float(latest[col])
+                                    # 转换为亿元（Tushare返回的单位可能是万元）
+                                    if abs(val) > 10000:
+                                        val = val / 10000
+                                    today_net += val
+                                except:
+                                    pass
+                        
+                        if today_net != 0:
+                            # 计算平均值
+                            avg_5d = 0.0
+                            avg_10d = 0.0
+                            if len(north_data_df) >= 5:
+                                for col in ['ggt_ss', 'ggt_s2h', 'hgt', 'sgt']:
+                                    if col in north_data_df.columns:
+                                        try:
+                                            recent_5 = north_data_df[col].tail(5)
+                                            avg_val = recent_5.mean()
+                                            if abs(avg_val) > 10000:
+                                                avg_val = avg_val / 10000
+                                            avg_5d += avg_val
+                                            if len(north_data_df) >= 10:
+                                                recent_10 = north_data_df[col].tail(10)
+                                                avg_val_10 = recent_10.mean()
+                                                if abs(avg_val_10) > 10000:
+                                                    avg_val_10 = avg_val_10 / 10000
+                                                avg_10d += avg_val_10
+                                        except:
+                                            pass
+                            
+                            result = {
+                                'today_net_inflow': today_net,
+                                'avg_net_inflow_5d': avg_5d if avg_5d != 0 else today_net,
+                                'avg_net_inflow_10d': avg_10d if avg_10d != 0 else today_net,
+                                'trend': 'inflow' if today_net > 0 else 'outflow'
+                            }
+                            
+                            # 保存到CSV
+                            if self.data_storage:
+                                self.data_storage.save_north_bound_capital(result)
+                            
+                            self.logger.info("使用Tushare成功获取北向资金数据")
+                            return result
+            except ImportError:
+                self.logger.debug("Tushare未安装，跳过Tushare接口")
+            except Exception as e:
+                self.logger.debug(f"Tushare获取北向资金失败: {str(e)}")
+            
             # 如果都失败，返回中性数据
             self.logger.warning("未能获取到北向资金数据，返回中性值")
             return {
@@ -1159,13 +1593,14 @@ class StockDataSource:
                 'trend': 'neutral'
             }
     
-    def get_margin_trading_data(self, symbol: str, days: int = 5) -> Dict:
+    def get_margin_trading_data(self, symbol: str, days: int = 5, use_db_only: bool = False) -> Dict:
         """
         获取融资融券数据
         
         Args:
             symbol: 股票代码
             days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
             
         Returns:
             {
@@ -1177,6 +1612,47 @@ class StockDataSource:
             }
         """
         try:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从margin_trading表获取最新数据
+                        sql = """
+                            SELECT margin_balance, margin_change, margin_change_pct, short_balance, trend
+                            FROM margin_trading
+                            WHERE symbol = %s
+                            AND date = CURDATE()
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        """
+                        result = db.execute_query(sql, (symbol,))
+                        
+                        if result and len(result) > 0:
+                            record = result[0]
+                            return {
+                                'margin_balance': float(record.get('margin_balance', 0.0)) if record.get('margin_balance') is not None else 0.0,
+                                'margin_change': float(record.get('margin_change', 0.0)) if record.get('margin_change') is not None else 0.0,
+                                'margin_change_pct': float(record.get('margin_change_pct', 0.0)) if record.get('margin_change_pct') is not None else 0.0,
+                                'short_balance': float(record.get('short_balance', 0.0)) if record.get('short_balance') is not None else 0.0,
+                                'trend': record.get('trend', 'stable')
+                            }
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取融资融券数据失败: {str(e)}")
+                
+                # 如果数据库没有数据，返回中性数据（设置页面预测：不做API调用）
+                self.logger.debug(f"数据库中没有股票 {symbol} 的融资融券数据，且use_db_only=True，返回中性值")
+                return {
+                    'margin_balance': 0.0,
+                    'margin_change': 0.0,
+                    'margin_change_pct': 0.0,
+                    'short_balance': 0.0,
+                    'trend': 'stable'
+                }
+            
             margin_balance = 0.0
             short_balance = 0.0
             margin_change = 0.0
@@ -1184,10 +1660,33 @@ class StockDataSource:
             
             # 判断是上交所还是深交所
             if symbol.startswith('6'):
-                # 上交所股票
+                # 上交所股票（使用无代理方式调用）
                 try:
-                    margin_data = ak.stock_margin_underlying_info_sse(symbol=symbol)
-                    if not margin_data.empty:
+                    if hasattr(ak, 'stock_margin_underlying_info_sse'):
+                        # 注意：stock_margin_underlying_info_sse可能不接受symbol参数
+                        # 先尝试带symbol参数，如果失败则尝试不带参数
+                        try:
+                            margin_data = _call_akshare_without_proxy(ak.stock_margin_underlying_info_sse, symbol=symbol)
+                        except TypeError:
+                            # 如果symbol参数不被支持，尝试不带参数（返回所有股票数据，然后筛选）
+                            margin_data_all = _call_akshare_without_proxy(ak.stock_margin_underlying_info_sse)
+                            if margin_data_all is not None and not margin_data_all.empty:
+                                # 查找代码列并筛选
+                                code_col = None
+                                for col in margin_data_all.columns:
+                                    if '代码' in str(col) or 'code' in str(col).lower() or 'symbol' in str(col).lower():
+                                        code_col = col
+                                        break
+                                if code_col:
+                                    margin_data = margin_data_all[margin_data_all[code_col].astype(str).str.contains(symbol)]
+                                else:
+                                    margin_data = margin_data_all
+                            else:
+                                margin_data = None
+                    else:
+                        raise AttributeError("stock_margin_underlying_info_sse方法不存在")
+                    
+                    if margin_data is not None and not margin_data.empty:
                         latest = margin_data.iloc[-1]
                         # 查找融资余额和融券余额列
                         for col in margin_data.columns:
@@ -1226,71 +1725,110 @@ class StockDataSource:
                                         pass
                 except Exception as e:
                     self.logger.debug(f"获取上交所融资融券数据失败: {str(e)}")
-            else:
-                # 深交所股票
-                try:
-                    margin_data = ak.stock_margin_underlying_info_szse(symbol=symbol)
-                    if not margin_data.empty:
-                        latest = margin_data.iloc[-1]
-                    
-                    # 解析融资余额和融券余额
-                    margin_balance = 0.0
-                    short_balance = 0.0
-                    
-                    for col in margin_data.columns:
-                        col_str = str(col)
-                        if '融资余额' in col_str or '融资' in col_str:
+                else:
+                    # 深交所股票（使用无代理方式调用）
+                    try:
+                        if hasattr(ak, 'stock_margin_underlying_info_szse'):
+                            # 注意：stock_margin_underlying_info_szse可能不接受symbol参数
+                            # 尝试不同的调用方式
                             try:
-                                val = str(latest[col]).replace(',', '').replace('万', '').strip()
-                                margin_balance = float(val)
-                            except:
-                                pass
-                        elif '融券余额' in col_str or '融券' in col_str:
-                            try:
-                                val = str(latest[col]).replace(',', '').replace('万', '').strip()
-                                short_balance = float(val)
-                            except:
-                                pass
-                    
-                    # 计算变化趋势（如果有历史数据）
-                    if len(margin_data) > 1:
-                        prev_margin = 0.0
-                        for col in margin_data.columns:
-                            if '融资余额' in str(col):
+                                # 方法1：尝试不带参数（返回所有股票数据，然后筛选）
+                                margin_data_all = _call_akshare_without_proxy(ak.stock_margin_underlying_info_szse)
+                                if margin_data_all is not None and not margin_data_all.empty:
+                                    # 查找代码列并筛选
+                                    code_col = None
+                                    for col in margin_data_all.columns:
+                                        if '代码' in str(col) or 'code' in str(col).lower() or 'symbol' in str(col).lower():
+                                            code_col = col
+                                            break
+                                    if code_col:
+                                        margin_data = margin_data_all[margin_data_all[code_col].astype(str).str.contains(symbol)]
+                                    else:
+                                        margin_data = margin_data_all
+                            except TypeError:
+                                # 方法2：如果必须带参数，尝试使用date参数
                                 try:
-                                    val = str(margin_data.iloc[-2][col]).replace(',', '').replace('万', '').strip()
-                                    prev_margin = float(val)
-                                    break
-                                except:
-                                    pass
-                        
-                        margin_change = margin_balance - prev_margin
-                        margin_change_pct = (margin_change / prev_margin * 100) if prev_margin > 0 else 0.0
-                        
-                        if margin_change_pct > 2:
-                            trend = 'increasing'
-                        elif margin_change_pct < -2:
-                            trend = 'decreasing'
+                                    from datetime import datetime
+                                    today = datetime.now().strftime('%Y%m%d')
+                                    margin_data_all = _call_akshare_without_proxy(ak.stock_margin_underlying_info_szse, date=today)
+                                    if margin_data_all is not None and not margin_data_all.empty:
+                                        # 查找代码列并筛选
+                                        code_col = None
+                                        for col in margin_data_all.columns:
+                                            if '代码' in str(col) or 'code' in str(col).lower() or 'symbol' in str(col).lower():
+                                                code_col = col
+                                                break
+                                        if code_col:
+                                            margin_data = margin_data_all[margin_data_all[code_col].astype(str).str.contains(symbol)]
+                                        else:
+                                            margin_data = margin_data_all
+                                except Exception:
+                                    # 方法3：如果都失败，尝试不带任何参数
+                                    margin_data = None
                         else:
-                            trend = 'stable'
+                            raise AttributeError("stock_margin_underlying_info_szse方法不存在")
                         
-                        return {
-                            'margin_balance': margin_balance,
-                            'margin_change': margin_change,
-                            'margin_change_pct': margin_change_pct,
-                            'short_balance': short_balance,
-                            'trend': trend
-                        }
-                    else:
-                        return {
-                            'margin_balance': margin_balance,
-                            'margin_change': 0.0,
-                            'margin_change_pct': 0.0,
-                            'short_balance': short_balance,
-                            'trend': 'stable'
-                        }
-                except Exception as e:
-                    self.logger.debug(f"获取深交所融资融券数据失败: {str(e)}")
+                        if margin_data is not None and not margin_data.empty:
+                            latest = margin_data.iloc[-1]
+                            
+                            # 解析融资余额和融券余额
+                            margin_balance = 0.0
+                            short_balance = 0.0
+                            
+                            for col in margin_data.columns:
+                                col_str = str(col)
+                                if '融资余额' in col_str or '融资' in col_str:
+                                    try:
+                                        val = str(latest[col]).replace(',', '').replace('万', '').strip()
+                                        margin_balance = float(val)
+                                    except:
+                                        pass
+                                elif '融券余额' in col_str or '融券' in col_str:
+                                    try:
+                                        val = str(latest[col]).replace(',', '').replace('万', '').strip()
+                                        short_balance = float(val)
+                                    except:
+                                        pass
+                            
+                            # 计算变化趋势（如果有历史数据）
+                            if len(margin_data) > 1:
+                                prev_margin = 0.0
+                                for col in margin_data.columns:
+                                    if '融资余额' in str(col):
+                                        try:
+                                            val = str(margin_data.iloc[-2][col]).replace(',', '').replace('万', '').strip()
+                                            prev_margin = float(val)
+                                            break
+                                        except:
+                                            pass
+                                
+                                margin_change = margin_balance - prev_margin
+                                margin_change_pct = (margin_change / prev_margin * 100) if prev_margin > 0 else 0.0
+                                
+                                if margin_change_pct > 2:
+                                    trend = 'increasing'
+                                elif margin_change_pct < -2:
+                                    trend = 'decreasing'
+                                else:
+                                    trend = 'stable'
+                                
+                                return {
+                                    'margin_balance': margin_balance,
+                                    'margin_change': margin_change,
+                                    'margin_change_pct': margin_change_pct,
+                                    'short_balance': short_balance,
+                                    'trend': trend
+                                }
+                            else:
+                                return {
+                                    'margin_balance': margin_balance,
+                                    'margin_change': 0.0,
+                                    'margin_change_pct': 0.0,
+                                    'short_balance': short_balance,
+                                    'trend': 'stable'
+                                }
+                    except Exception as e:
+                        self.logger.debug(f"获取深交所融资融券数据失败: {str(e)}")
             
             # 如果获取成功，返回数据
             if margin_balance > 0 or short_balance > 0:
@@ -1308,6 +1846,56 @@ class StockDataSource:
                     self.data_storage.save_margin_trading_data(symbol, result)
                 
                 return result
+            
+            # 方法3: 尝试使用Tushare接口（根据测试结果，Tushare成功）
+            try:
+                import tushare as ts
+                from config import TUSHARE_TOKEN
+                if TUSHARE_TOKEN:
+                    ts.set_token(TUSHARE_TOKEN)
+                    pro = ts.pro_api()
+                    
+                    # 使用margin接口获取融资融券数据
+                    tushare_code = f"{symbol}.SH" if symbol.startswith('6') else f"{symbol}.SZ"
+                    today = datetime.now().strftime('%Y%m%d')
+                    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+                    margin_data_df = pro.margin(ts_code=tushare_code, start_date=start_date, end_date=today)
+                    
+                    if not margin_data_df.empty:
+                        latest = margin_data_df.iloc[-1]
+                        margin_balance = float(latest.get('rzye', 0)) / 10000 if latest.get('rzye') else 0.0  # 转换为万元
+                        short_balance = float(latest.get('rqye', 0)) / 10000 if latest.get('rqye') else 0.0  # 转换为万元
+                        
+                        # 计算变化
+                        margin_change = 0.0
+                        margin_change_pct = 0.0
+                        if len(margin_data_df) > 1:
+                            prev = margin_data_df.iloc[-2]
+                            prev_margin = float(prev.get('rzye', 0)) / 10000 if prev.get('rzye') else 0.0
+                            margin_change = margin_balance - prev_margin
+                            if prev_margin > 0:
+                                margin_change_pct = (margin_change / prev_margin) * 100
+                        
+                        trend = 'increasing' if margin_change_pct > 2 else 'decreasing' if margin_change_pct < -2 else 'stable'
+                        
+                        result = {
+                            'margin_balance': margin_balance,
+                            'margin_change': margin_change,
+                            'margin_change_pct': margin_change_pct,
+                            'short_balance': short_balance,
+                            'trend': trend
+                        }
+                        
+                        # 保存到CSV
+                        if self.data_storage:
+                            self.data_storage.save_margin_trading_data(symbol, result)
+                        
+                        self.logger.info(f"使用Tushare成功获取股票 {symbol} 的融资融券数据")
+                        return result
+            except ImportError:
+                self.logger.debug("Tushare未安装，跳过Tushare接口")
+            except Exception as e:
+                self.logger.debug(f"Tushare获取融资融券数据失败: {str(e)}")
             
             # 如果获取失败，返回中性数据
             self.logger.warning(f"未能获取到股票 {symbol} 的融资融券数据，返回中性值")
@@ -1328,13 +1916,14 @@ class StockDataSource:
                 'trend': 'stable'
             }
     
-    def get_main_force_capital(self, symbol: str, days: int = 5) -> Dict:
+    def get_main_force_capital(self, symbol: str, days: int = 5, use_db_only: bool = False) -> Dict:
         """
         获取主力资金流向数据（大单、中单、小单）
         
         Args:
             symbol: 股票代码
             days: 获取最近多少天的数据
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
             
         Returns:
             {
@@ -1344,12 +1933,49 @@ class StockDataSource:
             }
         """
         try:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从main_force_capital表获取最新数据
+                        sql = """
+                            SELECT main_net_inflow, main_net_inflow_pct, trend
+                            FROM main_force_capital
+                            WHERE symbol = %s
+                            AND date = CURDATE()
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        """
+                        result = db.execute_query(sql, (symbol,))
+                        
+                        if result and len(result) > 0:
+                            record = result[0]
+                            return {
+                                'main_net_inflow': float(record.get('main_net_inflow', 0.0)) if record.get('main_net_inflow') is not None else 0.0,
+                                'main_net_inflow_pct': float(record.get('main_net_inflow_pct', 0.0)) if record.get('main_net_inflow_pct') is not None else 0.0,
+                                'trend': record.get('trend', 'neutral')
+                            }
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取主力资金数据失败: {str(e)}")
+                
+                # 如果数据库没有数据，返回中性数据（设置页面预测：不做API调用）
+                self.logger.debug(f"数据库中没有股票 {symbol} 的主力资金数据，且use_db_only=True，返回中性值")
+                return {
+                    'main_net_inflow': 0.0,
+                    'main_net_inflow_pct': 0.0,
+                    'trend': 'neutral'
+                }
+            
             main_net = 0.0
             main_net_pct = 0.0
             
-            # 方法1: 使用 stock_individual_fund_flow（正确的参数）
+            # 方法1: 使用 stock_individual_fund_flow（使用无代理方式调用）
             try:
-                capital_flow = ak.stock_individual_fund_flow(stock=symbol, market="sh" if symbol.startswith('6') else "sz")
+                capital_flow = _call_akshare_without_proxy(ak.stock_individual_fund_flow, stock=symbol, market="sh" if symbol.startswith('6') else "sz")
                 if not capital_flow.empty:
                     # 解析主力资金数据
                     latest = capital_flow.iloc[-1] if len(capital_flow) > 0 else None
@@ -1389,10 +2015,10 @@ class StockDataSource:
             except Exception as e:
                 self.logger.debug(f"方法1获取主力资金失败: {str(e)}")
             
-            # 方法2: 使用 stock_individual_fund_flow_rank
+            # 方法2: 使用 stock_individual_fund_flow_rank（使用无代理方式调用）
             if main_net == 0:
                 try:
-                    capital_flow = ak.stock_individual_fund_flow_rank(indicator="今日")
+                    capital_flow = _call_akshare_without_proxy(ak.stock_individual_fund_flow_rank, indicator="今日")
                     if not capital_flow.empty:
                         # 查找该股票的资金流向
                         code_col = None
@@ -1502,10 +2128,21 @@ class StockDataSource:
             }
         """
         try:
-            # 获取行业板块数据
-            try:
-                industry_board = ak.stock_board_industry_name_em()
-                concept_board = ak.stock_board_concept_name_em()
+            # 抑制 pandas SettingWithCopyWarning 警告（来自 akshare 库内部）
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', message='.*SettingWithCopyWarning.*')
+                warnings.filterwarnings('ignore', message='.*A value is trying to be set on a copy.*')
+                warnings.filterwarnings('ignore', category=FutureWarning)
+                
+                # 获取行业板块数据（使用无代理方式调用，避免代理连接错误）
+                try:
+                    industry_board = _call_akshare_without_proxy(ak.stock_board_industry_name_em)
+                    concept_board = _call_akshare_without_proxy(ak.stock_board_concept_name_em)
+                except Exception as e:
+                    self.logger.debug(f"获取板块列表失败: {str(e)}")
+                    industry_board = pd.DataFrame()
+                    concept_board = pd.DataFrame()
                 
                 industry_dict = {}
                 concept_dict = {}
@@ -1518,14 +2155,14 @@ class StockDataSource:
                         if sector_name:
                             sector_list.append(sector_name)
                     
-                    # 获取板块实时行情数据
+                    # 获取板块实时行情数据（使用无代理方式调用）
                     try:
-                        sector_info = ak.stock_board_industry_name_em()
+                        sector_info = _call_akshare_without_proxy(ak.stock_board_industry_name_em)
                         if not sector_info.empty:
                             for sector_name in sector_list[:30]:  # 只处理前30个，避免请求过多
                                 try:
-                                    # 获取板块指数数据
-                                    board_info = ak.stock_board_industry_info_em(symbol=sector_name)
+                                    # 获取板块指数数据（使用无代理方式调用）
+                                    board_info = _call_akshare_without_proxy(ak.stock_board_industry_info_em, symbol=sector_name)
                                     if not board_info.empty:
                                         # 查找涨跌幅列
                                         change_pct = 0.0
@@ -1604,15 +2241,8 @@ class StockDataSource:
                     self.data_storage.save_sector_rotation_data(result)
                 
                 return result
-            except Exception as e:
-                self.logger.debug(f"获取板块数据失败: {str(e)}")
-                return {
-                    'industry_sectors': {},
-                    'concept_sectors': {},
-                    'hot_sectors': []
-                }
         except Exception as e:
-            self.logger.warning(f"获取板块表现数据失败: {str(e)}")
+            self.logger.debug(f"获取板块数据失败: {str(e)}")
             return {
                 'industry_sectors': {},
                 'concept_sectors': {},
@@ -1621,7 +2251,7 @@ class StockDataSource:
 
     def get_realtime_quote(self, symbol: str) -> Dict:
         """
-        获取股票实时行情数据
+        获取股票实时行情数据（优先从数据库获取今天的数据，如果数据库没有则从API获取）
         
         Args:
             symbol: 股票代码
@@ -1646,8 +2276,63 @@ class StockDataSource:
             - timestamp: 数据时间戳
         """
         try:
+            # 优先从数据库获取今天的数据
+            today = datetime.now().strftime('%Y-%m-%d')
+            try:
+                from utils.stock_history_storage import StockHistoryStorage
+                from config_db import USE_DATABASE
+                
+                if USE_DATABASE:
+                    storage = StockHistoryStorage()
+                    # 检查数据库中是否有今天的数据
+                    today_data = storage.get_stock_history_data(
+                        symbol=symbol,
+                        start_date=today,
+                        end_date=today,
+                        limit=1,
+                        period_type='daily'
+                    )
+                    
+                    if today_data and len(today_data) > 0:
+                        record = today_data[0]
+                        # 从数据库数据构建实时行情数据
+                        result = {
+                            'symbol': symbol,
+                            'current_price': float(record.get('close_price', 0)) if record.get('close_price') else None,
+                            'open_price': float(record.get('open_price', 0)) if record.get('open_price') else None,
+                            'high_price': float(record.get('high_price', 0)) if record.get('high_price') else None,
+                            'low_price': float(record.get('low_price', 0)) if record.get('low_price') else None,
+                            'pre_close': float(record.get('pre_close', 0)) if record.get('pre_close') else None,
+                            'volume': float(record.get('volume', 0)) if record.get('volume') else None,
+                            'amount': float(record.get('amount', 0)) if record.get('amount') else None,
+                            'timestamp': record.get('trade_date', today) + ' ' + (record.get('update_time', '') or '15:00:00')
+                        }
+                        
+                        # 计算涨跌幅和涨跌额
+                        if result.get('current_price') and result.get('pre_close') and result['pre_close'] > 0:
+                            result['change_amount'] = result['current_price'] - result['pre_close']
+                            result['change_pct'] = (result['change_amount'] / result['pre_close']) * 100
+                        
+                        # 如果有成交额和成交量，计算换手率
+                        if result.get('amount') and result.get('volume') and result['volume'] > 0:
+                            # 换手率 = 成交额 / (成交量 * 当前价) * 100
+                            if result.get('current_price') and result['current_price'] > 0:
+                                result['turnover_rate'] = (result['amount'] / (result['volume'] * result['current_price'])) * 100
+                        
+                        # 如果有最高价和最低价，计算振幅
+                        if result.get('high_price') and result.get('low_price') and result.get('pre_close') and result['pre_close'] > 0:
+                            result['amplitude'] = ((result['high_price'] - result['low_price']) / result['pre_close']) * 100
+                        
+                        self.logger.info(f"从数据库获取 {symbol} 今天的数据（{today}）")
+                        return result
+                    else:
+                        self.logger.debug(f"数据库中没有 {symbol} 今天的数据（{today}），将从API获取")
+            except Exception as e:
+                self.logger.debug(f"从数据库获取今天数据失败，将从API获取: {str(e)}")
+            
+            # 如果数据库没有今天的数据，从API获取实时行情
             # 使用东方财富实时行情接口
-            df = ak.stock_zh_a_spot_em()
+            df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
             
             if df is None or df.empty:
                 self.logger.warning(f"无法获取实时行情数据")
@@ -2213,7 +2898,7 @@ class StockDataSource:
         """
         try:
             # 获取实时行情（包含买卖盘）
-            df = ak.stock_zh_a_spot_em()
+            df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
             
             if df is None or df.empty:
                 return {}
@@ -2323,7 +3008,7 @@ class StockDataSource:
             # 尝试从akshare获取集合竞价数据
             try:
                 # 使用akshare获取集合竞价数据
-                df = ak.stock_zh_a_spot_em()
+                df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
                 if df is None or df.empty:
                     return {}
                 
@@ -2435,7 +3120,7 @@ class StockDataSource:
             # 尝试从akshare获取停牌信息
             try:
                 # 使用akshare获取股票基本信息
-                df = ak.stock_zh_a_spot_em()
+                df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
                 if df is not None and not df.empty:
                     code_col = None
                     for col in df.columns:
@@ -2593,9 +3278,12 @@ class StockDataSource:
             self.logger.debug(f"获取龙虎榜数据失败: {str(e)}")
             return {}
     
-    def get_market_statistics(self) -> Dict:
+    def get_market_statistics(self, use_db_only: bool = False) -> Dict:
         """
         获取市场统计数据（用于计算恐慌/贪婪指数）
+        
+        Args:
+            use_db_only: 是否只使用数据库数据（设置页面预测时应设为True，不调用API）
         
         Returns:
             市场统计数据字典，包含：
@@ -2609,9 +3297,86 @@ class StockDataSource:
             - avg_volume: 平均成交量（用于计算成交量比例）
         """
         try:
+            # 设置页面预测：如果use_db_only=True，只从数据库获取数据
+            if use_db_only:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from config_db import USE_DATABASE
+                    
+                    if USE_DATABASE:
+                        db = DatabaseConnection()
+                        # 从stock_history_data表获取当天的统计数据
+                        today = datetime.now().strftime('%Y-%m-%d')
+                        sql = """
+                            SELECT 
+                                COUNT(*) as total_stocks,
+                                SUM(CASE WHEN change_pct > 0 THEN 1 ELSE 0 END) as rising_stocks,
+                                SUM(CASE WHEN change_pct < 0 THEN 1 ELSE 0 END) as falling_stocks,
+                                SUM(CASE WHEN change_pct = 0 THEN 1 ELSE 0 END) as flat_stocks,
+                                SUM(CASE WHEN is_limit_up = 1 THEN 1 ELSE 0 END) as limit_up_count,
+                                SUM(CASE WHEN is_limit_down = 1 THEN 1 ELSE 0 END) as limit_down_count,
+                                SUM(volume) as total_volume,
+                                AVG(volume) as avg_volume
+                            FROM stock_history_data
+                            WHERE trade_date = %s
+                            AND period_type = 'daily'
+                        """
+                        result = db.execute_query(sql, (today,))
+                        
+                        if result and len(result) > 0:
+                            record = result[0]
+                            total_stocks = int(record.get('total_stocks', 0) or 0)
+                            rising_stocks = int(record.get('rising_stocks', 0) or 0)
+                            falling_stocks = int(record.get('falling_stocks', 0) or 0)
+                            flat_stocks = int(record.get('flat_stocks', 0) or 0)
+                            limit_up_count = int(record.get('limit_up_count', 0) or 0)
+                            limit_down_count = int(record.get('limit_down_count', 0) or 0)
+                            total_volume = float(record.get('total_volume', 0) or 0)
+                            avg_volume = float(record.get('avg_volume', 0) or 0)
+                            
+                            if total_stocks > 0:
+                                rising_stocks_pct = rising_stocks / total_stocks
+                                falling_stocks_pct = falling_stocks / total_stocks
+                            else:
+                                rising_stocks_pct = 0.5
+                                falling_stocks_pct = 0.5
+                            
+                            return {
+                                'total_stocks': total_stocks,
+                                'rising_stocks': rising_stocks,
+                                'falling_stocks': falling_stocks,
+                                'flat_stocks': flat_stocks,
+                                'rising_stocks_pct': rising_stocks_pct,
+                                'falling_stocks_pct': falling_stocks_pct,
+                                'limit_up_count': limit_up_count,
+                                'limit_down_count': limit_down_count,
+                                'total_volume': total_volume,
+                                'avg_volume': avg_volume,
+                                'date': today
+                            }
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取市场统计数据失败: {str(e)}")
+                
+                # 如果数据库没有数据，返回中性数据（设置页面预测：不做API调用）
+                self.logger.debug("数据库中没有市场统计数据，且use_db_only=True，返回中性值")
+                return {
+                    'total_stocks': 0,
+                    'rising_stocks': 0,
+                    'falling_stocks': 0,
+                    'flat_stocks': 0,
+                    'rising_stocks_pct': 0.5,
+                    'falling_stocks_pct': 0.5,
+                    'limit_up_count': 0,
+                    'limit_down_count': 0,
+                    'total_volume': 0,
+                    'avg_volume': 0,
+                    'date': datetime.now().strftime('%Y-%m-%d')
+                }
+            
+            # 如果use_db_only=False，从API获取
             # 使用akshare获取A股实时行情数据
             try:
-                df = ak.stock_zh_a_spot_em()
+                df = _call_akshare_without_proxy(ak.stock_zh_a_spot_em)
                 if df is None or df.empty:
                     return {}
                 
@@ -2767,6 +3532,203 @@ class StockDataSource:
             return {
                 'has_restricted': False,
                 'note': f'获取限售股解禁数据失败: {str(e)}'
+            }
+    
+    def get_actual_stock_change(self, symbol: str, target_date: str, current_price: float = None) -> Dict:
+        """
+        获取股票在目标日期的实际价格和涨跌幅
+        
+        Args:
+            symbol: 股票代码
+            target_date: 目标日期（格式：YYYY-MM-DD）
+            current_price: 预测时的价格（用于计算涨跌幅），如果为None则从数据库查询预测记录获取
+        
+        Returns:
+            {
+                'success': True/False,
+                'close': 实际收盘价,
+                'change_pct': 实际涨跌幅（%）,
+                'direction': 实际方向（上涨/下跌/平盘）,
+                'message': 错误信息（如果失败）
+            }
+        """
+        try:
+            symbol = str(symbol).zfill(6)
+            
+            # 优先从数据库获取历史数据
+            try:
+                from utils.stock_history_storage import StockHistoryStorage
+                storage = StockHistoryStorage()
+                
+                # 查询目标日期的历史数据
+                history_data = storage.get_stock_history_data(
+                    symbol=symbol,
+                    start_date=target_date,
+                    end_date=target_date,
+                    limit=1,
+                    period_type='daily'
+                )
+                
+                if history_data and len(history_data) > 0:
+                    record = history_data[0]
+                    actual_close = float(record.get('close_price', 0)) if record.get('close_price') else None
+                    
+                    if actual_close is None or actual_close <= 0:
+                        return {
+                            'success': False,
+                            'message': f'目标日期 {target_date} 的收盘价数据不存在或无效'
+                        }
+                    
+                    # 如果没有提供current_price，尝试从stock_predictions表获取
+                    if current_price is None:
+                        try:
+                            from utils.db_connection import DatabaseConnection
+                            sql = """
+                                SELECT current_price 
+                                FROM stock_predictions 
+                                WHERE symbol = %s AND target_date = %s 
+                                ORDER BY prediction_time DESC 
+                                LIMIT 1
+                            """
+                            results = DatabaseConnection.execute_query(sql, (symbol, target_date))
+                            if results and len(results) > 0:
+                                current_price = float(results[0].get('current_price', 0)) if results[0].get('current_price') else None
+                        except Exception as e:
+                            self.logger.debug(f"从stock_predictions获取current_price失败: {str(e)}")
+                    
+                    # 如果仍然没有current_price，使用数据库中的change_pct（如果有）
+                    if current_price is None or current_price <= 0:
+                        # 尝试使用数据库中的change_pct字段
+                        change_pct_from_db = float(record.get('change_pct', 0)) if record.get('change_pct') is not None else None
+                        if change_pct_from_db is not None:
+                            # 使用数据库中的涨跌幅，但需要判断方向
+                            actual_change_pct = change_pct_from_db
+                            if actual_change_pct > 0:
+                                actual_direction = '上涨'
+                            elif actual_change_pct < 0:
+                                actual_direction = '下跌'
+                            else:
+                                actual_direction = '平盘'
+                            
+                            return {
+                                'success': True,
+                                'close': actual_close,
+                                'change_pct': actual_change_pct,
+                                'direction': actual_direction
+                            }
+                        else:
+                            return {
+                                'success': False,
+                                'message': f'无法获取预测时的价格，无法计算涨跌幅'
+                            }
+                    
+                    # 计算实际涨跌幅
+                    actual_change_pct = ((actual_close - current_price) / current_price * 100) if current_price > 0 else 0.0
+                    
+                    # 判断实际方向
+                    if actual_change_pct > 0.01:  # 大于0.01%算上涨
+                        actual_direction = '上涨'
+                    elif actual_change_pct < -0.01:  # 小于-0.01%算下跌
+                        actual_direction = '下跌'
+                    else:
+                        actual_direction = '平盘'
+                    
+                    return {
+                        'success': True,
+                        'close': actual_close,
+                        'change_pct': actual_change_pct,
+                        'direction': actual_direction
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'message': f'目标日期 {target_date} 的历史数据不存在'
+                    }
+                    
+            except Exception as e:
+                self.logger.warning(f"从数据库获取实际股票数据失败: {str(e)}")
+                # 如果数据库获取失败，尝试从API获取
+                try:
+                    # 使用get_stock_data方法获取数据
+                    df = self.get_stock_data(symbol, start_date=target_date, end_date=target_date)
+                    
+                    if df is not None and not df.empty:
+                        # 查找目标日期的数据
+                        target_date_obj = pd.to_datetime(target_date)
+                        if target_date_obj in df.index:
+                            row = df.loc[target_date_obj]
+                            actual_close = float(row.get('close', 0)) if pd.notna(row.get('close')) else None
+                            
+                            if actual_close is None or actual_close <= 0:
+                                return {
+                                    'success': False,
+                                    'message': f'目标日期 {target_date} 的收盘价数据无效'
+                                }
+                            
+                            # 如果没有提供current_price，尝试从stock_predictions表获取
+                            if current_price is None:
+                                try:
+                                    from utils.db_connection import DatabaseConnection
+                                    sql = """
+                                        SELECT current_price 
+                                        FROM stock_predictions 
+                                        WHERE symbol = %s AND target_date = %s 
+                                        ORDER BY prediction_time DESC 
+                                        LIMIT 1
+                                    """
+                                    results = DatabaseConnection.execute_query(sql, (symbol, target_date))
+                                    if results and len(results) > 0:
+                                        current_price = float(results[0].get('current_price', 0)) if results[0].get('current_price') else None
+                                except Exception:
+                                    pass
+                            
+                            if current_price is None or current_price <= 0:
+                                return {
+                                    'success': False,
+                                    'message': f'无法获取预测时的价格，无法计算涨跌幅'
+                                }
+                            
+                            # 计算实际涨跌幅
+                            actual_change_pct = ((actual_close - current_price) / current_price * 100) if current_price > 0 else 0.0
+                            
+                            # 判断实际方向
+                            if actual_change_pct > 0.01:
+                                actual_direction = '上涨'
+                            elif actual_change_pct < -0.01:
+                                actual_direction = '下跌'
+                            else:
+                                actual_direction = '平盘'
+                            
+                            return {
+                                'success': True,
+                                'close': actual_close,
+                                'change_pct': actual_change_pct,
+                                'direction': actual_direction
+                            }
+                        else:
+                            return {
+                                'success': False,
+                                'message': f'目标日期 {target_date} 的数据不存在'
+                            }
+                    else:
+                        return {
+                            'success': False,
+                            'message': f'无法获取目标日期 {target_date} 的股票数据'
+                        }
+                except Exception as api_error:
+                    self.logger.warning(f"从API获取实际股票数据失败: {str(api_error)}")
+                    return {
+                        'success': False,
+                        'message': f'获取实际股票数据失败: {str(api_error)}'
+                    }
+        
+        except Exception as e:
+            self.logger.error(f"获取实际股票变化数据失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {
+                'success': False,
+                'message': f'获取实际股票变化数据失败: {str(e)}'
             }
 
 

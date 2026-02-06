@@ -241,9 +241,10 @@ class ConfidenceCalculator:
             result = self.db.execute_query(base_sql, params)
             
             if result and result[0]['total'] and result[0]['total'] > 0:
-                total = result[0]['total']
-                hit_count = result[0]['hit_count']
-                accuracy = hit_count / total
+                # 确保转换为float类型，避免Decimal和float运算错误
+                total = float(result[0]['total'])
+                hit_count = float(result[0]['hit_count'] or 0)
+                accuracy = hit_count / total if total > 0 else 0.0
                 
                 # 计算调整因子
                 # 准确率 > 0.6: 因子 1.1-1.2（提高置信度）

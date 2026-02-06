@@ -15,6 +15,18 @@ sys.path.insert(0, project_root)
 from utils.db_connection import DatabaseConnection
 from utils.logger import get_logger
 
+# 导入配置常量
+try:
+    from config import CONFIDENCE_THRESHOLDS, PROBABILITY_THRESHOLDS
+except ImportError:
+    # 如果导入失败，使用默认值
+    CONFIDENCE_THRESHOLDS = {
+        "medium": 0.55,
+    }
+    PROBABILITY_THRESHOLDS = {
+        "buy_signal": 0.6,
+    }
+
 logger = get_logger(__name__)
 
 
@@ -106,7 +118,7 @@ class BacktestEngine:
                 
                 # 交易决策逻辑
                 # 买入条件：预测上涨且置信度足够
-                if prediction == '上涨' and up_prob >= 0.6 and confidence >= 0.55:
+                if prediction == '上涨' and up_prob >= PROBABILITY_THRESHOLDS["buy_signal"] and confidence >= CONFIDENCE_THRESHOLDS["medium"]:
                     if symbol not in positions:
                         # 买入
                         shares, cost = self._buy_stock(

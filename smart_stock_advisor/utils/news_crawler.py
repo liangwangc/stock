@@ -35,11 +35,13 @@ except ImportError:
 
 # 尝试导入配置
 try:
-    from config import NEWS_SOURCES, NEWS_CONFIG, TUSHARE_TOKEN
+    from config import NEWS_SOURCES, NEWS_CONFIG, TUSHARE_TOKEN, TUSHARE_USERNAME, TUSHARE_PASSWORD
 except ImportError:
     NEWS_SOURCES = []
     NEWS_CONFIG = {'news_count': 20}
     TUSHARE_TOKEN = None
+    TUSHARE_USERNAME = None
+    TUSHARE_PASSWORD = None
 
 
 class NewsCrawler:
@@ -59,7 +61,11 @@ class NewsCrawler:
         # 初始化新闻源（但不立即抓取）
         if NEWS_SOURCE_AVAILABLE:
             try:
-                self.news_source = UnifiedNewsSource(tushare_token=TUSHARE_TOKEN)
+                self.news_source = UnifiedNewsSource(
+                    tushare_token=TUSHARE_TOKEN,
+                    tushare_username=TUSHARE_USERNAME,
+                    tushare_password=TUSHARE_PASSWORD
+                )
             except Exception as e:
                 self.logger.warning(f"初始化新闻源失败: {str(e)}")
                 self.news_source = None
@@ -72,42 +78,50 @@ class NewsCrawler:
     
     def crawl_market_news(self, limit: int = 50, only_today: bool = True) -> Dict[str, int]:
         """
-        抓取市场新闻（只抓取当天的新闻）
+        【已禁用】抓取市场新闻 - 当前只使用 news-analysis-system-main 获取新闻
+        
+        注意：此方法已禁用，不再调用 API。所有新闻获取统一由 news-analysis-system-main 处理。
         
         Args:
             limit: 限制数量
             only_today: 是否只抓取当天的新闻（默认True）
-        
+            
         Returns:
             {'success': 成功数量, 'failed': 失败数量, 'duplicate': 重复数量}
         """
-        if not self.news_source:
-            self.logger.warning("新闻源不可用，无法抓取")
-            return {'success': 0, 'failed': 0, 'duplicate': 0}
+        self.logger.warning("crawl_market_news() 已禁用，不再调用 API。请使用 news-analysis-system-main 获取新闻")
+        return {'success': 0, 'failed': 0, 'duplicate': 0}
         
-        try:
-            self.logger.info(f"开始抓取市场新闻，限制数量: {limit}，只抓取当天: {only_today}")
-            news_list = self.news_source.get_market_news(limit, only_today=only_today)
-            
-            if not news_list:
-                self.logger.warning("未获取到市场新闻")
-                return {'success': 0, 'failed': 0, 'duplicate': 0}
-            
-            self.logger.info(f"获取到 {len(news_list)} 条市场新闻，开始保存...")
-            result = self.news_storage.save_news_batch(news_list)
-            
-            self.logger.info(f"市场新闻抓取完成: 成功 {result['success']}, 重复 {result['duplicate']}, 失败 {result['failed']}")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"抓取市场新闻失败: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return {'success': 0, 'failed': 1, 'duplicate': 0}
+        # 【已禁用】以下代码已禁用，不再调用 API
+        # if not self.news_source:
+        #     self.logger.warning("新闻源不可用，无法抓取")
+        #     return {'success': 0, 'failed': 0, 'duplicate': 0}
+        # 
+        # try:
+        #     self.logger.info(f"开始抓取市场新闻，限制数量: {limit}，只抓取当天: {only_today}")
+        #     news_list = self.news_source.get_market_news(limit, only_today=only_today)
+        #     
+        #     if not news_list:
+        #         self.logger.warning("未获取到市场新闻")
+        #         return {'success': 0, 'failed': 0, 'duplicate': 0}
+        #     
+        #     self.logger.info(f"获取到 {len(news_list)} 条市场新闻，开始保存...")
+        #     result = self.news_storage.save_news_batch(news_list)
+        #     
+        #     self.logger.info(f"市场新闻抓取完成: 成功 {result['success']}, 重复 {result['duplicate']}, 失败 {result['failed']}")
+        #     return result
+        #     
+        # except Exception as e:
+        #     self.logger.error(f"抓取市场新闻失败: {str(e)}")
+        #     import traceback
+        #     self.logger.error(traceback.format_exc())
+        #     return {'success': 0, 'failed': 1, 'duplicate': 0}
     
     def crawl_stock_news(self, symbol: str, limit: int = 20, only_today: bool = True) -> Dict[str, int]:
         """
-        抓取股票新闻（只抓取当天的新闻）
+        【已禁用】抓取股票新闻 - 当前只使用 news-analysis-system-main 获取新闻
+        
+        注意：此方法已禁用，不再调用 API。所有新闻获取统一由 news-analysis-system-main 处理。
         
         Args:
             symbol: 股票代码
@@ -117,42 +131,46 @@ class NewsCrawler:
         Returns:
             {'success': 成功数量, 'failed': 失败数量, 'duplicate': 重复数量}
         """
-        if not self.news_source:
-            self.logger.warning("新闻源不可用，无法抓取")
-            return {'success': 0, 'failed': 0, 'duplicate': 0}
+        self.logger.warning(f"crawl_stock_news() 已禁用，不再调用 API。请使用 news-analysis-system-main 获取新闻（股票: {symbol}）")
+        return {'success': 0, 'failed': 0, 'duplicate': 0}
         
-        try:
-            self.logger.info(f"开始抓取股票 {symbol} 的新闻，限制数量: {limit}，只抓取当天: {only_today}")
-            news_list = self.news_source.get_stock_news(symbol, limit, only_today=only_today)
-            
-            if not news_list:
-                self.logger.warning(f"未获取到股票 {symbol} 的新闻")
-                return {'success': 0, 'failed': 0, 'duplicate': 0}
-            
-            # 获取股票行业信息（用于标记板块、行业）
-            sector = None
-            industry = None
-            try:
-                from data_source.stock_data_source import StockDataSource
-                data_source = StockDataSource()
-                industry_info = data_source.get_stock_industry_info(symbol)
-                sector = industry_info.get('sector')
-                industry = industry_info.get('industry')
-            except:
-                pass
-            
-            self.logger.info(f"获取到 {len(news_list)} 条股票新闻，开始保存...")
-            result = self.news_storage.save_news_batch(news_list, symbol=symbol, 
-                                                      sector=sector, industry=industry)
-            
-            self.logger.info(f"股票 {symbol} 新闻抓取完成: 成功 {result['success']}, 重复 {result['duplicate']}, 失败 {result['failed']}")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"抓取股票 {symbol} 新闻失败: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return {'success': 0, 'failed': 1, 'duplicate': 0}
+        # 【已禁用】以下代码已禁用，不再调用 API
+        # if not self.news_source:
+        #     self.logger.warning("新闻源不可用，无法抓取")
+        #     return {'success': 0, 'failed': 0, 'duplicate': 0}
+        # 
+        # try:
+        #     self.logger.info(f"开始抓取股票 {symbol} 的新闻，限制数量: {limit}，只抓取当天: {only_today}")
+        #     news_list = self.news_source.get_stock_news(symbol, limit, only_today=only_today)
+        #     
+        #     if not news_list:
+        #         self.logger.warning(f"未获取到股票 {symbol} 的新闻")
+        #         return {'success': 0, 'failed': 0, 'duplicate': 0}
+        #     
+        #     # 获取股票行业信息（用于标记板块、行业）
+        #     sector = None
+        #     industry = None
+        #     try:
+        #         from data_source.stock_data_source import StockDataSource
+        #         data_source = StockDataSource()
+        #         industry_info = data_source.get_stock_industry_info(symbol)
+        #         sector = industry_info.get('sector')
+        #         industry = industry_info.get('industry')
+        #     except:
+        #         pass
+        #     
+        #     self.logger.info(f"获取到 {len(news_list)} 条股票新闻，开始保存...")
+        #     result = self.news_storage.save_news_batch(news_list, symbol=symbol, 
+        #                                               sector=sector, industry=industry)
+        #     
+        #     self.logger.info(f"股票 {symbol} 新闻抓取完成: 成功 {result['success']}, 重复 {result['duplicate']}, 失败 {result['failed']}")
+        #     return result
+        #     
+        # except Exception as e:
+        #     self.logger.error(f"抓取股票 {symbol} 新闻失败: {str(e)}")
+        #     import traceback
+        #     self.logger.error(traceback.format_exc())
+        #     return {'success': 0, 'failed': 1, 'duplicate': 0}
     
     def _parse_news_time(self, news_time) -> Optional[datetime]:
         """
@@ -220,12 +238,15 @@ class NewsCrawler:
         now = datetime.now()
         
         if last_fetch_time:
-            # 增量获取：从上次获取时间到现在
-            start_time = last_fetch_time
+            # 增量获取：从上次获取时间往前推30分钟到现在（避免漏掉新闻）
+            # 原因：新闻发布时间可能不准确，或者新闻源有延迟，往前推可以确保不遗漏
+            start_time = last_fetch_time - timedelta(minutes=30)
             # 如果是凌晨00:00，往前推10分钟，避免遗漏数据
             if start_time.hour == 0 and start_time.minute == 0:
                 start_time = start_time - timedelta(minutes=10)
                 self.logger.info(f"检测到凌晨00:00时间点，往前推10分钟: {start_time}")
+            else:
+                self.logger.debug(f"增量抓取时间范围：从 {start_time} 往前推30分钟（避免漏掉新闻）")
         else:
             # 首次获取：获取当天的新闻
             # 如果是凌晨00:00附近（00:00-00:10），往前推10分钟到前一天
@@ -242,7 +263,9 @@ class NewsCrawler:
     def crawl_all_news(self, limit: int = 200, last_fetch_time: Optional[datetime] = None, 
                        interval_minutes: float = 60.0, max_retries: int = 3) -> Dict[str, int]:
         """
-        抓取全部新闻（增量获取），并进行关联分析
+        【已禁用】抓取全部新闻 - 当前只使用 news-analysis-system-main 获取新闻
+        
+        注意：此方法已禁用，不再调用 API。所有新闻获取统一由 news-analysis-system-main 处理。
         
         Args:
             limit: 限制数量（每个新闻源）
@@ -259,208 +282,22 @@ class NewsCrawler:
                 'time_range': 时间范围信息
             }
         """
-        try:
-            if not self.news_source:
-                self.logger.warning("新闻源不可用，无法抓取")
-                return {'success': 0, 'failed': 0, 'duplicate': 0, 'source_stats': {}, 'time_range': {}}
-            
-            # 计算时间范围
-            start_time, end_time = self._calculate_time_range(last_fetch_time, interval_minutes)
-            time_range_str = f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} 到 {end_time.strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            self.logger.info(f"开始增量抓取全部新闻，时间范围: {time_range_str}，限制数量: {limit}（每个新闻源），最大重试: {max_retries}次")
-            
-            # 获取新闻源数量
-            source_count = len(self.news_source.sources) if hasattr(self.news_source, 'sources') else 0
-            self.logger.info(f"可用新闻源数量: {source_count}")
-            
-            # 重试机制：如果第一次获取失败，重试
-            news_list = []
-            for attempt in range(max_retries):
-                try:
-                    # 获取市场新闻（不限制日期，获取所有新闻以便后续时间过滤）
-                    # 注意：limit * 2 是为了获取更多新闻，因为后续会按时间范围过滤
-                    news_list = self.news_source.get_market_news(limit=limit * 2, only_today=False)
-                    
-                    if news_list:
-                        self.logger.info(f"第 {attempt + 1} 次尝试成功获取到 {len(news_list)} 条新闻")
-                        break
-                    else:
-                        if attempt < max_retries - 1:
-                            wait_time = (attempt + 1) * 2  # 递增等待时间：2秒、4秒、6秒
-                            self.logger.warning(f"第 {attempt + 1} 次尝试未获取到新闻，等待 {wait_time} 秒后重试...")
-                            time.sleep(wait_time)
-                        else:
-                            self.logger.warning(f"经过 {max_retries} 次尝试仍未获取到新闻")
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 2
-                        self.logger.warning(f"第 {attempt + 1} 次尝试获取新闻失败: {str(e)}，等待 {wait_time} 秒后重试...")
-                        time.sleep(wait_time)
-                    else:
-                        self.logger.error(f"经过 {max_retries} 次尝试后仍然失败: {str(e)}")
-                        import traceback
-                        self.logger.error(traceback.format_exc())
-            
-            if not news_list:
-                self.logger.warning(f"未获取到新闻，可能原因：1) 时间范围内没有新闻 2) 新闻源暂时不可用 3) 网络问题")
-                return {
-                    'success': 0, 
-                    'failed': 0, 
-                    'duplicate': 0,
-                    'source_stats': {},
-                    'time_range': {'start': start_time.isoformat(), 'end': end_time.isoformat()}
-                }
-            
-            # 过滤时间范围（只保留时间范围内的新闻）
-            filtered_news = []
-            time_parse_failed = 0
-            time_out_of_range = 0
-            
-            for news in news_list:
-                news_time = news.get('time') or news.get('publish_time') or news.get('pub_time')
-                news_datetime = self._parse_news_time(news_time)
-                
-                if news_datetime:
-                    # 检查时间是否在范围内
-                    if start_time <= news_datetime <= end_time:
-                        filtered_news.append(news)
-                    else:
-                        time_out_of_range += 1
-                else:
-                    # 没有时间信息或解析失败，默认保留（可能是实时新闻）
-                    if not news_time:
-                        # 没有时间信息，保留（可能是实时新闻）
-                        filtered_news.append(news)
-                    else:
-                        # 有时间信息但解析失败，也保留（避免误过滤）
-                        filtered_news.append(news)
-                        time_parse_failed += 1
-            
-            self.logger.info(
-                f"获取到 {len(news_list)} 条新闻，时间过滤后 {len(filtered_news)} 条 "
-                f"（时间范围外: {time_out_of_range} 条，时间解析失败: {time_parse_failed} 条）"
-            )
-            
-            # 统计各新闻源的贡献
-            source_stats = {}
-            for news in filtered_news:
-                source = news.get('source', '未知来源')
-                source_stats[source] = source_stats.get(source, 0) + 1
-            
-            # 使用NewsStockMapper进行关联分析
-            try:
-                from utils.news_stock_mapper import NewsStockMapper
-                stock_mapper = NewsStockMapper()
-            except Exception as e:
-                self.logger.warning(f"初始化NewsStockMapper失败: {str(e)}")
-                stock_mapper = None
-            
-            # 大盘关键词（用于识别大盘相关新闻）
-            market_keywords = ['大盘', '指数', 'A股', '沪深', '上证', '深证', '创业板', '科创板', '市场', 
-                             '股市', '股市场', '资本市场', '证券', '券商', '金融']
-            
-            # 处理每条新闻，进行关联分析
-            total_success = 0
-            total_failed = 0
-            total_duplicate = 0
-            mapped_stocks = {}  # 统计关联到的股票数量
-            
-            for idx, news in enumerate(filtered_news, 1):
-                try:
-                    # 检查是否是大盘相关新闻
-                    title = news.get('title', '')
-                    content = news.get('content', '')
-                    text = f"{title} {content}".lower()
-                    is_market_news = any(keyword in text for keyword in market_keywords)
-                    
-                    # 使用NewsStockMapper分析新闻，关联到股票、板块、行业
-                    symbol = None
-                    sector = None
-                    industry = None
-                    
-                    if stock_mapper:
-                        try:
-                            mappings = stock_mapper.map_news_to_stocks(news)
-                            if mappings:
-                                # 选择相关性最高的关联
-                                primary_mapping = mappings[0]
-                                symbol = primary_mapping.get('symbol')
-                                sector = primary_mapping.get('sector') or sector
-                                industry = primary_mapping.get('industry') or industry
-                                
-                                # 统计关联到的股票
-                                if symbol:
-                                    mapped_stocks[symbol] = mapped_stocks.get(symbol, 0) + 1
-                                
-                                if idx <= 10:  # 只记录前10条的详细日志
-                                    self.logger.debug(f"新闻关联分析 [{idx}/{len(filtered_news)}]: {title[:50]}... -> 股票: {symbol}, 板块: {sector}, 行业: {industry}")
-                        except Exception as e:
-                            self.logger.debug(f"新闻关联分析失败 [{idx}/{len(filtered_news)}]: {str(e)}")
-                    
-                    # 保存新闻
-                    # 如果是大盘新闻且没有关联到具体股票，symbol设为None（表示市场新闻）
-                    if is_market_news and not symbol:
-                        symbol = None
-                    
-                    news_id = self.news_storage.save_news_article(news, symbol=symbol, 
-                                                                  sector=sector, industry=industry)
-                    if news_id:
-                        total_success += 1
-                    else:
-                        # news_id 为 None 表示新闻已存在（重复），save_news_article 内部会处理重复检测
-                        total_duplicate += 1
-                except Exception as e:
-                    self.logger.error(f"处理新闻失败 [{idx}/{len(filtered_news)}]: {str(e)}")
-                    total_failed += 1
-                    continue
-            
-            # 构建详细的结果统计
-            result = {
-                'success': total_success,
-                'failed': total_failed,
-                'duplicate': total_duplicate,
-                'source_stats': source_stats,
-                'time_range': {
-                    'start': start_time.isoformat(),
-                    'end': end_time.isoformat(),
-                    'duration_minutes': round((end_time - start_time).total_seconds() / 60, 2)
-                },
-                'mapped_stocks_count': len(mapped_stocks),
-                'total_fetched': len(news_list),
-                'total_filtered': len(filtered_news),
-                'time_out_of_range': time_out_of_range,
-                'time_parse_failed': time_parse_failed
-            }
-            
-            # 详细的日志输出
-            self.logger.info(
-                f"全部新闻抓取完成: "
-                f"成功 {total_success} 条, 重复 {total_duplicate} 条, 失败 {total_failed} 条 | "
-                f"获取 {len(news_list)} 条，过滤后 {len(filtered_news)} 条 | "
-                f"关联到 {len(mapped_stocks)} 只股票 | "
-                f"时间范围: {time_range_str}"
-            )
-            
-            # 输出各新闻源的贡献统计
-            if source_stats:
-                source_summary = ", ".join([f"{k}: {v}条" for k, v in sorted(source_stats.items(), key=lambda x: x[1], reverse=True)[:5]])
-                self.logger.info(f"主要新闻源贡献（前5）: {source_summary}")
-            
-            return result
+        self.logger.warning("crawl_all_news() 已禁用，不再调用 API。请使用 news-analysis-system-main 获取新闻")
+        return {'success': 0, 'failed': 0, 'duplicate': 0, 'source_stats': {}, 'time_range': {}}
         
-        except Exception as e:
-            self.logger.error(f"抓取全部新闻失败: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return {
-                'success': 0, 
-                'failed': 1, 
-                'duplicate': 0,
-                'source_stats': {},
-                'time_range': {},
-                'error': str(e)
-            }
+        # 【已禁用】以下代码已禁用，不再调用 API
+        # try:
+        #     if not self.news_source:
+        #         self.logger.warning("新闻源不可用，无法抓取")
+        #         return {'success': 0, 'failed': 0, 'duplicate': 0, 'source_stats': {}, 'time_range': {}}
+        #     
+        #     # 计算时间范围
+        #     start_time, end_time = self._calculate_time_range(last_fetch_time, interval_minutes)
+        #     time_range_str = f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} 到 {end_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        #     
+        #     self.logger.info(f"开始增量抓取全部新闻，时间范围: {time_range_str}，限制数量: {limit}（每个新闻源），最大重试: {max_retries}次")
+        #     
+        #     # ... (其余代码已全部注释，不再执行，因为 return 语句已在上方执行)
     
     def start_crawl_task(self, task_id: int, interval_minutes: int, 
                         task_type: str = 'market', symbol: Optional[str] = None):

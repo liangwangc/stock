@@ -272,6 +272,29 @@ class PredictionConfigManager:
             self.logger.error(f"获取配置失败: {str(e)}")
             return None
     
+    def clear_cache(self, config_id: int = None):
+        """
+        清除配置缓存
+        
+        Args:
+            config_id: 配置ID，如果为None则清除所有缓存并重新加载激活的配置
+        """
+        with self._cache_lock:
+            if config_id:
+                if config_id in self._config_cache:
+                    del self._config_cache[config_id]
+                    self.logger.info(f"已清除配置 {config_id} 的缓存")
+            else:
+                # 清除所有缓存
+                self._config_cache.clear()
+                self._active_config_id = None
+                # 重新加载激活的配置
+                self._load_active_config()
+                self.logger.info("已清除所有配置缓存，并重新加载激活的配置")
+        
+        # 通知订阅者配置已变更
+        self._notify_subscribers()
+    
     def get_config_info(self, config_id: int = None) -> Optional[Dict]:
         """获取配置信息（不包括值）"""
         try:
@@ -512,10 +535,10 @@ class PredictionConfigManager:
             # 验证预测权重总和
             if 'prediction' in values:
                 prediction = values['prediction']
+                # 【已优化】移除三个已优化的因子：sector_rotation_weight, us_sector_weight, valuation_weight
                 weight_keys = [
                     'news_weight', 'capital_flow_weight', 'market_weight',
-                    'technical_weight', 'sector_rotation_weight',
-                    'history_weight', 'us_sector_weight', 'valuation_weight'
+                    'technical_weight', 'history_weight'
                 ]
                 
                 total_weight = 0
@@ -611,18 +634,37 @@ class PredictionConfigManager:
                                  'description': '市场情绪权重（包含大盘指数影响）'},
                 'technical_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
                                     'description': '技术指标权重'},
+                # 【已优化移除】以下三个因子已从预测模型中移除，保留字段定义以保持向后兼容性
                 'sector_rotation_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
-                                          'description': '板块轮动权重'},
+                                          'description': '板块轮动权重（已移除）'},
                 'history_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
                                   'description': '历史模式权重'},
                 'us_sector_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
-                                    'description': '美股板块权重'},
+                                    'description': '美股板块权重（已移除）'},
                 'valuation_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
-                                    'description': '估值指标权重'},
+                                    'description': '估值指标权重（已移除）'},
                 'min_confidence': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
                                   'description': '最小置信度'},
                 'lookback_days': {'type': 'number', 'min': 30, 'max': 365, 'unit': '天',
                                  'description': '回看天数'},
+                # ML模型动态权重参数
+                'ml_default_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                     'description': 'ML模型默认权重（当无法获取性能数据时使用）'},
+                'ml_min_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                 'description': 'ML模型最小权重（性能差时使用）'},
+                'ml_max_weight': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                 'description': 'ML模型最大权重（性能好时使用）'},
+                'ml_high_accuracy_threshold': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                                'description': 'ML模型高准确率阈值（准确率>此值时使用高权重范围）'},
+                'ml_medium_accuracy_threshold': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                                'description': 'ML模型中等准确率阈值（准确率>此值时使用中等权重范围）'},
+                # 异常检测参数
+                'st_stock_confidence_reduction': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                                  'description': 'ST股票置信度降低比例'},
+                'limit_up_down_confidence_reduction': {'type': 'number', 'min': 0, 'max': 1, 'unit': '',
+                                                       'description': '涨跌停置信度降低比例'},
+                'suspended_stock_action': {'type': 'string', 'min': None, 'max': None, 'unit': '',
+                                           'description': '停牌股票处理方式（skip_prediction/lower_confidence）'},
             },
             'indicator': {
                 'ma_short': {'type': 'number', 'min': 1, 'max': 100, 'unit': '日',
@@ -649,6 +691,23 @@ class PredictionConfigManager:
                                 'description': 'KDJ D值平滑周期'},
                 'cci_period': {'type': 'number', 'min': 2, 'max': 100, 'unit': '日',
                               'description': 'CCI周期'},
+                # X2指标参数
+                'x2_overbought_threshold': {'type': 'number', 'min': 0, 'max': 100, 'unit': '',
+                                           'description': 'X2超买阈值（X2值>此值时判定为超买）'},
+                'x2_oversold_threshold': {'type': 'number', 'min': 0, 'max': 100, 'unit': '',
+                                         'description': 'X2超卖阈值（X2值<此值时判定为超卖）'},
+                'x2_high_threshold': {'type': 'number', 'min': 0, 'max': 100, 'unit': '',
+                                     'description': 'X2偏高阈值（X2值>此值时判定为偏高）'},
+                'x2_low_threshold': {'type': 'number', 'min': 0, 'max': 100, 'unit': '',
+                                    'description': 'X2偏低阈值（X2值<此值时判定为偏低）'},
+                'x2_overbought_score': {'type': 'number', 'min': -1, 'max': 1, 'unit': '',
+                                       'description': 'X2超买得分'},
+                'x2_oversold_score': {'type': 'number', 'min': -1, 'max': 1, 'unit': '',
+                                     'description': 'X2超卖得分'},
+                'x2_high_score': {'type': 'number', 'min': -1, 'max': 1, 'unit': '',
+                                 'description': 'X2偏高得分'},
+                'x2_low_score': {'type': 'number', 'min': -1, 'max': 1, 'unit': '',
+                                'description': 'X2偏低得分'},
             },
             'news': {
                 'news_count': {'type': 'number', 'min': 5, 'max': 100, 'unit': '条',
@@ -699,6 +758,22 @@ class PredictionConfigManager:
                                     'description': '默认监控间隔'},
                 'alert_on_signal_change': {'type': 'boolean', 'min': None, 'max': None, 'unit': '',
                                           'description': '信号变化时是否提醒'},
+            },
+            'performance': {
+                # 多线程配置
+                'analysis_max_workers': {'type': 'number', 'min': 1, 'max': 30, 'unit': '',
+                                         'description': '设置页面股票分析线程数（推荐20，数据库模式无API限制）'},
+                'analysis_enable_parallel': {'type': 'boolean', 'min': None, 'max': None, 'unit': '',
+                                            'description': '设置页面是否启用多线程并行分析'},
+                'before_close_max_workers': {'type': 'number', 'min': 1, 'max': 10, 'unit': '',
+                                            'description': '主页未收盘预测最大线程数（用于限制动态线程数）'},
+                # 缓存参数
+                'prediction_cache_min_duration': {'type': 'number', 'min': 1, 'max': 60, 'unit': '分钟',
+                                                  'description': '预测结果最小缓存时长'},
+                'prediction_cache_max_duration': {'type': 'number', 'min': 1, 'max': 60, 'unit': '分钟',
+                                                  'description': '预测结果最大缓存时长'},
+                'realtime_data_cache_duration': {'type': 'number', 'min': 1, 'max': 60, 'unit': '秒',
+                                                'description': '实时数据缓存时长'},
             }
         }
     
@@ -750,6 +825,42 @@ class PredictionConfigManager:
     def get_active_config_id(self) -> Optional[int]:
         """获取当前激活的配置ID"""
         return self._active_config_id
+    
+    def subscribe(self, callback):
+        """
+        订阅配置变更通知
+        
+        Args:
+            callback: 回调函数，当配置变更时会被调用
+        """
+        with self._subscriber_lock:
+            if callback not in self._subscribers:
+                self._subscribers.append(callback)
+                callback_name = callback.__name__ if hasattr(callback, '__name__') else str(callback)
+                self.logger.debug(f"已添加配置变更订阅者: {callback_name}")
+    
+    def unsubscribe(self, callback):
+        """
+        取消订阅配置变更通知
+        
+        Args:
+            callback: 要移除的回调函数
+        """
+        with self._subscriber_lock:
+            if callback in self._subscribers:
+                self._subscribers.remove(callback)
+                callback_name = callback.__name__ if hasattr(callback, '__name__') else str(callback)
+                self.logger.debug(f"已移除配置变更订阅者: {callback_name}")
+    
+    def _notify_subscribers(self):
+        """通知所有订阅者配置已变更"""
+        with self._subscriber_lock:
+            for callback in self._subscribers:
+                try:
+                    callback()
+                except Exception as e:
+                    callback_name = callback.__name__ if hasattr(callback, '__name__') else str(callback)
+                    self.logger.warning(f"通知配置变更订阅者失败 ({callback_name}): {str(e)}")
     
     def refresh_cache(self):
         """刷新配置缓存"""

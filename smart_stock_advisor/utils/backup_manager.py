@@ -318,14 +318,17 @@ class BackupManager:
         try:
             import pymysql
             
-            # 连接数据库
+            # 连接数据库（增加超时时间，避免大表查询超时）
             conn = pymysql.connect(
                 host=self.db_config['host'],
                 port=self.db_config['port'],
                 user=self.db_config['user'],
                 password=self.db_config['password'],
                 database=self.db_config['database'],
-                charset=self.db_config.get('charset', 'utf8mb4')
+                charset=self.db_config.get('charset', 'utf8mb4'),
+                connect_timeout=60,  # 连接超时60秒
+                read_timeout=300,    # 读取超时300秒（5分钟）
+                write_timeout=300    # 写入超时300秒（5分钟）
             )
             
             try:
@@ -347,54 +350,137 @@ class BackupManager:
                     for table in tables:
                         try:
                             # 导出表结构
-                            cursor.execute(f"SHOW CREATE TABLE `{table}`")
-                            create_table = cursor.fetchone()
-                            if create_table:
-                                f.write(f"\n-- ============================================\n")
-                                f.write(f"-- 表结构: {table}\n")
-                                f.write(f"-- ============================================\n")
-                                f.write(f"DROP TABLE IF EXISTS `{table}`;\n")
-                                f.write(f"{create_table[1]};\n\n")
+                            try:
+                                cursor.execute(f"SHOW CREATE TABLE `{table}`")
+                                create_table = cursor.fetchone()
+                                if create_table:
+                                    f.write(f"\n-- ============================================\n")
+                                    f.write(f"-- 表结构: {table}\n")
+                                    f.write(f"-- ============================================\n")
+                                    f.write(f"DROP TABLE IF EXISTS `{table}`;\n")
+                                    f.write(f"{create_table[1]};\n\n")
+                                else:
+                                    self.logger.warning(f"表 {table} 结构查询返回空结果")
+                                    f.write(f"\n-- 警告: 表 {table} 结构查询失败（返回空结果）\n\n")
+                                    continue
+                            except Exception as e:
+                                self.logger.warning(f"导出表 {table} 结构失败: {str(e)}")
+                                f.write(f"\n-- 警告: 表 {table} 结构导出失败: {str(e)}\n\n")
+                                continue
                             
-                            # 导出表数据
-                            cursor.execute(f"SELECT * FROM `{table}`")
-                            rows = cursor.fetchall()
-                            
-                            if rows:
+                            # 检查表是否存在数据
+                            try:
+                                cursor.execute(f"SELECT COUNT(*) FROM `{table}`")
+                                row_count = cursor.fetchone()[0]
+                                
+                                if row_count == 0:
+                                    f.write(f"-- 表数据: {table} (0 行，跳过数据导出)\n\n")
+                                    continue
+                                
                                 # 获取列名
                                 cursor.execute(f"DESCRIBE `{table}`")
                                 columns = [col[0] for col in cursor.fetchall()]
                                 
-                                f.write(f"-- 表数据: {table} ({len(rows)} 行)\n")
-                                f.write(f"INSERT INTO `{table}` (`{'`, `'.join(columns)}`) VALUES\n")
+                                if not columns:
+                                    self.logger.warning(f"表 {table} 列信息查询返回空结果")
+                                    f.write(f"-- 警告: 表 {table} 列信息查询失败（返回空结果）\n\n")
+                                    continue
                                 
-                                # 导出数据（分批处理，避免SQL过长）
-                                batch_size = 100
-                                for i in range(0, len(rows), batch_size):
-                                    batch = rows[i:i+batch_size]
-                                    values_list = []
+                                f.write(f"-- 表数据: {table} ({row_count} 行)\n")
+                                
+                                # 对于大表（超过10万行），使用流式查询分批导出
+                                if row_count > 100000:
+                                    self.logger.info(f"表 {table} 数据量较大 ({row_count} 行)，使用流式查询分批导出...")
+                                    # 使用流式查询，分批获取数据
+                                    cursor.execute(f"SELECT * FROM `{table}`")
                                     
-                                    for row in batch:
-                                        values = []
-                                        for val in row:
-                                            if val is None:
-                                                values.append('NULL')
-                                            elif isinstance(val, (int, float)):
-                                                values.append(str(val))
+                                    batch_size = 1000  # 大表使用更大的批次
+                                    batch_count = 0
+                                    first_batch = True
+                                    
+                                    while True:
+                                        batch = cursor.fetchmany(batch_size)
+                                        if not batch:
+                                            break
+                                        
+                                        if first_batch:
+                                            f.write(f"INSERT INTO `{table}` (`{'`, `'.join(columns)}`) VALUES\n")
+                                            first_batch = False
+                                        
+                                        values_list = []
+                                        for row in batch:
+                                            values = []
+                                            for val in row:
+                                                if val is None:
+                                                    values.append('NULL')
+                                                elif isinstance(val, (int, float)):
+                                                    values.append(str(val))
+                                                else:
+                                                    # 转义字符串
+                                                    val_str = str(val).replace('\\', '\\\\').replace("'", "\\'")
+                                                    values.append(f"'{val_str}'")
+                                            values_list.append(f"({', '.join(values)})")
+                                        
+                                        f.write(',\n'.join(values_list))
+                                        batch_count += len(batch)
+                                        
+                                        if batch_count < row_count:
+                                            f.write(',\n')
+                                        else:
+                                            f.write(';\n\n')
+                                        
+                                        # 每处理一批后刷新文件缓冲区
+                                        f.flush()
+                                        
+                                        # 每处理1万行打印一次进度
+                                        if batch_count % 10000 == 0:
+                                            self.logger.info(f"  已导出 {batch_count}/{row_count} 行...")
+                                else:
+                                    # 小表直接查询所有数据
+                                    cursor.execute(f"SELECT * FROM `{table}`")
+                                    rows = cursor.fetchall()
+                                    
+                                    if rows:
+                                        f.write(f"INSERT INTO `{table}` (`{'`, `'.join(columns)}`) VALUES\n")
+                                        
+                                        # 导出数据（分批处理，避免SQL过长）
+                                        batch_size = 100
+                                        for i in range(0, len(rows), batch_size):
+                                            batch = rows[i:i+batch_size]
+                                            values_list = []
+                                            
+                                            for row in batch:
+                                                values = []
+                                                for val in row:
+                                                    if val is None:
+                                                        values.append('NULL')
+                                                    elif isinstance(val, (int, float)):
+                                                        values.append(str(val))
+                                                    else:
+                                                        # 转义字符串
+                                                        val_str = str(val).replace('\\', '\\\\').replace("'", "\\'")
+                                                        values.append(f"'{val_str}'")
+                                                values_list.append(f"({', '.join(values)})")
+                                            
+                                            f.write(',\n'.join(values_list))
+                                            if i + batch_size < len(rows):
+                                                f.write(',\n')
                                             else:
-                                                # 转义字符串
-                                                val_str = str(val).replace('\\', '\\\\').replace("'", "\\'")
-                                                values.append(f"'{val_str}'")
-                                        values_list.append(f"({', '.join(values)})")
-                                    
-                                    f.write(',\n'.join(values_list))
-                                    if i + batch_size < len(rows):
-                                        f.write(',\n')
-                                    else:
-                                        f.write(';\n\n')
+                                                f.write(';\n\n')
+                            except Exception as e:
+                                error_msg = str(e)
+                                # 检查是否是连接超时错误
+                                if 'Lost connection' in error_msg or '2013' in error_msg:
+                                    self.logger.warning(f"导出表 {table} 数据失败: 连接超时（表可能过大），尝试跳过数据导出")
+                                    f.write(f"\n-- 警告: 表 {table} 数据导出失败: 连接超时（表可能过大，已跳过数据导出）\n\n")
+                                else:
+                                    self.logger.warning(f"导出表 {table} 数据失败: {error_msg}")
+                                    f.write(f"\n-- 警告: 表 {table} 数据导出失败: {error_msg}\n\n")
+                                
                         except Exception as e:
-                            self.logger.warning(f"导出表 {table} 失败: {str(e)}")
-                            f.write(f"\n-- 警告: 表 {table} 导出失败: {str(e)}\n\n")
+                            error_msg = str(e)
+                            self.logger.warning(f"导出表 {table} 失败: {error_msg}")
+                            f.write(f"\n-- 警告: 表 {table} 导出失败: {error_msg}\n\n")
                     
                     f.write("SET FOREIGN_KEY_CHECKS=1;\n")
                 

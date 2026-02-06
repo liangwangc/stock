@@ -131,12 +131,6 @@ def test_all_sources():
         print(f"⚠️  无法导入东方财富: {e}")
     
     try:
-        from news.xueqiu_news_source import XueqiuNewsSource
-        sources_to_test.append(('雪球', XueqiuNewsSource))
-    except ImportError as e:
-        print(f"⚠️  无法导入雪球: {e}")
-    
-    try:
         from news.tushare_news_source import TuShareNewsSource
         sources_to_test.append(('TuShare', TuShareNewsSource))
     except ImportError as e:

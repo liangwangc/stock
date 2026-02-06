@@ -126,13 +126,13 @@ class PredictionVisualizer:
         ax3 = fig.add_subplot(gs[0, 1], projection='polar')
         
         factors = prediction_result['factors']
-        categories_radar = ['技术指标', '新闻情感', '市场情绪', '历史模式', '美股板块']
+        # 【已优化】移除已优化的因子：us_sector
+        categories_radar = ['技术指标', '新闻情感', '市场情绪', '历史模式']
         scores = [
             factors['technical']['score'],
             factors['news']['score'],
             factors['market']['score'],
-            factors['history']['score'],
-            factors.get('us_sector', {}).get('score', 0.0)  # 美股板块得分
+            factors['history']['score']
         ]
         
         # 转换为0-1范围用于雷达图
@@ -513,42 +513,42 @@ class PredictionVisualizer:
                 y_pos -= line_height
             y_pos -= 0.02
         
-        # 5. 美股板块
-        if 'us_sector' in factors:
-            us_sector = factors['us_sector']
-            sector_name = us_sector.get('sector', '')
-            if sector_name and sector_name != 'unknown':
-                us_score = us_sector.get('score', 0)
-                us_trend = us_sector.get('trend', '中性')
-                change_pct = us_sector.get('change_pct', 0)
-                us_text = f"美股板块: {sector_name}（得分{us_score:.2f}，趋势：{us_trend}，涨跌幅{change_pct:+.2f}%）"
-                if y_pos >= min_y:
-                    stock_ax.text(margin_left + 0.02, y_pos, us_text,
-                                  fontsize=font_size, ha='left', va='top', color='darkgreen',
-                                  transform=stock_ax.transAxes)
-                    y_pos -= line_height
-                y_pos -= 0.02
+        # 【已优化移除】5. 美股板块 - 已从预测模型中移除
+        # if 'us_sector' in factors:
+        #     us_sector = factors['us_sector']
+        #     sector_name = us_sector.get('sector', '')
+        #     if sector_name and sector_name != 'unknown':
+        #         us_score = us_sector.get('score', 0)
+        #         us_trend = us_sector.get('trend', '中性')
+        #         change_pct = us_sector.get('change_pct', 0)
+        #         us_text = f"美股板块: {sector_name}（得分{us_score:.2f}，趋势：{us_trend}，涨跌幅{change_pct:+.2f}%）"
+        #         if y_pos >= min_y:
+        #             stock_ax.text(margin_left + 0.02, y_pos, us_text,
+        #                           fontsize=font_size, ha='left', va='top', color='darkgreen',
+        #                           transform=stock_ax.transAxes)
+        #             y_pos -= line_height
+        #         y_pos -= 0.02
         
-        # 6. 估值指标
-        if 'valuation' in factors:
-            valuation = factors['valuation']
-            val_score = valuation.get('score', 0)
-            val_status = valuation.get('valuation', '未知')
-            pe_ratio = valuation.get('pe_ratio')
-            pb_ratio = valuation.get('pb_ratio')
-            
-            val_text = f"估值指标: 得分{val_score:.2f}（估值：{val_status}"
-            if pe_ratio:
-                val_text += f"，PE：{pe_ratio}"
-            if pb_ratio:
-                val_text += f"，PB：{pb_ratio}"
-            val_text += "）"
-            if y_pos >= min_y:
-                stock_ax.text(margin_left + 0.02, y_pos, val_text,
-                              fontsize=font_size, ha='left', va='top', color='darkgreen',
-                              transform=stock_ax.transAxes)
-                y_pos -= line_height
-            y_pos -= 0.02
+        # 【已优化移除】6. 估值指标 - 已从预测模型中移除
+        # if 'valuation' in factors:
+        #     valuation = factors['valuation']
+        #     val_score = valuation.get('score', 0)
+        #     val_status = valuation.get('valuation', '未知')
+        #     pe_ratio = valuation.get('pe_ratio')
+        #     pb_ratio = valuation.get('pb_ratio')
+        #     
+        #     val_text = f"估值指标: 得分{val_score:.2f}（估值：{val_status}"
+        #     if pe_ratio:
+        #         val_text += f"，PE：{pe_ratio}"
+        #     if pb_ratio:
+        #         val_text += f"，PB：{pb_ratio}"
+        #     val_text += "）"
+        #     if y_pos >= min_y:
+        #         stock_ax.text(margin_left + 0.02, y_pos, val_text,
+        #                       fontsize=font_size, ha='left', va='top', color='darkgreen',
+        #                       transform=stock_ax.transAxes)
+        #         y_pos -= line_height
+        #     y_pos -= 0.02
         
         # 7. 综合预测结果
         prediction = prediction_result.get('prediction', '震荡')
@@ -1312,50 +1312,50 @@ class PredictionVisualizer:
             </div>
 """
         
-        # 5. 美股板块
-        if 'us_sector' in factors:
-            us_sector = factors['us_sector']
-            sector_name = us_sector.get('sector', '')
-            if sector_name:
-                html_content += f"""
-            <div class="index-item">
-                <strong>美股板块:</strong> 得分 {us_sector.get('score', 0):.2f} | 
-                权重 {us_sector.get('weight', 0)*100:.1f}% | 
-                板块: {sector_name} | 
-                趋势: {us_sector.get('trend', '中性')}
-            </div>
-"""
-                change_pct = us_sector.get('change_pct', 0)
-                if change_pct:
-                    html_content += f"""
-            <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
-                涨跌幅: {change_pct:+.2f}%
-            </div>
-"""
+        # 【已优化移除】5. 美股板块 - 已从预测模型中移除
+        # if 'us_sector' in factors:
+        #     us_sector = factors['us_sector']
+        #     sector_name = us_sector.get('sector', '')
+        #     if sector_name:
+        #         html_content += f"""
+        #     <div class="index-item">
+        #         <strong>美股板块:</strong> 得分 {us_sector.get('score', 0):.2f} | 
+        #         权重 {us_sector.get('weight', 0)*100:.1f}% | 
+        #         板块: {sector_name} | 
+        #         趋势: {us_sector.get('trend', '中性')}
+        #     </div>
+        # """
+        #         change_pct = us_sector.get('change_pct', 0)
+        #         if change_pct:
+        #             html_content += f"""
+        #     <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+        #         涨跌幅: {change_pct:+.2f}%
+        #     </div>
+        # """
         
-        # 6. 估值指标
-        if 'valuation' in factors:
-            valuation = factors['valuation']
-            html_content += f"""
-            <div class="index-item">
-                <strong>估值指标:</strong> 得分 {valuation.get('score', 0):.2f} | 
-                权重 {valuation.get('weight', 0)*100:.1f}% | 
-                估值: {valuation.get('valuation', '未知')}
-            </div>
-"""
-            pe_ratio = valuation.get('pe_ratio')
-            pb_ratio = valuation.get('pb_ratio')
-            if pe_ratio or pb_ratio:
-                val_info = []
-                if pe_ratio:
-                    val_info.append(f"PE: {pe_ratio}")
-                if pb_ratio:
-                    val_info.append(f"PB: {pb_ratio}")
-                html_content += f"""
-            <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
-                {', '.join(val_info)}
-            </div>
-"""
+        # 【已优化移除】6. 估值指标 - 已从预测模型中移除
+        # if 'valuation' in factors:
+        #     valuation = factors['valuation']
+        #     html_content += f"""
+        #     <div class="index-item">
+        #         <strong>估值指标:</strong> 得分 {valuation.get('score', 0):.2f} | 
+        #         权重 {valuation.get('weight', 0)*100:.1f}% | 
+        #         估值: {valuation.get('valuation', '未知')}
+        #     </div>
+        # """
+        #     pe_ratio = valuation.get('pe_ratio')
+        #     pb_ratio = valuation.get('pb_ratio')
+        #     if pe_ratio or pb_ratio:
+        #         val_info = []
+        #         if pe_ratio:
+        #             val_info.append(f"PE: {pe_ratio}")
+        #         if pb_ratio:
+        #             val_info.append(f"PB: {pb_ratio}")
+        #         html_content += f"""
+        #     <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+        #         {', '.join(val_info)}
+        #     </div>
+        # """
         
         # 7. 成本分布（历史 + 当日），并在鼠标悬停时显示计算公式
         if isinstance(cost_distribution, dict):
@@ -1763,13 +1763,21 @@ class PredictionVisualizer:
             interactive_html: 交互式HTML路径（已废弃，不再使用）
         """
         import os
+        import importlib.util
         
         # 只使用数据库保存
         try:
             import sys
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 为避免与其他路径中的 utils 包冲突，这里使用 importlib 直接按文件路径加载
             sys.path.insert(0, project_root)
-            from utils.stock_prediction_db import StockPredictionDB
+            db_spec = importlib.util.spec_from_file_location(
+                "stock_prediction_db",
+                os.path.join(project_root, "utils", "stock_prediction_db.py")
+            )
+            db_module = importlib.util.module_from_spec(db_spec)
+            db_spec.loader.exec_module(db_module)
+            StockPredictionDB = db_module.StockPredictionDB
             from config_db import USE_DATABASE
             
             if USE_DATABASE:
@@ -1779,17 +1787,9 @@ class PredictionVisualizer:
                 prediction_type = prediction_result.get('prediction_type', 'after_close')
                 success = db.save_prediction(symbol, prediction_result, None, None, None, prediction_type=prediction_type)
                 if success:
-                    # 保存后，检查并更新历史记录的实际数据
-                    try:
-                        self._update_historical_actual_data()
-                    except Exception as e:
-                        # 使用logger记录错误
-                        try:
-                            from utils.logger import get_logger
-                            logger = get_logger(__name__)
-                            logger.warning(f"更新历史实际数据时出错（不影响当前保存）: {e}")
-                        except:
-                            print(f"更新历史实际数据时出错（不影响当前保存）: {e}")
+                    # 性能优化：不再每次保存后立即更新历史数据
+                    # 改为在批量预测完成后统一更新一次（由调用方负责）
+                    # 这样可以避免重复更新，大幅提升性能
                     
                     # 使用logger记录成功信息
                     try:
@@ -1980,14 +1980,19 @@ class PredictionVisualizer:
         
         return result_info
     
-    def _update_historical_actual_data(self):
+    def _update_historical_actual_data(self, include_today: bool = True):
         """
         更新历史预测记录的实际数据（从数据库读取，更新到数据库）
         
         逻辑：
-          - 从数据库读取所有 target_date < 今天 且 actual_price 为空的记录
+          - 从数据库读取所有 target_date <= 今天 且 actual_price 为空的记录（如果include_today=True）
+          - 或 target_date < 今天 且 actual_price 为空的记录（如果include_today=False）
           - 调用 StockDataSource.get_actual_stock_change(symbol, target_date) 获取实际数据
           - 更新数据库中的 actual_price / actual_change_pct / actual_direction / prediction_hit
+          - 同时计算并更新偏差字段：deviation_pct / absolute_deviation_pct / deviation_price
+        
+        Args:
+            include_today: 是否包含今天的预测记录（默认True，用于设置页面预测后立即更新）
         """
         try:
             from datetime import datetime
@@ -2006,13 +2011,17 @@ class PredictionVisualizer:
                 db = StockPredictionDB()
                 today = datetime.now().strftime('%Y-%m-%d')
                 
-                # 查询需要更新的记录（target_date < 今天 且 actual_price 为空）
+                # 查询需要更新的记录（target_date <= 今天 且 actual_price 为空）
+                # 同时查询预测值字段，用于计算偏差
+                # 注意：使用 <= 而不是 <，这样可以更新今天的预测记录（如果实际数据已存在）
                 from utils.db_connection import DatabaseConnection
-                sql = """
-                    SELECT symbol, target_date, prediction 
+                date_condition = "target_date <= %s" if include_today else "target_date < %s"
+                sql = f"""
+                    SELECT symbol, target_date, prediction, current_price,
+                           predicted_change_pct, predicted_close_price
                     FROM stock_predictions 
-                    WHERE target_date < %s 
-                    AND (actual_price IS NULL OR actual_price = '')
+                    WHERE {date_condition}
+                    AND (actual_price IS NULL OR actual_price = '' OR actual_price = 0)
                 """
                 records = DatabaseConnection.execute_query(sql, (today,))
                 
@@ -2034,13 +2043,16 @@ class PredictionVisualizer:
                     symbol = str(record.get('symbol', '')).zfill(6)
                     target_date_str = str(record.get('target_date', '')).strip()
                     prediction = str(record.get('prediction', '')).strip()
+                    current_price = float(record.get('current_price', 0)) if record.get('current_price') else None
+                    predicted_change_pct = record.get('predicted_change_pct')
+                    predicted_close_price = record.get('predicted_close_price')
                     
                     if not symbol or not target_date_str:
                         continue
                     
                     # 调用数据源获取实际表现
                     try:
-                        actual = ds.get_actual_stock_change(symbol, target_date_str)
+                        actual = ds.get_actual_stock_change(symbol, target_date_str, current_price)
                     except Exception as e:
                         continue
                     
@@ -2070,15 +2082,41 @@ class PredictionVisualizer:
                             # 震荡区间阈值可按需调整，这里使用 ±0.5%
                             hit = '命中' if -0.5 <= change_val <= 0.5 else '未命中'
                     
-                    # 更新数据库
-                    if db.update_prediction_actual(symbol, target_date_str, actual_price, actual_change_pct, actual_dir, hit):
+                    # 计算偏差值（如果预测值存在）
+                    deviation_pct = None
+                    absolute_deviation_pct = None
+                    deviation_price = None
+                    
+                    if predicted_change_pct is not None and actual_change_pct is not None:
+                        try:
+                            deviation_pct = float(predicted_change_pct) - float(actual_change_pct)
+                            absolute_deviation_pct = abs(deviation_pct)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    if predicted_close_price is not None and actual_price is not None:
+                        try:
+                            deviation_price = float(predicted_close_price) - float(actual_price)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # 更新数据库（包括偏差字段）
+                    if db.update_prediction_actual(symbol, target_date_str, actual_price, actual_change_pct, 
+                                                   actual_dir, hit, deviation_pct, absolute_deviation_pct, deviation_price):
                         updated_count += 1
                 
                 if updated_count > 0:
                     try:
                         from utils.logger import get_logger
                         logger = get_logger(__name__)
-                        logger.debug(f"更新了 {updated_count} 条历史预测记录的实际数据")
+                        logger.info(f"更新了 {updated_count} 条历史预测记录的实际数据（包括偏差字段）")
+                    except:
+                        pass
+                else:
+                    try:
+                        from utils.logger import get_logger
+                        logger = get_logger(__name__)
+                        logger.debug(f"没有需要更新的历史预测记录（target_date <= {today} 且 actual_price 为空）")
                     except:
                         pass
             except Exception as e:

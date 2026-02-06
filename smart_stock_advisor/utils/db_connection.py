@@ -171,7 +171,7 @@ class DatabaseConnection:
             raise
     
     @classmethod
-    def execute_update(cls, sql: str, params: tuple = None) -> int:
+    def execute_update(cls, sql: str, params: tuple = None, commit_immediately: bool = True) -> int:
         """
         执行更新SQL（INSERT、UPDATE、DELETE）
         
@@ -192,10 +192,11 @@ class DatabaseConnection:
         try:
             with conn.cursor() as cursor:
                 affected_rows = cursor.execute(sql, params)
+                # 如果autocommit=True，PyMySQL会自动提交，不需要手动commit
+                # 手动commit可能导致不必要的锁竞争，影响查询性能
                 if not DB_CONFIG.get('autocommit', True):
                     conn.commit()
-                else:
-                    conn.commit()  # 确保提交
+                # autocommit=True时，不需要手动commit，避免锁竞争
                 return affected_rows
         except Exception as e:
             logger.error(f"执行更新失败: {sql[:100]}... 错误: {str(e)}")
@@ -223,11 +224,12 @@ class DatabaseConnection:
         try:
             with conn.cursor() as cursor:
                 affected_rows = cursor.executemany(sql, params_list)
-                # 确保提交事务
+                # 如果autocommit=True，不需要手动commit（PyMySQL会自动提交）
+                # 如果autocommit=False，需要手动commit
                 if not DB_CONFIG.get('autocommit', True):
                     conn.commit()
-                else:
-                    conn.commit()  # 确保提交
+                # autocommit=True时，executemany会自动提交，不需要手动commit
+                # 手动commit可能导致不必要的锁竞争
                 return affected_rows
         except Exception as e:
             logger.error(f"批量执行失败: {sql[:100]}... 错误: {str(e)}")

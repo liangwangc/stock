@@ -425,51 +425,51 @@
                 `;
             }
             
-            // 5. 美股板块
-            if (factors.us_sector && factors.us_sector.sector) {
-                const usSector = factors.us_sector;
-                html += `
-                    <div class="index-item">
-                        <strong>美股板块:</strong> 
-                        <span class="inline-tooltip">得分 ${usSector.score.toFixed(2)}
-                        <span class="tooltip-text">美股板块得分：分析对应美股板块（如科技、金融等）的走势。美股板块上涨时得分高，下跌时得分低。得分范围-1到1。</span></span> | 
-                        权重 ${(usSector.weight * 100).toFixed(1)}% | 
-                        板块: ${usSector.sector} | 
-                        趋势: ${usSector.trend || '中性'}
-                    </div>
-                `;
-                if (usSector.change_pct) {
-                    html += `
-                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
-                            涨跌幅: ${usSector.change_pct >= 0 ? '+' : ''}${usSector.change_pct.toFixed(2)}%
-                        </div>
-                    `;
-                }
-            }
+            // 【已优化移除】5. 美股板块 - 已从预测模型中移除
+            // if (factors.us_sector && factors.us_sector.sector) {
+            //     const usSector = factors.us_sector;
+            //     html += `
+            //         <div class="index-item">
+            //             <strong>美股板块:</strong> 
+            //             <span class="inline-tooltip">得分 ${usSector.score.toFixed(2)}
+            //             <span class="tooltip-text">美股板块得分：分析对应美股板块（如科技、金融等）的走势。美股板块上涨时得分高，下跌时得分低。得分范围-1到1。</span></span> | 
+            //             权重 ${(usSector.weight * 100).toFixed(1)}% | 
+            //             板块: ${usSector.sector} | 
+            //             趋势: ${usSector.trend || '中性'}
+            //         </div>
+            //     `;
+            //     if (usSector.change_pct) {
+            //         html += `
+            //             <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+            //                 涨跌幅: ${usSector.change_pct >= 0 ? '+' : ''}${usSector.change_pct.toFixed(2)}%
+            //             </div>
+            //         `;
+            //     }
+            // }
             
-            // 6. 估值指标
-            if (factors.valuation) {
-                const valuation = factors.valuation;
-                html += `
-                    <div class="index-item">
-                        <strong>估值指标:</strong> 
-                        <span class="inline-tooltip">得分 ${valuation.score.toFixed(2)}
-                        <span class="tooltip-text">估值指标得分：分析股票的PE（市盈率）、PB（市净率）等估值指标。估值合理或偏低时得分高，估值偏高时得分低。得分范围-1到1。</span></span> | 
-                        权重 ${(valuation.weight * 100).toFixed(1)}% | 
-                        估值: ${valuation.valuation || '未知'}
-                    </div>
-                `;
-                const valInfo = [];
-                if (valuation.pe_ratio) valInfo.push(`PE: ${valuation.pe_ratio}`);
-                if (valuation.pb_ratio) valInfo.push(`PB: ${valuation.pb_ratio}`);
-                if (valInfo.length > 0) {
-                    html += `
-                        <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
-                            ${valInfo.join(', ')}
-                        </div>
-                    `;
-                }
-            }
+            // 【已优化移除】6. 估值指标 - 已从预测模型中移除
+            // if (factors.valuation) {
+            //     const valuation = factors.valuation;
+            //     html += `
+            //         <div class="index-item">
+            //             <strong>估值指标:</strong> 
+            //             <span class="inline-tooltip">得分 ${valuation.score.toFixed(2)}
+            //             <span class="tooltip-text">估值指标得分：分析股票的PE（市盈率）、PB（市净率）等估值指标。估值合理或偏低时得分高，估值偏高时得分低。得分范围-1到1。</span></span> | 
+            //             权重 ${(valuation.weight * 100).toFixed(1)}% | 
+            //             估值: ${valuation.valuation || '未知'}
+            //         </div>
+            //     `;
+            //     const valInfo = [];
+            //     if (valuation.pe_ratio) valInfo.push(`PE: ${valuation.pe_ratio}`);
+            //     if (valuation.pb_ratio) valInfo.push(`PB: ${valuation.pb_ratio}`);
+            //     if (valInfo.length > 0) {
+            //         html += `
+            //             <div class="index-item" style="margin-left: 20px; font-size: 12px; color: #666;">
+            //                 ${valInfo.join(', ')}
+            //             </div>
+            //         `;
+            //     }
+            // }
             
             // 7. 成本分布
             const costDistribution = data.cost_distribution || {};

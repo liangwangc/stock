@@ -139,6 +139,9 @@ class ModelParameterUpdater:
             
             self.db.execute_update(update_sql, (datetime.now(), user_id, optimization_id))
             
+            # 通知配置变更（清除配置缓存，使下次预测时自动加载新配置）
+            self._notify_config_change()
+            
             self.logger.info(f"成功应用优化参数，配置ID: {new_config_id}, 优化记录ID: {optimization_id}")
             
             return {
@@ -235,6 +238,9 @@ class ModelParameterUpdater:
                     'message': '激活回滚配置失败'
                 }
             
+            # 通知配置变更（清除配置缓存，使下次预测时自动加载新配置）
+            self._notify_config_change()
+            
             self.logger.info(f"成功回滚参数，配置ID: {new_config_id}")
             
             return {
@@ -253,6 +259,21 @@ class ModelParameterUpdater:
                 'message': f'回滚失败: {str(e)}'
             }
     
+    def _notify_config_change(self):
+        """
+        通知配置变更（清除配置缓存，使下次预测时自动加载新配置）
+        """
+        try:
+            # 清除 PredictionConfigManager 的配置缓存
+            if hasattr(self.config_manager, 'clear_cache'):
+                self.config_manager.clear_cache()
+                self.logger.info("已清除配置缓存，下次预测时将自动加载新配置")
+            
+            # 如果存在全局的 StockPredictor 实例缓存，也可以清除
+            # 但由于 StockPredictor 通常是每次预测时创建新实例，所以不需要清除
+        except Exception as e:
+            self.logger.warning(f"通知配置变更失败: {str(e)}")
+    
     def get_optimization_history(self, limit: int = 20) -> List[Dict]:
         """
         获取优化历史记录
@@ -268,7 +289,8 @@ class ModelParameterUpdater:
                 SELECT 
                     id, optimization_date, optimization_method,
                     improvement_pct, is_applied, applied_at,
-                    old_performance, new_performance
+                    old_performance, new_performance,
+                    old_parameters, new_parameters
                 FROM parameter_optimization_history
                 ORDER BY optimization_date DESC
                 LIMIT %s
@@ -278,30 +300,52 @@ class ModelParameterUpdater:
             
             records = []
             for r in results:
+                # 解析JSON字段（参数和性能指标）
+                old_params = r.get('old_parameters')
+                new_params = r.get('new_parameters')
+                old_perf = r.get('old_performance')
+                new_perf = r.get('new_performance')
+                
+                # 解析参数
+                if isinstance(old_params, str):
+                    try:
+                        import json
+                        old_params = json.loads(old_params)
+                    except:
+                        old_params = None
+                if isinstance(new_params, str):
+                    try:
+                        import json
+                        new_params = json.loads(new_params)
+                    except:
+                        new_params = None
+                
+                # 解析性能指标
+                if isinstance(old_perf, str):
+                    try:
+                        import json
+                        old_perf = json.loads(old_perf)
+                    except:
+                        old_perf = None
+                if isinstance(new_perf, str):
+                    try:
+                        import json
+                        new_perf = json.loads(new_perf)
+                    except:
+                        new_perf = None
+                
                 record = {
                     'id': r.get('id'),
                     'optimization_date': r.get('optimization_date').strftime('%Y-%m-%d %H:%M:%S') if r.get('optimization_date') else None,
                     'optimization_method': r.get('optimization_method'),
                     'improvement_pct': float(r.get('improvement_pct', 0)) if r.get('improvement_pct') is not None else 0,
                     'is_applied': r.get('is_applied') == 1,
-                    'applied_at': r.get('applied_at').strftime('%Y-%m-%d %H:%M:%S') if r.get('applied_at') else None
+                    'applied_at': r.get('applied_at').strftime('%Y-%m-%d %H:%M:%S') if r.get('applied_at') else None,
+                    'old_parameters': old_params,
+                    'new_parameters': new_params,
+                    'old_performance': old_perf,
+                    'new_performance': new_perf
                 }
-                
-                # 解析性能指标
-                try:
-                    old_perf = r.get('old_performance')
-                    if isinstance(old_perf, str):
-                        record['old_performance'] = json.loads(old_perf)
-                    else:
-                        record['old_performance'] = old_perf
-                    
-                    new_perf = r.get('new_performance')
-                    if isinstance(new_perf, str):
-                        record['new_performance'] = json.loads(new_perf)
-                    else:
-                        record['new_performance'] = new_perf
-                except:
-                    pass
                 
                 records.append(record)
             

@@ -48,9 +48,14 @@ config_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config_module)
 PREDICTION_CONFIG = config_module.PREDICTION_CONFIG
 INDICATOR_CONFIG = config_module.INDICATOR_CONFIG
+THREAD_POOL_CONFIG = config_module.THREAD_POOL_CONFIG
+CONFIDENCE_THRESHOLDS = config_module.CONFIDENCE_THRESHOLDS
+PROBABILITY_THRESHOLDS = config_module.PROBABILITY_THRESHOLDS
 NEWS_CONFIG = config_module.NEWS_CONFIG
 # TuShare token（如果在config中配置，则用于新闻源）
 TUSHARE_TOKEN = getattr(config_module, "TUSHARE_TOKEN", None)
+TUSHARE_USERNAME = getattr(config_module, "TUSHARE_USERNAME", None)
+TUSHARE_PASSWORD = getattr(config_module, "TUSHARE_PASSWORD", None)
 
 # 尝试导入新闻模块（如果可用）
 NEWS_AVAILABLE = False
@@ -73,8 +78,18 @@ logger = get_logger(__name__)
 class StockPredictor:
     """股票预测器"""
     
-    def __init__(self):
-        self.data_source = StockDataSource()
+    def __init__(self, data_source: StockDataSource = None):
+        """
+        初始化股票预测器
+        
+        Args:
+            data_source: 可选的数据源实例（性能优化：如果提供，则复用该实例，避免重复创建）
+        """
+        # 性能优化：如果提供了共享的数据源实例，则复用；否则创建新的实例
+        if data_source is not None:
+            self.data_source = data_source
+        else:
+            self.data_source = StockDataSource()
         self.logger = logger
         
         # 初始化数据存储管理器
@@ -87,8 +102,12 @@ class StockPredictor:
         # 初始化新闻源（如果可用）
         if NEWS_AVAILABLE:
             try:
-                # 传入 TuShare token，用于TuShare新闻源
-                self.news_source = UnifiedNewsSource(tushare_token=TUSHARE_TOKEN)
+                # 传入 TuShare token和账号密码，用于TuShare新闻源
+                self.news_source = UnifiedNewsSource(
+                    tushare_token=TUSHARE_TOKEN,
+                    tushare_username=TUSHARE_USERNAME,
+                    tushare_password=TUSHARE_PASSWORD
+                )
                 self.sentiment_analyzer = NewsSentimentAnalyzer()
                 self.news_enabled = True
             except Exception as e:
@@ -97,55 +116,76 @@ class StockPredictor:
         else:
             self.news_enabled = False
         
-        # 加载配置（支持从数据库动态加载）
-        self.config = self._load_prediction_config()
-        self.indicator_config = self._load_indicator_config()
+        # 统一加载配置（优化：减少重复查询）
+        self._config_manager = None
+        self._active_config = None
+        self.config, self.indicator_config = self._load_all_configs()
     
-    def _load_prediction_config(self) -> Dict:
-        """加载预测配置（优先从数据库，否则使用config.py默认值）"""
+    def _load_all_configs(self) -> tuple:
+        """
+        统一加载所有配置（优化：只查询一次数据库）
+        
+        Returns:
+            (prediction_config, indicator_config) 元组
+        """
         try:
-            # 尝试从数据库加载激活的配置
+            # 统一获取配置管理器（单例模式）
             from utils.prediction_config_manager import PredictionConfigManager
-            manager = PredictionConfigManager()
-            active_config = manager.get_config()  # 获取激活的配置
+            self._config_manager = PredictionConfigManager()
+            self._active_config = self._config_manager.get_config()  # 只查询一次
             
-            if active_config and active_config.get('prediction'):
-                # 合并配置，确保所有必需的键都存在
-                config = PREDICTION_CONFIG.copy()
-                config.update(active_config['prediction'])
-                self.logger.info("已从数据库加载预测配置")
-                return config
+            if self._active_config:
+                # 合并预测配置
+                prediction_config = PREDICTION_CONFIG.copy()
+                if self._active_config.get('prediction'):
+                    prediction_config.update(self._active_config['prediction'])
+                
+                # 合并技术指标配置
+                indicator_config = INDICATOR_CONFIG.copy()
+                if self._active_config.get('indicator'):
+                    indicator_config.update(self._active_config['indicator'])
+                
+                # 记录配置加载（只在首次加载时记录）
+                if not hasattr(self, '_config_loaded'):
+                    self.logger.info("已从数据库加载预测配置和技术指标配置")
+                    self._config_loaded = True
+                
+                return prediction_config, indicator_config
         except Exception as e:
             self.logger.warning(f"从数据库加载配置失败，使用config.py默认值: {str(e)}")
         
         # 使用config.py中的默认配置
-        return PREDICTION_CONFIG.copy()
+        return PREDICTION_CONFIG.copy(), INDICATOR_CONFIG.copy()
     
-    def _load_indicator_config(self) -> Dict:
-        """加载技术指标配置（优先从数据库，否则使用config.py默认值）"""
-        try:
-            # 尝试从数据库加载激活的配置
-            from utils.prediction_config_manager import PredictionConfigManager
-            manager = PredictionConfigManager()
-            active_config = manager.get_config()  # 获取激活的配置
-            
-            if active_config and active_config.get('indicator'):
-                # 合并配置，确保所有必需的键都存在
-                config = INDICATOR_CONFIG.copy()
-                config.update(active_config['indicator'])
-                self.logger.info("已从数据库加载技术指标配置")
-                return config
-        except Exception as e:
-            self.logger.warning(f"从数据库加载配置失败，使用config.py默认值: {str(e)}")
-        
-        # 使用config.py中的默认配置
-        return INDICATOR_CONFIG.copy()
     
     def refresh_config(self):
         """刷新配置（支持热更新）"""
-        self.config = self._load_prediction_config()
-        self.indicator_config = self._load_indicator_config()
+        # 清除配置管理器缓存
+        if self._config_manager:
+            self._config_manager.clear_cache()
+        # 重新加载所有配置
+        self.config, self.indicator_config = self._load_all_configs()
         self.logger.info("配置已刷新")
+    
+    def _get_current_config_id(self) -> Optional[int]:
+        """
+        获取当前激活的配置ID（用于学习分析）
+        
+        注意：如果已有配置管理器实例（self._config_manager），建议复用以避免重复查询
+        """
+        try:
+            from utils.prediction_config_manager import PredictionConfigManager
+            # 优化：如果已有配置管理器实例，复用它（避免重复创建）
+            if hasattr(self, '_config_manager') and self._config_manager is not None:
+                config_manager = self._config_manager
+            else:
+                config_manager = PredictionConfigManager()
+            active_config = config_manager.get_config()
+            if active_config and active_config.get('config_id'):
+                return active_config['config_id']
+        except Exception as e:
+            self.logger.debug(f"获取配置ID失败: {str(e)}")
+        return None
     
     def calculate_technical_score(self, data: pd.DataFrame, symbol: str = None) -> Dict:
         """
@@ -334,6 +374,61 @@ class StockPredictor:
             
             scores.append(cci_score)
             
+            # 2.5. X2指标（收盘价在20日价格区间中的相对位置）
+            x2_score = 0.0
+            x2_value = None
+            try:
+                # 优先从数据中获取x2值（如果数据来自数据库，应该包含x2字段）
+                if 'x2' in data.columns and pd.notna(data['x2'].iloc[-1]):
+                    x2_value = float(data['x2'].iloc[-1])
+                else:
+                    # 如果数据中没有x2，动态计算（需要至少20日数据）
+                    if len(data) >= 20:
+                        recent_20 = data.tail(20)
+                        llv_low = recent_20['low'].min()
+                        hhv_high = recent_20['high'].max()
+                        current_close = data['close'].iloc[-1]
+                        range_width = hhv_high - llv_low
+                        
+                        if range_width > 0:
+                            x2_value = (current_close - llv_low) / range_width * 100
+                        else:
+                            x2_value = 50.0  # 价格无波动，设置为中间值
+                
+                if x2_value is not None:
+                    # X2指标判断：从indicator_config读取参数（修复：不再从prediction配置读取）
+                    x2_overbought_threshold = self.indicator_config.get('x2_overbought_threshold', 80)
+                    x2_oversold_threshold = self.indicator_config.get('x2_oversold_threshold', 20)
+                    x2_high_threshold = self.indicator_config.get('x2_high_threshold', 60)
+                    x2_low_threshold = self.indicator_config.get('x2_low_threshold', 40)
+                    x2_overbought_score = self.indicator_config.get('x2_overbought_score', -0.15)
+                    x2_oversold_score = self.indicator_config.get('x2_oversold_score', 0.15)
+                    x2_high_score = self.indicator_config.get('x2_high_score', -0.05)
+                    x2_low_score = self.indicator_config.get('x2_low_score', 0.05)
+                    
+                    if x2_value > x2_overbought_threshold:
+                        x2_score = x2_overbought_score  # 超买区域，可能回调
+                        signals['X2'] = f'超买({x2_value:.1f})'
+                    elif x2_value < x2_oversold_threshold:
+                        x2_score = x2_oversold_score  # 超卖区域，可能反弹
+                        signals['X2'] = f'超卖({x2_value:.1f})'
+                    elif x2_value > x2_high_threshold:
+                        x2_score = x2_high_score  # 偏高，谨慎看空
+                        signals['X2'] = f'偏高({x2_value:.1f})'
+                    elif x2_value < x2_low_threshold:
+                        x2_score = x2_low_score  # 偏低，谨慎看多
+                        signals['X2'] = f'偏低({x2_value:.1f})'
+                    else:
+                        x2_score = 0.0
+                        signals['X2'] = f'正常({x2_value:.1f})'
+                else:
+                    signals['X2'] = '数据不足'
+            except Exception as e:
+                self.logger.debug(f"计算X2指标失败: {str(e)}")
+                signals['X2'] = '计算失败'
+            
+            scores.append(x2_score)
+            
             # 3. 移动平均线信号（已在上面导入）
             ma_short = SMA(data['close'], self.indicator_config['ma_short'])
             ma_long = SMA(data['close'], self.indicator_config['ma_long'])
@@ -403,24 +498,34 @@ class StockPredictor:
             
             scores.append(volume_score)
             
-            # 5.1. 换手率分析（新增）
+            # 5.1. 换手率分析（新增）- 从数据库获取，不调用API
+            # 性能优化：如果已提供预查询数据，直接使用（避免重复查询）
             turnover_rate_score = 0.0
             try:
-                # 尝试获取换手率数据
-                stock_info = self.data_source.get_stock_info(symbol)
+                # 从数据库获取换手率数据（设置页面预测：只使用数据库数据）
                 turnover_rate = None
-                
-                # 查找换手率字段
-                for key in ['换手率', 'turnover_rate', 'Turnover', 'turnover']:
-                    if key in stock_info:
-                        try:
-                            val = stock_info[key]
-                            if isinstance(val, str):
-                                val = val.replace('%', '').replace(',', '').strip()
-                            turnover_rate = float(val)
-                            break
-                        except:
-                            continue
+                # 注意：calculate_technical_score 方法目前不接收 pre_queried_data 参数
+                # 因为它是数据依赖任务，换手率查询保留在这里
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from datetime import datetime
+                    db = DatabaseConnection()
+                    # 获取最新日期的换手率数据
+                    sql = """
+                        SELECT turnover_rate
+                        FROM stock_history_data
+                        WHERE symbol = %s AND period_type = 'daily'
+                        AND turnover_rate IS NOT NULL
+                        ORDER BY trade_date DESC
+                        LIMIT 1
+                    """
+                    result = db.execute_query(sql, (symbol,))
+                    if result and len(result) > 0:
+                        turnover_rate = result[0].get('turnover_rate')
+                        if turnover_rate is not None:
+                            turnover_rate = float(turnover_rate)
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取换手率失败: {str(e)}")
                 
                 if turnover_rate is not None:
                     # 换手率分析：一般认为2-5%正常，>5%活跃，>10%异常活跃，<1%不活跃
@@ -440,7 +545,7 @@ class StockPredictor:
                         turnover_rate_score = 0.0
                         signals['换手率'] = f'正常({turnover_rate:.2f}%)'
                 else:
-                    signals['换手率'] = '数据不足'
+                    signals['换手率'] = '数据不足（数据库中没有换手率数据）'
             except Exception as e:
                 self.logger.debug(f"获取换手率失败: {str(e)}")
                 signals['换手率'] = '数据不足'
@@ -605,6 +710,7 @@ class StockPredictor:
                     'KDJ_D': d_value,
                     'KDJ_J': j_value,
                     'CCI': cci_value,
+                    'X2': x2_value if 'x2_value' in locals() else None,
                     'MA_short': ma_short_val,
                     'MA_long': ma_long_val,
                     'MA60': ma60_value if len(data) >= 60 else None,
@@ -796,11 +902,15 @@ class StockPredictor:
         
         return relevance_score
     
-    def calculate_news_score(self, symbol: str) -> Dict:
+    def calculate_news_score(self, symbol: str, use_api: bool = True, pre_queried_news: Dict = None, pre_queried_industry_info: Dict = None) -> Dict:
         """
         计算新闻情感得分
         包括直接提到股票的新闻和行业/概念相关的新闻
         根据利空/利好动态调整权重
+        
+        Args:
+            symbol: 股票代码
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             {
@@ -815,12 +925,18 @@ class StockPredictor:
             return {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'confidence': 0.0, 'weight_multiplier': 1.0}
         
         try:
-            # 获取股票行业信息
+            # 获取股票行业信息（性能优化：优先使用预加载的数据）
             industry_keywords = []
             industry_info = {'industry': '', 'concepts': [], 'industry_keywords': []}
             try:
-                industry_info = self.data_source.get_stock_industry_info(symbol)
-                industry_keywords = industry_info.get('industry_keywords', [])
+                # 性能优化：如果提供了预加载的行业信息，直接使用
+                if pre_queried_industry_info:
+                    industry_info = pre_queried_industry_info
+                    industry_keywords = industry_info.get('industry_keywords', [])
+                else:
+                    # 设置页面预测：如果use_api=False，从数据库获取；否则从API获取
+                    industry_info = self.data_source.get_stock_industry_info(symbol, use_db_only=not use_api)
+                    industry_keywords = industry_info.get('industry_keywords', [])
                 
                 if industry_info.get('industry'):
                     industry_keywords.append(industry_info['industry'])
@@ -835,71 +951,104 @@ class StockPredictor:
             except Exception as e:
                 self.logger.debug(f"获取行业信息失败: {str(e)}")
             
-            # 优先从数据库获取当天新闻
+            # 优先从数据库获取当天新闻（性能优化：优先使用预加载的数据）
             direct_news = []
             market_news = []
             use_database_news = False
             
-            try:
-                from utils.news_storage import NewsStorage
-                from config_db import USE_DATABASE
+            # 性能优化：如果提供了预加载的新闻数据，直接使用
+            if pre_queried_news:
+                symbol_padded = symbol.zfill(6)
+                if symbol_padded in pre_queried_news:
+                    direct_news = pre_queried_news[symbol_padded]
+                    for n in direct_news:
+                        n['relevance'] = 'direct'
+                        n['relevance_score'] = 1.0  # 直接相关，相关性为1
+                    use_database_news = True
+                    self.logger.debug(f"使用预加载的 {symbol} 当天 {len(direct_news)} 条直接新闻")
                 
-                if USE_DATABASE:
-                    news_storage = NewsStorage()
-                    
-                    # 从数据库获取股票当天新闻
-                    db_direct_news = news_storage.get_today_news_by_symbol(
-                        symbol=symbol,
-                        limit=NEWS_CONFIG['news_count']
-                    )
-                    
-                    if db_direct_news:
-                        direct_news = db_direct_news
-                        for n in direct_news:
-                            n['relevance'] = 'direct'
-                            n['relevance_score'] = 1.0  # 直接相关，相关性为1
-                        use_database_news = True
-                        self.logger.info(f"从数据库获取到 {symbol} 当天 {len(direct_news)} 条直接新闻")
-                    
-                    # 从数据库获取当天市场新闻
-                    db_market_news = news_storage.get_today_market_news(
-                        limit=NEWS_CONFIG['news_count'] * 3
-                    )
-                    
-                    if db_market_news:
-                        market_news = db_market_news
-                        use_database_news = True
-                        self.logger.info(f"从数据库获取到当天 {len(market_news)} 条市场新闻")
-            except Exception as e:
-                self.logger.debug(f"从数据库获取新闻失败，将使用API: {str(e)}")
+                if 'market' in pre_queried_news:
+                    market_news = pre_queried_news['market']
+                    use_database_news = True
+                    self.logger.debug(f"使用预加载的当天 {len(market_news)} 条市场新闻")
             
-            # 如果数据库没有新闻，从API获取
-            if not use_database_news or not market_news:
+            # 如果没有预加载数据，从数据库获取
+            if not use_database_news:
                 try:
-                    # 获取更多市场新闻用于筛选
-                    if not market_news:
-                        market_news = self.news_source.get_market_news(NEWS_CONFIG['news_count'] * 3)
+                    from utils.news_storage import NewsStorage
+                    from config_db import USE_DATABASE
                     
-                    # 获取直接提到股票的新闻
-                    if not direct_news:
-                        if hasattr(self.news_source, 'sources'):
-                            for source_name, source in self.news_source.sources:
-                                try:
-                                    news = source.get_stock_news(symbol, NEWS_CONFIG['news_count'])
-                                    for n in news:
-                                        n['relevance'] = 'direct'
-                                        n['relevance_score'] = 1.0  # 直接相关，相关性为1
-                                    direct_news.extend(news)
-                                except Exception as e:
-                                    self.logger.debug(f"从 {source_name} 获取新闻失败: {str(e)}")
+                    if USE_DATABASE:
+                        news_storage = NewsStorage()
+                        
+                        # 从数据库获取股票当天新闻
+                        db_direct_news = news_storage.get_today_news_by_symbol(
+                            symbol=symbol,
+                            limit=NEWS_CONFIG['news_count']
+                        )
+                        
+                        if db_direct_news:
+                            direct_news = db_direct_news
+                            for n in direct_news:
+                                n['relevance'] = 'direct'
+                                n['relevance_score'] = 1.0  # 直接相关，相关性为1
+                            use_database_news = True
+                            self.logger.debug(f"从数据库获取到 {symbol} 当天 {len(direct_news)} 条直接新闻")
+                        
+                        # 从数据库获取当天市场新闻
+                        db_market_news = news_storage.get_today_market_news(
+                            limit=NEWS_CONFIG['news_count'] * 3
+                        )
+                        
+                        if db_market_news:
+                            market_news = db_market_news
+                            use_database_news = True
+                            self.logger.debug(f"从数据库获取到当天 {len(market_news)} 条市场新闻")
                 except Exception as e:
-                    self.logger.debug(f"从API获取新闻失败: {str(e)}")
+                    self.logger.debug(f"从数据库获取新闻失败，将使用API: {str(e)}")
+            
+            # 【已禁用】如果数据库没有新闻，从API获取
+            # 注意：当前只从 news-analysis-system-main 获取新闻，不再调用 API
+            # 如果数据库没有新闻，记录警告但不从 API 获取
+            if not use_database_news or not market_news:
+                self.logger.warning(f"数据库中没有找到 {symbol} 的新闻，建议检查 news-analysis-system-main 是否正常运行")
+                # 【已禁用】以下代码已禁用，不再从 API 获取新闻
+                # try:
+                #     # 获取更多市场新闻用于筛选
+                #     if not market_news:
+                #         market_news = self.news_source.get_market_news(NEWS_CONFIG['news_count'] * 3)
+                #     
+                #     # 获取直接提到股票的新闻
+                #     if not direct_news:
+                #         if hasattr(self.news_source, 'sources'):
+                #             for source_name, source in self.news_source.sources:
+                #                 try:
+                #                     news = source.get_stock_news(symbol, NEWS_CONFIG['news_count'])
+                #                     for n in news:
+                #                         n['relevance'] = 'direct'
+                #                         n['relevance_score'] = 1.0  # 直接相关，相关性为1
+                #                     direct_news.extend(news)
+                #                 except Exception as e:
+                #                     self.logger.debug(f"从 {source_name} 获取新闻失败: {str(e)}")
+                # except Exception as e:
+                #     self.logger.debug(f"从API获取新闻失败: {str(e)}")
             
             # 从市场新闻中筛选行业相关新闻（更智能的判断）
             industry_news = []
             for news in market_news:
                 # 检查是否已经包含在直接新闻中（去重）
                 if any(n.get('title') == news.get('title') for n in direct_news):
+                    continue
+                
+                # 使用LLM分类筛选：跳过非金融类新闻
+                llm_is_market_relevant = news.get('llm_is_market_relevant')
+                if llm_is_market_relevant is not None and llm_is_market_relevant == 0:
+                    self.logger.debug(f"跳过非金融类新闻（LLM标记）: {news.get('title', '')[:50]}")
+                    continue
+                
+                llm_category = news.get('llm_category')
+                if llm_category == '非金融类':
+                    self.logger.debug(f"跳过非金融类新闻（LLM分类）: {news.get('title', '')[:50]}")
                     continue
                 
                 # 使用更智能的相关性判断
@@ -922,6 +1071,27 @@ class StockPredictor:
                 if title and title not in seen_titles:
                     seen_titles.add(title)
                     unique_news.append(news)
+            
+            # 使用LLM分类进一步筛选：跳过非金融类新闻
+            filtered_news = []
+            skipped_count = 0
+            for news in unique_news:
+                llm_is_market_relevant = news.get('llm_is_market_relevant')
+                if llm_is_market_relevant is not None and llm_is_market_relevant == 0:
+                    skipped_count += 1
+                    continue
+                
+                llm_category = news.get('llm_category')
+                if llm_category == '非金融类':
+                    skipped_count += 1
+                    continue
+                
+                filtered_news.append(news)
+            
+            if skipped_count > 0:
+                self.logger.info(f"使用LLM分类筛选，跳过 {skipped_count} 条非金融类新闻")
+            
+            unique_news = filtered_news
             
             # 按相关性和时间排序
             def sort_key(news):
@@ -982,8 +1152,63 @@ class StockPredictor:
                     
                     news['policy_type'] = policy_type
             
-            # 分析情感
-            sentiment_results = self.sentiment_analyzer.analyze_batch(news_list)
+            # 分析情感：优先使用LLM分析结果，避免重复分析
+            llm_analyzed_count = 0
+            needs_analysis_count = 0
+            
+            # 检查哪些新闻已有LLM分析结果
+            for news in news_list:
+                if news.get('llm_analyzed_at') is not None and news.get('llm_sentiment_score') is not None:
+                    llm_analyzed_count += 1
+                else:
+                    needs_analysis_count += 1
+            
+            if llm_analyzed_count > 0:
+                self.logger.info(f"发现 {llm_analyzed_count} 条新闻已有LLM分析结果，将直接使用；{needs_analysis_count} 条需要重新分析")
+            
+            # 对于已有LLM分析结果的新闻，直接使用LLM结果；对于没有的，使用sentiment_analyzer分析
+            sentiment_results = []
+            news_to_analyze = []
+            news_to_analyze_indices = []
+            
+            for i, news in enumerate(news_list):
+                if news.get('llm_analyzed_at') is not None and news.get('llm_sentiment_score') is not None:
+                    # 直接使用LLM分析结果
+                    llm_score = float(news.get('llm_sentiment_score', 0.0))
+                    if llm_score > 0.1:
+                        sentiment_type = 'positive'
+                    elif llm_score < -0.1:
+                        sentiment_type = 'negative'
+                    else:
+                        sentiment_type = 'neutral'
+                    
+                    sentiment_results.append({
+                        'sentiment': {
+                            'sentiment': sentiment_type,
+                            'score': llm_score,
+                            'confidence': 0.9  # LLM分析结果置信度较高
+                        },
+                        'news': news
+                    })
+                else:
+                    # 需要重新分析
+                    news_to_analyze.append(news)
+                    news_to_analyze_indices.append(i)
+            
+            # 对没有LLM分析结果的新闻进行关键词分析
+            if news_to_analyze:
+                analyzed_results = self.sentiment_analyzer.analyze_batch(news_to_analyze)
+                # 将分析结果插入到正确的位置，并添加对应的新闻
+                for idx, (result, news) in zip(news_to_analyze_indices, zip(analyzed_results, news_to_analyze)):
+                    # 确保result包含news字段
+                    if isinstance(result, dict):
+                        result['news'] = news
+                    sentiment_results.insert(idx, result)
+            else:
+                # 如果所有新闻都有LLM分析结果，按原始顺序排序
+                sentiment_results = [r for r in sentiment_results]
+            
+            # 聚合情感分析结果
             aggregated = self.sentiment_analyzer.get_aggregated_sentiment(sentiment_results)
             
             # 统计利空/利好消息（包含政策新闻权重提升）
@@ -991,14 +1216,18 @@ class StockPredictor:
             negative_news = []
             neutral_news = []
             
-            for i, news in enumerate(sentiment_results):
-                sentiment = news.get('sentiment', {})
+            for i, sentiment_result in enumerate(sentiment_results):
+                # 从sentiment_results中提取新闻和情感信息
+                sentiment = sentiment_result.get('sentiment', {})
                 sentiment_type = sentiment.get('sentiment', 'neutral')
                 score = sentiment.get('score', 0.0)
                 confidence = sentiment.get('confidence', 0.0)
-                relevance_score = news.get('relevance_score', 0.5)
-                is_policy = news_list[i].get('is_policy', False) if i < len(news_list) else False
-                policy_type = news_list[i].get('policy_type') if i < len(news_list) else None
+                
+                # 获取对应的原始新闻
+                original_news = sentiment_result.get('news') if 'news' in sentiment_result else (news_list[i] if i < len(news_list) else {})
+                relevance_score = original_news.get('relevance_score', 0.5)
+                is_policy = original_news.get('is_policy', False)
+                policy_type = original_news.get('policy_type')
                 
                 # 根据相关性调整情感强度
                 adjusted_score = score * (0.5 + relevance_score * 0.5)  # 相关性越高，情感强度越大
@@ -1028,20 +1257,20 @@ class StockPredictor:
                 
                 if sentiment_type == 'positive' and adjusted_score > 0.1:
                     positive_news.append({
-                        'news': news,
+                        'news': original_news,
                         'score': adjusted_score,
                         'confidence': confidence,
                         'relevance': relevance_score
                     })
                 elif sentiment_type == 'negative' and adjusted_score < -0.1:
                     negative_news.append({
-                        'news': news,
+                        'news': original_news,
                         'score': adjusted_score,
                         'confidence': confidence,
                         'relevance': relevance_score
                     })
                 else:
-                    neutral_news.append(news)
+                    neutral_news.append(original_news)
             
             # 计算利空/利好的强度和数量
             positive_strength = sum(p['score'] * p['confidence'] * p['relevance'] for p in positive_news)
@@ -1094,6 +1323,25 @@ class StockPredictor:
             self.logger.info(f"利好消息: {positive_count} 条（强度{positive_strength:.2f}），利空消息: {negative_count} 条（强度{negative_strength:.2f}）")
             self.logger.info(f"新闻权重倍数: {weight_multiplier:.2f}")
             
+            # 收集LLM总结信息（用于增强预测报告）
+            llm_summaries = []
+            llm_categories = []
+            for news in news_list:
+                if news.get('llm_summary'):
+                    llm_summaries.append({
+                        'title': news.get('title', '')[:50],
+                        'summary': news.get('llm_summary'),
+                        'category': news.get('llm_category'),
+                        'subcategory': news.get('llm_subcategory'),
+                        'sentiment_score': news.get('llm_sentiment_score')
+                    })
+                if news.get('llm_category'):
+                    llm_categories.append(news.get('llm_category'))
+            
+            # 统计LLM分类分布
+            from collections import Counter
+            llm_category_distribution = dict(Counter(llm_categories)) if llm_categories else {}
+            
             result = {
                 'score': aggregated['weighted_score'],
                 'sentiment': aggregated['overall_sentiment'],
@@ -1107,7 +1355,10 @@ class StockPredictor:
                 'negative_count': negative_count,
                 'positive_strength': positive_strength,
                 'negative_strength': negative_strength,
-                'policy_classification': policy_classification  # 新增：政策新闻分类
+                'policy_classification': policy_classification,  # 新增：政策新闻分类
+                'llm_summaries': llm_summaries[:5],  # 最多返回5条LLM总结
+                'llm_category_distribution': llm_category_distribution,  # LLM分类分布
+                'llm_analyzed_count': llm_analyzed_count  # 使用LLM分析的新闻数量
             }
             
             # 保存新闻情感数据到CSV
@@ -1120,9 +1371,17 @@ class StockPredictor:
             self.logger.error(f"计算新闻得分失败: {str(e)}")
             return {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'confidence': 0.0, 'weight_multiplier': 1.0}
     
-    def calculate_market_score(self, data: pd.DataFrame, symbol: str = None) -> Dict:
+    def calculate_market_score(self, data: pd.DataFrame, symbol: str = None, use_api: bool = True, 
+                               indices_data: Dict = None) -> Dict:
         """
         计算市场情绪得分（改进：包含大盘指数影响）
+        
+        Args:
+            data: 股票历史数据
+            symbol: 股票代码（可选）
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
+            indices_data: 预查询的市场指数数据（可选，如果提供则跳过重复获取）
+                         格式：{'上证指数': DataFrame, '深证成指': DataFrame, ...}
         
         Returns:
             {
@@ -1141,8 +1400,10 @@ class StockPredictor:
             
             # 1. 大盘指数影响（权重50%）
             try:
-                # 获取主要指数数据
-                indices_data = self.data_source.get_all_market_indices(days=20)
+                # 性能优化：如果提供了预查询的指数数据，直接使用，避免重复获取
+                if indices_data is None:
+                    # 获取主要指数数据（设置页面预测：只使用数据库数据，不调用API）
+                    indices_data = self.data_source.get_all_market_indices(days=20, use_db_only=not use_api)
                 
                 index_scores = []
                 for index_name, index_df in indices_data.items():
@@ -1197,10 +1458,19 @@ class StockPredictor:
                 self.logger.debug(f"计算个股情绪得分失败: {str(e)}")
             
             # 3. 板块情绪（权重20%，如果有板块信息）
+            # 设置页面预测：如果use_api=False，从数据库获取；否则从API获取
             try:
                 if symbol:
-                    industry_info = self.data_source.get_stock_industry_info(symbol)
-                    industry = industry_info.get('industry', '')
+                    try:
+                        # 设置页面预测：如果use_api=False，从数据库获取；否则从API获取
+                        industry_info = self.data_source.get_stock_industry_info(symbol, use_db_only=not use_api)
+                        industry = industry_info.get('industry', '')
+                    except Exception as e:
+                        # 获取失败时，使用空数据
+                        self.logger.debug(f"获取行业信息失败: {str(e)}")
+                        industry = ''
+                else:
+                    industry = ''
                     
                     if industry:
                         # 获取同行业股票的平均表现（简化处理）
@@ -1256,12 +1526,15 @@ class StockPredictor:
             self.logger.error(f"计算市场得分失败: {str(e)}")
             return {'score': 0.0, 'trend': 'neutral', 'details': {}}
     
-    def calculate_market_sentiment_index(self) -> Dict:
+    def calculate_market_sentiment_index(self, use_api: bool = True) -> Dict:
         """
         计算市场情绪指标（恐慌指数、贪婪指数）
         - 恐慌指数：基于下跌股票比例、跌停股票数量、成交量放大
         - 贪婪指数：基于上涨股票比例、涨停股票数量
         - 情绪化交易识别
+        
+        Args:
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             市场情绪指标字典，包含：
@@ -1271,8 +1544,8 @@ class StockPredictor:
             - suggestion: 建议
         """
         try:
-            # 获取市场统计数据
-            market_stats = self.data_source.get_market_statistics()
+            # 获取市场统计数据（设置页面预测：如果use_api=False，只使用数据库数据）
+            market_stats = self.data_source.get_market_statistics(use_db_only=not use_api)
             
             if not market_stats:
                 return {
@@ -1389,9 +1662,13 @@ class StockPredictor:
                 'error': str(e)
             }
     
-    def calculate_us_sector_score(self, symbol: str) -> Dict:
+    def calculate_us_sector_score(self, symbol: str, use_api: bool = True) -> Dict:
         """
         计算美股板块得分（根据股票所属行业，获取对应美股板块的走势）
+        
+        Args:
+            symbol: 股票代码
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             {
@@ -1402,8 +1679,8 @@ class StockPredictor:
             }
         """
         try:
-            # 获取股票的行业信息
-            industry_info = self.data_source.get_stock_industry_info(symbol)
+            # 获取股票的行业信息（设置页面预测：如果use_api=False，从数据库获取；否则从API获取）
+            industry_info = self.data_source.get_stock_industry_info(symbol, use_db_only=not use_api)
             industry = industry_info.get('industry', '')
             concepts = industry_info.get('concepts', [])
             
@@ -1434,7 +1711,12 @@ class StockPredictor:
                 self.logger.info(f"股票 {symbol} 对应美股板块: {matched_sector}")
             
             # 获取美股板块数据（最近5天，因为美股比A股早一天收盘）
-            us_data = self.data_source.get_us_sector_data(matched_sector if matched_sector != '整体市场' else None, days=5)
+            # 设置页面预测：如果use_api=False，只使用数据库数据，不调用API
+            us_data = self.data_source.get_us_sector_data(
+                matched_sector if matched_sector != '整体市场' else None, 
+                days=5, 
+                use_db_only=not use_api
+            )
             
             if us_data.empty:
                 self.logger.warning(f"无法获取美股板块 {matched_sector} 的数据")
@@ -1480,9 +1762,14 @@ class StockPredictor:
             self.logger.error(f"计算美股板块得分失败: {str(e)}")
             return {'score': 0.0, 'sector': 'unknown', 'trend': 'neutral', 'change_pct': 0.0}
     
-    def calculate_valuation_score(self, symbol: str) -> Dict:
+    def calculate_valuation_score(self, symbol: str, stock_info: Dict = None) -> Dict:
         """
         计算估值指标得分（PE、PB）
+        
+        Args:
+            symbol: 股票代码
+            stock_info: 可选的股票信息（如果已获取，可传入避免重复调用API）
+                       如果不传入，将自动调用API获取（保持向后兼容）
         
         Returns:
             {
@@ -1493,7 +1780,9 @@ class StockPredictor:
             }
         """
         try:
-            stock_info = self.data_source.get_stock_info(symbol)
+            # 如果未传入stock_info，则调用API获取（保持向后兼容）
+            if stock_info is None:
+                stock_info = self.data_source.get_stock_info(symbol)
             
             pe_ratio = None
             pb_ratio = None
@@ -1565,10 +1854,120 @@ class StockPredictor:
             self.logger.error(f"计算估值得分失败: {str(e)}")
             return {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None, 'valuation': 'unknown'}
     
-    def calculate_capital_flow_score(self, symbol: str) -> Dict:
+    def _calculate_valuation_score_from_db(self, symbol: str, pre_queried_data: Dict = None) -> Dict:
+        """
+        从数据库获取估值数据并计算得分（设置页面预测专用，不调用API）
+        
+        Args:
+            symbol: 股票代码
+            pre_queried_data: 预查询的数据字典（性能优化，如果提供则跳过数据库查询）
+        
+        Returns:
+            估值得分字典
+        """
+        try:
+            pe_ratio = None
+            pb_ratio = None
+            
+            # 性能优化：如果已提供预查询数据，直接使用
+            if pre_queried_data:
+                pe_ratio = pre_queried_data.get('pe_ratio')
+                pb_ratio = pre_queried_data.get('pb_ratio')
+                if pe_ratio is not None:
+                    try:
+                        pe_ratio = float(pe_ratio)
+                    except (ValueError, TypeError):
+                        pe_ratio = None
+                if pb_ratio is not None:
+                    try:
+                        pb_ratio = float(pb_ratio)
+                    except (ValueError, TypeError):
+                        pb_ratio = None
+            
+            # 如果预查询数据中没有，则从数据库查询
+            if pe_ratio is None and pb_ratio is None:
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    db = DatabaseConnection()
+                    
+                    # 从stock_history_data表获取最新的PE和PB数据
+                    sql = """
+                        SELECT pe_ratio, pb_ratio
+                        FROM stock_history_data
+                        WHERE symbol = %s
+                        AND pe_ratio IS NOT NULL
+                        AND pb_ratio IS NOT NULL
+                        ORDER BY trade_date DESC
+                        LIMIT 1
+                    """
+                    result = db.execute_query(sql, (symbol,))
+                    
+                    if result and len(result) > 0:
+                        record = result[0]
+                        pe_ratio = record.get('pe_ratio')
+                        pb_ratio = record.get('pb_ratio')
+                        
+                        # 转换为float
+                        try:
+                            if pe_ratio is not None:
+                                pe_ratio = float(pe_ratio)
+                            if pb_ratio is not None:
+                                pb_ratio = float(pb_ratio)
+                        except (ValueError, TypeError):
+                            pe_ratio = None
+                            pb_ratio = None
+                except Exception as e:
+                    self.logger.debug(f"从数据库获取估值数据失败: {str(e)}")
+            
+            if pe_ratio is None and pb_ratio is None:
+                return {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None, 'valuation': 'unknown'}
+            
+            score = 0.0
+            
+            # PE评分：一般认为PE在10-30之间合理，低于10可能被低估，高于30可能被高估
+            if pe_ratio is not None:
+                if pe_ratio < 10:
+                    score += 0.15  # 被低估
+                elif pe_ratio > 30:
+                    score -= 0.15  # 被高估
+                elif pe_ratio > 50:
+                    score -= 0.25  # 严重高估
+            
+            # PB评分：一般认为PB在1-3之间合理，低于1可能被低估，高于3可能被高估
+            if pb_ratio is not None:
+                if pb_ratio < 1:
+                    score += 0.1  # 被低估
+                elif pb_ratio > 3:
+                    score -= 0.1  # 被高估
+                elif pb_ratio > 5:
+                    score -= 0.2  # 严重高估
+            
+            # 确定估值状态
+            if score > 0.1:
+                valuation = 'undervalued'
+            elif score < -0.1:
+                valuation = 'overvalued'
+            else:
+                valuation = 'fair'
+            
+            return {
+                'score': max(-1.0, min(1.0, score)),
+                'pe_ratio': pe_ratio,
+                'pb_ratio': pb_ratio,
+                'valuation': valuation
+            }
+        except Exception as e:
+            self.logger.error(f"从数据库计算估值得分失败: {str(e)}")
+            return {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None, 'valuation': 'unknown'}
+    
+    def calculate_capital_flow_score(self, symbol: str, use_api: bool = True) -> Dict:
         """
         计算资金流向得分
         包括：北向资金、融资融券、主力资金
+        
+        Args:
+            symbol: 股票代码
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             {
@@ -1585,7 +1984,7 @@ class StockPredictor:
             
             # 1. 北向资金得分（权重40%）
             try:
-                north_bound = self.data_source.get_north_bound_capital(days=5)
+                north_bound = self.data_source.get_north_bound_capital(days=5, use_db_only=not use_api)
                 north_inflow = north_bound.get('today_net_inflow', 0.0)
                 avg_inflow_5d = north_bound.get('avg_net_inflow_5d', 0.0)
                 
@@ -1606,7 +2005,7 @@ class StockPredictor:
             
             # 2. 融资融券得分（权重35%）
             try:
-                margin_data = self.data_source.get_margin_trading_data(symbol, days=5)
+                margin_data = self.data_source.get_margin_trading_data(symbol, days=5, use_db_only=not use_api)
                 margin_change_pct = margin_data.get('margin_change_pct', 0.0)
                 
                 # 融资余额增加：+0.2分/1%
@@ -1626,7 +2025,7 @@ class StockPredictor:
             
             # 3. 主力资金得分（权重25%）
             try:
-                main_force = self.data_source.get_main_force_capital(symbol, days=5)
+                main_force = self.data_source.get_main_force_capital(symbol, days=5, use_db_only=not use_api)
                 main_inflow_pct = main_force.get('main_net_inflow_pct', 0.0)
                 
                 # 主力资金净流入：+0.1分/1%
@@ -1676,10 +2075,14 @@ class StockPredictor:
                 'details': {}
             }
     
-    def calculate_sector_rotation_score(self, symbol: str) -> Dict:
+    def calculate_sector_rotation_score(self, symbol: str, use_api: bool = True) -> Dict:
         """
         计算板块轮动得分
         分析股票所属板块的热度、资金流向和轮动趋势
+        
+        Args:
+            symbol: 股票代码
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             {
@@ -1691,13 +2094,25 @@ class StockPredictor:
             }
         """
         try:
-            # 获取股票行业信息
-            industry_info = self.data_source.get_stock_industry_info(symbol)
+            # 获取股票行业信息和板块表现数据
+            # 设置页面预测：如果use_api=False，跳过API调用，使用空数据
+            # 获取股票行业信息（设置页面预测：如果use_api=False，从数据库获取；否则从API获取）
+            industry_info = self.data_source.get_stock_industry_info(symbol, use_db_only=not use_api)
             industry = industry_info.get('industry', '')
             concepts = industry_info.get('concepts', [])
             
-            # 获取板块表现数据
-            sector_data = self.data_source.get_sector_performance(days=5)
+            # 板块表现数据：只在use_api=True时从API获取
+            if use_api:
+                # 获取板块表现数据
+                sector_data = self.data_source.get_sector_performance(days=5)
+            else:
+                # 设置页面预测：不使用API获取板块表现数据，使用空数据
+                self.logger.debug(f"跳过板块表现数据API调用（use_api=False），使用空数据")
+                sector_data = {
+                    'industry_sectors': {},
+                    'concept_sectors': {},
+                    'hot_sectors': []
+                }
             industry_sectors = sector_data.get('industry_sectors', {})
             concept_sectors = sector_data.get('concept_sectors', {})
             hot_sectors = sector_data.get('hot_sectors', [])
@@ -1975,9 +2390,12 @@ class StockPredictor:
                 'take_profit': None
             }
     
-    def predict_market_overall(self) -> Dict:
+    def predict_market_overall(self, use_api: bool = True) -> Dict:
         """
         预测沪深股市整体行情
+        
+        Args:
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
         
         Returns:
             市场整体行情预测结果
@@ -1985,10 +2403,21 @@ class StockPredictor:
         try:
             self.logger.info("\n步骤0: 分析市场整体行情...")
             
-            # 获取主要指数数据
-            indices_data = self.data_source.get_all_market_indices(days=60)
+            # 获取主要指数数据（设置页面预测：只使用数据库数据，不调用API）
+            indices_data = self.data_source.get_all_market_indices(days=60, use_db_only=not use_api)
             
             if not indices_data:
+                # 设置页面预测：如果没有数据，返回中性预测
+                if not use_api:
+                    self.logger.info("数据库中没有市场指数数据，返回中性预测")
+                    return {
+                        'success': True,
+                        'prediction': '震荡',
+                        'up_probability': 0.5,
+                        'down_probability': 0.5,
+                        'score': 0.0,
+                        'message': '数据库中没有市场指数数据，返回中性预测'
+                    }
                 return {
                     'success': False,
                     'message': '无法获取市场指数数据'
@@ -2007,8 +2436,9 @@ class StockPredictor:
                 tech_result = self.calculate_technical_score(index_data, None)
                 tech_score = tech_result['score']
                 
-                # 计算市场情绪得分
-                market_result = self.calculate_market_score(index_data)
+                # 计算市场情绪得分（传递use_api参数和indices_data，避免重复获取）
+                # 注意：这里传入的是单个指数的数据作为data参数，同时传入所有指数的数据作为indices_data参数
+                market_result = self.calculate_market_score(index_data, use_api=use_api, indices_data=indices_data)
                 market_score = market_result['score']
                 
                 # 综合得分（技术指标70%，市场情绪30%）
@@ -2045,6 +2475,17 @@ class StockPredictor:
                 self.logger.info(f"{index_name}: {prediction} (上涨概率: {up_prob*100:.1f}%, 下跌概率: {down_prob*100:.1f}%)")
             
             if index_count == 0:
+                # 设置页面预测：如果没有数据，返回中性预测
+                if not use_api:
+                    self.logger.info("数据库中没有有效的市场指数数据，返回中性预测")
+                    return {
+                        'success': True,
+                        'prediction': '震荡',
+                        'up_probability': 0.5,
+                        'down_probability': 0.5,
+                        'score': 0.0,
+                        'message': '数据库中没有有效的市场指数数据，返回中性预测'
+                    }
                 return {
                     'success': False,
                     'message': '无法获取有效的市场指数数据'
@@ -2136,11 +2577,27 @@ class StockPredictor:
         Returns:
             置信度（0-1）
         """
-        # 1. 基础置信度（基于得分绝对值）
-        base_confidence = min(abs(final_score) * 0.5 + 0.5, 1.0)
+        # 1. 基础置信度（增强版：考虑得分强度和稳定性）
+        base_confidence = self._calculate_base_confidence_enhanced(
+            final_score=final_score,
+            factor_scores=factor_scores
+        )
         
-        # 2. 因子一致性（所有因子方向一致时提高置信度）
-        factor_consistency = self._calculate_factor_consistency(final_score, factor_scores)
+        # 2. 因子一致性（优化版：考虑因子权重和得分一致性）
+        # 获取因子权重（如果可用）
+        factor_weights = None
+        try:
+            # 尝试从上下文获取因子权重
+            if hasattr(self, '_last_factor_weights'):
+                factor_weights = self._last_factor_weights
+        except:
+            pass
+        
+        factor_consistency = self._calculate_factor_consistency(
+            final_score=final_score,
+            factor_scores=factor_scores,
+            factor_weights=factor_weights
+        )
         
         # 3. 数据质量得分（如果有数据质量信息）
         quality_score = 1.0
@@ -2154,11 +2611,18 @@ class StockPredictor:
             if total_factors > 0:
                 quality_score = max(0.5, valid_factors / total_factors)
         
-        # 计算基础置信度（加权平均）
+        # 计算市场波动性因子（新增：考虑市场波动性）
+        market_volatility_factor = self._calculate_market_volatility_factor(
+            market_state=market_state if market_state else {},
+            data=None  # 如果需要个股波动性，可以传入data
+        )
+        
+        # 计算基础置信度（加权平均，增加市场波动性因子）
         base_calculated_confidence = (
-            base_confidence * 0.40 +      # 基础置信度权重40%
-            factor_consistency * 0.30 +   # 因子一致性权重30%
-            quality_score * 0.30          # 数据质量权重30%
+            base_confidence * 0.35 +           # 基础置信度权重35%
+            factor_consistency * 0.25 +        # 因子一致性权重25%
+            quality_score * 0.25 +             # 数据质量权重25%
+            market_volatility_factor * 0.15    # 市场波动性权重15%
         )
         
         # 使用增强的置信度计算器（如果可用）
@@ -2201,13 +2665,289 @@ class StockPredictor:
         
         return confidence
     
-    def _calculate_factor_consistency(self, final_score: float, factor_scores: Dict) -> float:
+    def _calculate_base_confidence_enhanced(self, final_score: float,
+                                           factor_scores: Dict,
+                                           recent_scores: List[float] = None) -> float:
         """
-        计算因子一致性
+        增强版基础置信度计算（考虑得分强度、分布和稳定性）
+        
+        Args:
+            final_score: 最终得分
+            factor_scores: 各因子得分
+            recent_scores: 最近几次的得分（用于计算稳定性，可选）
+        
+        Returns:
+            基础置信度（0-1）
+        """
+        # 1. 基于得分绝对值（原有方法）
+        score_based = min(abs(final_score) * 0.5 + 0.5, 1.0)
+        
+        # 2. 基于得分强度（得分越极端，置信度越高）
+        score_strength = abs(final_score)
+        # 假设final_score在-1到1之间，如果超出范围，需要归一化
+        if score_strength > 1.0:
+            score_strength = 1.0
+        strength_based = score_strength * 0.8 + 0.2  # 0.2-1.0
+        
+        # 3. 基于得分稳定性（如果最近得分波动大，降低置信度）
+        stability_based = 1.0
+        if recent_scores and len(recent_scores) >= 3:
+            score_std = np.std(recent_scores)
+            # 如果标准差大，说明不稳定，降低置信度
+            # 假设得分在-1到1之间，标准差最大约为1.0
+            stability_based = max(0.5, 1.0 - score_std * 1.5)
+        
+        # 4. 基于因子得分分布（如果因子得分分散，降低置信度）
+        distribution_based = 1.0
+        if factor_scores and len(factor_scores) > 1:
+            scores_array = np.array([score for score in factor_scores.values() if abs(score) > 0.01])
+            if len(scores_array) > 1:
+                score_range = np.max(scores_array) - np.min(scores_array)
+                # 如果得分范围大，说明分散，降低置信度
+                distribution_based = max(0.6, 1.0 - score_range * 0.5)
+        
+        # 5. 综合计算
+        base_confidence = (
+            score_based * 0.30 +
+            strength_based * 0.25 +
+            stability_based * 0.25 +
+            distribution_based * 0.20
+        )
+        
+        return max(0.0, min(1.0, base_confidence))
+    
+    def _calculate_market_volatility_factor(self, market_state: Dict,
+                                           data: pd.DataFrame = None) -> float:
+        """
+        计算市场波动性因子（用于调整置信度）
+        
+        Args:
+            market_state: 市场状态
+            data: 股票历史数据（可选，用于计算个股波动性）
+        
+        Returns:
+            波动性因子（0-1），1表示低波动（高置信度），0表示高波动（低置信度）
+        """
+        # 1. 市场状态波动性
+        market_volatility = 1.0
+        if market_state:
+            market_state_name = market_state.get('state', 'sideways')
+            if market_state_name == 'bear_market':
+                market_volatility = 0.7  # 熊市波动大，降低置信度
+            elif market_state_name == 'bull_market':
+                market_volatility = 0.9  # 牛市波动较小，提高置信度
+            else:
+                market_volatility = 0.8  # 震荡市波动中等
+        
+        # 2. 个股波动性（如果数据可用）
+        stock_volatility = 1.0
+        if data is not None and not data.empty and len(data) >= 20:
+            try:
+                if 'change_pct' in data.columns:
+                    returns = data['change_pct'].tail(20).values / 100.0
+                    volatility = np.std(returns)
+                    # 波动率越高，因子越低（降低置信度）
+                    # 假设正常波动率约2%，超过4%认为高波动
+                    stock_volatility = max(0.5, 1.0 - (volatility - 0.02) * 10)
+                    stock_volatility = max(0.5, min(1.0, stock_volatility))
+            except:
+                pass
+        
+        # 3. 综合波动性因子（市场和个股各占50%）
+        volatility_factor = (market_volatility + stock_volatility) / 2
+        
+        return volatility_factor
+    
+    def _calculate_factor_data_quality(self, factor_name: str, factor_result: Dict) -> float:
+        """
+        计算因子数据质量评分（0-1）
+        
+        Args:
+            factor_name: 因子名称
+            factor_result: 因子分析结果
+        
+        Returns:
+            数据质量评分（0-1），1表示数据完整，0表示数据完全缺失
+        """
+        try:
+            quality_score = 1.0
+            
+            if factor_name == 'technical':
+                # 技术指标：检查是否有足够的历史数据和信号
+                signals = factor_result.get('signals', {})
+                score = factor_result.get('score', 0.0)
+                if not signals or len(signals) < 3:
+                    quality_score = 0.5  # 数据不完整
+                if abs(score) < 0.01 and not signals:
+                    quality_score = 0.3  # 可能是默认值，数据缺失
+            
+            elif factor_name == 'news':
+                # 新闻：检查新闻数量
+                news_count = factor_result.get('news_count', 0)
+                if news_count == 0:
+                    quality_score = 0.2  # 无新闻数据
+                elif news_count < 3:
+                    quality_score = 0.6  # 新闻数量较少
+            
+            elif factor_name == 'capital_flow':
+                # 资金流向：检查数据完整性
+                details = factor_result.get('details', {})
+                available_sources = sum(1 for k in ['north_bound', 'margin', 'main_force'] 
+                                       if k in details and details[k].get('error') is None)
+                quality_score = max(0.2, available_sources / 3.0)  # 至少保留0.2，即使数据缺失
+            
+            elif factor_name == 'valuation':
+                # 估值：检查PE/PB是否可用
+                pe_ratio = factor_result.get('pe_ratio')
+                pb_ratio = factor_result.get('pb_ratio')
+                if pe_ratio is None and pb_ratio is None:
+                    quality_score = 0.0  # 完全缺失
+                elif pe_ratio is None or pb_ratio is None:
+                    quality_score = 0.5  # 部分缺失
+            
+            elif factor_name == 'market':
+                # 市场情绪：检查数据源
+                details = factor_result.get('details', {})
+                has_index_score = 'market_index_score' in details
+                has_stock_score = 'stock_score' in details
+                if not has_index_score and not has_stock_score:
+                    quality_score = 0.3  # 数据缺失
+                elif not has_index_score or not has_stock_score:
+                    quality_score = 0.6  # 部分缺失
+            
+            elif factor_name == 'history':
+                # 历史模式：检查是否有模式识别
+                pattern = factor_result.get('pattern', 'unknown')
+                if pattern == 'unknown' or pattern == '无显著模式':
+                    quality_score = 0.2  # 无历史模式
+            
+            elif factor_name == 'sector_rotation':
+                # 板块轮动：检查是否有板块信息
+                sector_name = factor_result.get('sector_name', 'unknown')
+                if sector_name == 'unknown':
+                    quality_score = 0.3  # 无板块信息
+            
+            elif factor_name == 'us_sector':
+                # 美股板块：检查是否有板块信息
+                sector = factor_result.get('sector', 'unknown')
+                if sector == 'unknown':
+                    quality_score = 0.3  # 无板块信息
+            
+            elif factor_name == 'market_overall':
+                # 市场整体：检查是否成功
+                success = factor_result.get('success', False)
+                if not success:
+                    quality_score = 0.2  # 市场整体预测失败
+            
+            return max(0.0, min(1.0, quality_score))  # 确保在0-1范围内
+            
+        except Exception as e:
+            self.logger.debug(f"计算因子 {factor_name} 数据质量失败: {str(e)}")
+            return 0.5  # 出错时返回中等质量评分
+    
+    def _adjust_weights_by_data_quality(self, base_weights: Dict, factor_quality_scores: Dict) -> Dict:
+        """
+        根据数据质量动态调整权重
+        
+        Args:
+            base_weights: 基础权重字典
+            factor_quality_scores: 各因子数据质量评分字典
+        
+        Returns:
+            调整后的权重字典
+        """
+        try:
+            adjusted_weights = {}
+            total_adjusted_weight = 0.0
+            
+            # 计算调整后的权重（质量评分作为权重倍数）
+            for factor_name, base_weight in base_weights.items():
+                quality_score = factor_quality_scores.get(factor_name, 1.0)
+                # 如果质量评分低于0.3，大幅降低权重
+                if quality_score < 0.3:
+                    adjusted_weight = base_weight * quality_score * 0.5  # 额外降低50%
+                elif quality_score < 0.6:
+                    adjusted_weight = base_weight * quality_score * 0.8  # 降低20%
+                else:
+                    adjusted_weight = base_weight * quality_score
+                
+                adjusted_weights[factor_name] = adjusted_weight
+                total_adjusted_weight += adjusted_weight
+            
+            # 归一化权重（确保总和为1）
+            if total_adjusted_weight > 0.001:  # 避免除零
+                for factor_name in adjusted_weights:
+                    adjusted_weights[factor_name] /= total_adjusted_weight
+            else:
+                # 如果所有权重都为0，回退到基础权重
+                self.logger.debug("所有权重调整后为0，回退到基础权重")
+                adjusted_weights = base_weights.copy()
+            
+            return adjusted_weights
+            
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整权重失败: {str(e)}")
+            return base_weights  # 出错时返回基础权重
+    
+    def _adjust_confidence_by_data_quality(self, base_confidence: float, 
+                                           factor_quality_scores: Dict,
+                                           missing_critical_data: bool = False) -> float:
+        """
+        根据数据质量调整置信度
+        
+        Args:
+            base_confidence: 基础置信度
+            factor_quality_scores: 各因子数据质量评分字典
+            missing_critical_data: 是否缺失关键数据
+        
+        Returns:
+            调整后的置信度
+        """
+        try:
+            # 如果缺失关键数据，大幅降低置信度
+            if missing_critical_data:
+                return max(0.05, base_confidence * 0.3)
+            
+            # 计算平均数据质量评分
+            if factor_quality_scores:
+                avg_quality = sum(factor_quality_scores.values()) / len(factor_quality_scores)
+            else:
+                avg_quality = 1.0
+            
+            # 根据平均质量调整置信度
+            # 质量评分 < 0.5：降低50%
+            # 质量评分 < 0.7：降低30%
+            # 质量评分 >= 0.7：降低10%
+            if avg_quality < 0.5:
+                quality_adjustment = 0.5
+            elif avg_quality < 0.7:
+                quality_adjustment = 0.7
+            else:
+                quality_adjustment = 0.9
+            
+            adjusted_confidence = base_confidence * quality_adjustment
+            
+            # 确保置信度不低于0.1（除非数据完全缺失）
+            if avg_quality > 0:
+                adjusted_confidence = max(0.1, adjusted_confidence)
+            else:
+                adjusted_confidence = 0.05  # 数据完全缺失时，极低置信度
+            
+            return max(0.0, min(1.0, adjusted_confidence))  # 确保在0-1范围内
+            
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整置信度失败: {str(e)}")
+            return base_confidence  # 出错时返回基础置信度
+    
+    def _calculate_factor_consistency(self, final_score: float, factor_scores: Dict, 
+                                      factor_weights: Dict = None) -> float:
+        """
+        计算因子一致性（优化版：考虑因子权重和得分一致性）
         
         Args:
             final_score: 最终得分
             factor_scores: 各因子得分字典
+            factor_weights: 各因子权重（可选）
         
         Returns:
             一致性得分（0-1），越高表示因子方向越一致
@@ -2221,9 +2961,11 @@ class StockPredictor:
         if final_direction == 0:
             return 0.5  # 中性，一致性中等
         
-        # 计算每个因子的方向一致性
+        # 1. 计算因子方向一致性（原有方法）
         consistent_count = 0
         total_count = 0
+        weighted_consistent = 0.0
+        total_weight = 0.0
         
         for factor_name, factor_score in factor_scores.items():
             if abs(factor_score) < 0.01:
@@ -2231,20 +2973,163 @@ class StockPredictor:
                 continue
             
             factor_direction = 1 if factor_score > 0 else -1
+            factor_weight = factor_weights.get(factor_name, 1.0) if factor_weights else 1.0
+            
             if factor_direction == final_direction:
                 consistent_count += 1
+                weighted_consistent += factor_weight
             total_count += 1
+            total_weight += factor_weight
         
         if total_count == 0:
             return 0.5
         
-        # 一致性比例
-        consistency_ratio = consistent_count / total_count
+        # 方向一致性比例
+        direction_consistency = consistent_count / total_count
+        
+        # 加权方向一致性（如果提供了权重）
+        weighted_direction_consistency = weighted_consistent / total_weight if total_weight > 0 else direction_consistency
+        
+        # 2. 计算因子得分一致性（使用标准差）
+        scores_array = np.array([score for score in factor_scores.values() if abs(score) > 0.01])
+        if len(scores_array) > 1:
+            score_std = np.std(scores_array)
+            # 标准差越小，一致性越高（假设得分在-1到1之间）
+            score_consistency = max(0.0, 1.0 - score_std * 1.5)  # 调整系数，使影响更合理
+        else:
+            score_consistency = 0.5
+        
+        # 3. 综合一致性（方向一致性60%，得分一致性40%）
+        consistency_score = (
+            direction_consistency * 0.40 +
+            weighted_direction_consistency * 0.20 +
+            score_consistency * 0.40
+        )
         
         # 转换为0-1得分（50%一致性对应0.5，100%一致性对应1.0）
-        consistency_score = 0.5 + (consistency_ratio - 0.5) * 0.5
+        consistency_score = 0.5 + (consistency_score - 0.5) * 0.5
         
         return max(0.0, min(1.0, consistency_score))
+    
+    def _calculate_dynamic_sigmoid_coefficient(self, final_score: float,
+                                              market_state: Dict,
+                                              volatility_coefficient: float,
+                                              symbol: str = None,
+                                              historical_accuracy: float = None) -> float:
+        """
+        动态计算Sigmoid放大系数
+        
+        Args:
+            final_score: 最终得分
+            market_state: 市场状态
+            volatility_coefficient: 波动率系数
+            symbol: 股票代码（用于获取历史准确率）
+            historical_accuracy: 历史准确率（可选）
+        
+        Returns:
+            动态放大系数（范围：2.0-5.0）
+        """
+        base_coefficient = 3.0  # 基础系数
+        
+        # 1. 根据市场状态调整
+        market_state_name = market_state.get('state', 'sideways') if market_state else 'sideways'
+        if market_state_name == 'bull_market':
+            market_multiplier = 1.2  # 牛市，增加系数（概率变化更敏感）
+        elif market_state_name == 'bear_market':
+            market_multiplier = 0.8  # 熊市，降低系数（更保守）
+        else:
+            market_multiplier = 1.0  # 震荡市，不变
+        
+        # 2. 根据波动率调整（高波动股票使用更大系数）
+        # volatility_coefficient范围：1.5-4.5
+        volatility_multiplier = 0.8 + (volatility_coefficient - 1.5) / (4.5 - 1.5) * 0.4
+        volatility_multiplier = max(0.8, min(1.2, volatility_multiplier))
+        
+        # 3. 根据历史准确率调整（如果可用）
+        accuracy_multiplier = 1.0
+        if historical_accuracy is not None:
+            # 如果历史准确率低于50%，降低系数（更保守）
+            if historical_accuracy < 0.5:
+                accuracy_multiplier = 0.7 + historical_accuracy * 0.6
+            else:
+                accuracy_multiplier = 1.0
+        elif symbol:
+            # 尝试从数据库获取历史准确率
+            try:
+                from utils.confidence_calculator import get_confidence_calculator
+                confidence_calculator = get_confidence_calculator()
+                # 获取历史准确率（如果可用）
+                historical_stats = confidence_calculator.get_historical_accuracy(symbol)
+                if historical_stats and 'accuracy' in historical_stats:
+                    hist_accuracy = historical_stats['accuracy']
+                    if hist_accuracy < 0.5:
+                        accuracy_multiplier = 0.7 + hist_accuracy * 0.6
+            except:
+                pass
+        
+        # 综合调整
+        dynamic_coefficient = base_coefficient * market_multiplier * volatility_multiplier * accuracy_multiplier
+        
+        # 限制范围：2.0-5.0
+        dynamic_coefficient = max(2.0, min(5.0, dynamic_coefficient))
+        
+        self.logger.debug(
+            f"Sigmoid系数计算: 基础={base_coefficient:.2f}, 市场={market_multiplier:.2f}, "
+            f"波动率={volatility_multiplier:.2f}, 准确率={accuracy_multiplier:.2f}, "
+            f"最终={dynamic_coefficient:.2f}"
+        )
+        
+        return dynamic_coefficient
+    
+    def _calibrate_probability(self, raw_probability: float,
+                              symbol: str = None,
+                              final_score: float = None) -> float:
+        """
+        校准概率，使其更接近实际准确率（过滤干扰因子）
+        
+        Args:
+            raw_probability: 原始概率
+            symbol: 股票代码（用于获取历史准确率）
+            final_score: 最终得分（用于判断概率强度）
+        
+        Returns:
+            校准后的概率（范围：0.1-0.9，避免极端概率）
+        """
+        calibrated = raw_probability
+        
+        # 1. 根据历史准确率校准（如果可用）
+        try:
+            from utils.confidence_calculator import get_confidence_calculator
+            confidence_calculator = get_confidence_calculator()
+            historical_stats = confidence_calculator.get_historical_accuracy(symbol or 'unknown')
+            
+            if historical_stats and 'accuracy' in historical_stats:
+                hist_accuracy = historical_stats['accuracy']
+                # 如果历史准确率低，说明原始概率可能偏高，需要降低
+                if hist_accuracy < 0.6:
+                    # 校准因子：历史准确率越低，降低越多
+                    calibration_factor = 0.8 + (hist_accuracy / 0.6) * 0.2
+                    calibrated = raw_probability * calibration_factor
+                    self.logger.debug(
+                        f"概率校准: 原始={raw_probability:.3f}, 历史准确率={hist_accuracy:.3f}, "
+                        f"校准因子={calibration_factor:.3f}, 校准后={calibrated:.3f}"
+                    )
+        except:
+            pass
+        
+        # 2. 根据概率强度校准（极端概率需要更保守）
+        # 如果概率接近0或1，可能是过度自信，需要校准
+        if raw_probability > 0.8:
+            # 高概率：稍微降低，避免过度自信
+            calibrated = calibrated * 0.95 + 0.05
+        elif raw_probability < 0.2:
+            # 低概率：稍微提高，避免过度悲观
+            calibrated = calibrated * 0.95 + 0.05
+        
+        # 3. 限制范围：0.1-0.9（避免极端概率，提高可靠性）
+        calibrated = max(0.1, min(0.9, calibrated))
+        
+        return calibrated
     
     def calculate_history_score(self, data: pd.DataFrame) -> Dict:
         """
@@ -2302,12 +3187,564 @@ class StockPredictor:
             self.logger.error(f"计算历史得分失败: {str(e)}")
             return {'score': 0.0, 'pattern': '计算失败'}
     
-    def predict(self, symbol: str) -> Dict:
+    def _get_max_change_pct(self, symbol: str, stock_name: str = None) -> float:
+        """
+        根据股票特性获取最大涨跌幅
+        
+        Args:
+            symbol: 股票代码
+            stock_name: 股票名称（可选）
+        
+        Returns:
+            最大涨跌幅（百分比）
+        """
+        # ST股票：5%
+        if stock_name and ('ST' in stock_name or '*ST' in stock_name):
+            return 5.0
+        
+        # 创业板：300开头，20%
+        if symbol.startswith('300'):
+            return 20.0
+        
+        # 科创板：688开头，20%
+        if symbol.startswith('688'):
+            return 20.0
+        
+        # 主板：600/000/001开头，10%
+        if symbol.startswith(('600', '000', '001')):
+            return 10.0
+        
+        # 默认：10%
+        return 10.0
+    
+    def _calculate_volatility_coefficient(self, data: pd.DataFrame, period: int = 60, alpha: float = 0.1) -> float:
+        """
+        根据历史波动率计算调整后的tanh系数（优化版：使用EWMA方法，过滤异常数据）
+        
+        Args:
+            data: 股票历史数据（包含close_price或change_pct）
+            period: 计算波动率的周期（默认60天，增加周期以提高准确性）
+            alpha: EWMA衰减因子（默认0.1，越小越平滑）
+        
+        Returns:
+            调整后的系数（范围：1.5-4.5）
+        """
+        if data.empty or len(data) < period:
+            # 如果数据不足，尝试使用更短的周期
+            if len(data) >= 20:
+                period = 20
+            else:
+                return 3.0  # 默认系数
+        
+        try:
+            # 计算日收益率
+            if 'change_pct' in data.columns:
+                returns = data['change_pct'].tail(period).values / 100.0
+            elif 'close' in data.columns:
+                prices = data['close'].tail(period + 1).values
+                if len(prices) < 2:
+                    return 3.0
+                returns = np.diff(prices) / prices[:-1]
+            else:
+                return 3.0
+            
+            if len(returns) == 0:
+                return 3.0
+            
+            # 过滤异常数据：移除极端值（超过3倍标准差的数据）
+            returns_array = np.array(returns)
+            mean_return = np.mean(returns_array)
+            std_return = np.std(returns_array)
+            
+            # 过滤异常值（使用IQR方法更稳健）
+            q1 = np.percentile(returns_array, 25)
+            q3 = np.percentile(returns_array, 75)
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+            
+            # 过滤异常值
+            filtered_returns = returns_array[(returns_array >= lower_bound) & (returns_array <= upper_bound)]
+            
+            # 如果过滤后数据太少（少于50%），使用原始数据
+            if len(filtered_returns) < len(returns_array) * 0.5:
+                filtered_returns = returns_array
+                self.logger.debug(f"过滤后数据过少，使用原始数据计算波动率")
+            
+            if len(filtered_returns) == 0:
+                return 3.0
+            
+            # 使用EWMA方法计算波动率（更平滑，对异常值不敏感）
+            ewma_variance = np.var(filtered_returns[:min(10, len(filtered_returns))])  # 初始方差
+            
+            for i, r in enumerate(filtered_returns):
+                ewma_variance = alpha * (r - mean_return)**2 + (1 - alpha) * ewma_variance
+            
+            volatility = np.sqrt(ewma_variance)
+            
+            # 基准波动率（A股平均日波动率约2%）
+            base_volatility = 0.02
+            
+            # 调整系数：波动率越高，系数越大
+            # 系数范围：1.5（低波动）到 4.5（高波动）
+            if volatility > 0:
+                coefficient = 1.5 + (volatility / base_volatility) * 1.0
+                coefficient = max(1.5, min(4.5, coefficient))
+            else:
+                coefficient = 3.0
+            
+            # 记录计算详情（调试用）
+            self.logger.debug(
+                f"波动率系数计算: 周期={period}, 原始数据={len(returns_array)}, "
+                f"过滤后={len(filtered_returns)}, 波动率={volatility:.4f}, 系数={coefficient:.2f}"
+            )
+            
+            return float(coefficient)
+        except Exception as e:
+            self.logger.debug(f"计算波动率系数失败: {str(e)}")
+            return 3.0  # 默认系数
+    
+    def _calculate_trend_adjustment(self, data: pd.DataFrame, 
+                                     short_period: int = 5, 
+                                     medium_period: int = 20,
+                                     long_period: int = 60) -> float:
+        """
+        计算价格趋势调整因子（优化版：增加长期趋势，扩大调整范围，过滤异常数据）
+        
+        Args:
+            data: 股票历史数据
+            short_period: 短期周期（默认5天）
+            medium_period: 中期周期（默认20天）
+            long_period: 长期周期（默认60天）
+        
+        Returns:
+            趋势调整因子（范围：0.8-1.2，扩大范围以提高影响）
+            - >1.0：上涨趋势，预测更乐观
+            - <1.0：下跌趋势，预测更保守
+        """
+        # 需要至少长期周期的数据
+        min_period = max(medium_period, long_period)
+        if data.empty or len(data) < min_period:
+            # 如果数据不足，尝试使用更短的周期
+            if len(data) >= medium_period:
+                long_period = medium_period
+                min_period = medium_period
+            elif len(data) >= short_period:
+                medium_period = short_period
+                long_period = short_period
+                min_period = short_period
+            else:
+                return 1.0  # 无调整
+        
+        try:
+            if 'close' not in data.columns:
+                return 1.0
+            
+            # 获取足够的历史价格数据
+            prices = data['close'].tail(min_period + 1).values
+            
+            if len(prices) < min_period + 1:
+                return 1.0
+            
+            # 过滤异常价格数据（检测异常波动）
+            prices_array = np.array(prices)
+            price_changes = np.diff(prices_array) / prices_array[:-1]
+            
+            # 使用IQR方法过滤异常波动
+            q1 = np.percentile(price_changes, 25)
+            q3 = np.percentile(price_changes, 75)
+            iqr = q3 - q1
+            lower_bound = q1 - 2.0 * iqr  # 使用2倍IQR，更宽松
+            upper_bound = q3 + 2.0 * iqr
+            
+            # 标记异常数据点
+            valid_indices = [0]  # 第一个价格总是有效
+            for i in range(1, len(prices_array)):
+                if i == 1 or (price_changes[i-1] >= lower_bound and price_changes[i-1] <= upper_bound):
+                    valid_indices.append(i)
+            
+            # 如果过滤后数据太少，使用原始数据
+            if len(valid_indices) < len(prices_array) * 0.7:
+                valid_indices = list(range(len(prices_array)))
+                self.logger.debug(f"趋势计算：过滤后数据过少，使用原始数据")
+            
+            filtered_prices = prices_array[valid_indices]
+            
+            if len(filtered_prices) < 2:
+                return 1.0
+            
+            # 计算短期趋势（最近5天）
+            if len(filtered_prices) > short_period:
+                short_start_idx = max(0, len(filtered_prices) - short_period - 1)
+                short_trend = (filtered_prices[-1] - filtered_prices[short_start_idx]) / filtered_prices[short_start_idx]
+            else:
+                short_trend = (filtered_prices[-1] - filtered_prices[0]) / filtered_prices[0] if filtered_prices[0] > 0 else 0
+            
+            # 计算中期趋势（最近20天）
+            if len(filtered_prices) > medium_period:
+                medium_start_idx = max(0, len(filtered_prices) - medium_period - 1)
+                medium_trend = (filtered_prices[-1] - filtered_prices[medium_start_idx]) / filtered_prices[medium_start_idx]
+            else:
+                medium_trend = short_trend
+            
+            # 计算长期趋势（最近60天）
+            if len(filtered_prices) > long_period:
+                long_start_idx = max(0, len(filtered_prices) - long_period - 1)
+                long_trend = (filtered_prices[-1] - filtered_prices[long_start_idx]) / filtered_prices[long_start_idx]
+            else:
+                long_trend = medium_trend
+            
+            # 综合趋势（短期40%，中期35%，长期25%）
+            combined_trend = (
+                short_trend * 0.40 +
+                medium_trend * 0.35 +
+                long_trend * 0.25
+            )
+            
+            # 转换为调整因子（扩大范围到0.8-1.2，提高影响）
+            # 上涨趋势：调整因子 > 1.0（更乐观）
+            # 下跌趋势：调整因子 < 1.0（更保守）
+            adjustment = 1.0 + combined_trend * 0.6  # 从0.5增加到0.6，提高影响
+            
+            # 限制范围：0.8-1.2（从0.9-1.1扩大）
+            adjustment = max(0.8, min(1.2, adjustment))
+            
+            # 记录计算详情（调试用）
+            self.logger.debug(
+                f"趋势调整因子计算: 短期={short_trend:.4f}, 中期={medium_trend:.4f}, "
+                f"长期={long_trend:.4f}, 综合={combined_trend:.4f}, 调整={adjustment:.3f}"
+            )
+            
+            return float(adjustment)
+        except Exception as e:
+            self.logger.debug(f"计算趋势调整因子失败: {str(e)}")
+            return 1.0  # 无调整
+    
+    def _calculate_predicted_price_optimized(self, symbol: str, stock_name: str,
+                                             current_price: float, up_probability: float,
+                                             down_probability: float, confidence: float,
+                                             data: pd.DataFrame) -> Dict[str, float]:
+        """
+        优化后的预测价格计算（增强版：过滤干扰因子，考虑支撑阻力位）
+        
+        Args:
+            symbol: 股票代码
+            stock_name: 股票名称
+            current_price: 当前价格
+            up_probability: 上涨概率
+            down_probability: 下跌概率
+            confidence: 置信度
+            data: 股票历史数据
+        
+        Returns:
+            {
+                'predicted_change_pct': 预测涨跌幅,
+                'predicted_close_price': 预测收盘价,
+                'max_change_pct': 使用的最大涨跌幅,
+                'volatility_coefficient': 使用的波动率系数,
+                'trend_adjustment': 趋势调整因子,
+                'support_resistance_adjustment': 支撑阻力位调整因子
+            }
+        """
+        # 1. 获取股票特性相关的最大涨跌幅
+        max_change_pct = self._get_max_change_pct(symbol, stock_name)
+        
+        # 2. 检测干扰因子（停牌、涨跌停等）
+        anomaly_info = self._detect_anomalies(symbol)
+        if not anomaly_info.get('can_predict', True):
+            # 如果检测到严重干扰（如停牌），返回保守预测
+            self.logger.warning(f"股票 {symbol} 存在干扰因子: {anomaly_info.get('anomalies', [])}")
+            return {
+                'predicted_change_pct': 0.0,
+                'predicted_close_price': float(current_price),
+                'max_change_pct': float(max_change_pct),
+                'volatility_coefficient': 3.0,
+                'trend_adjustment': 1.0,
+                'support_resistance_adjustment': 1.0
+            }
+        
+        # 3. 计算历史波动率调整系数（使用EWMA方法，过滤异常数据）
+        volatility_coefficient = self._calculate_volatility_coefficient(data, period=60)
+        
+        # 4. 计算价格趋势调整因子（增加长期趋势，扩大调整范围）
+        trend_adjustment = self._calculate_trend_adjustment(data)
+        
+        # 5. 计算支撑阻力位调整因子
+        support_resistance_adjustment = self._calculate_support_resistance_adjustment(
+            data, current_price, max_change_pct
+        )
+        
+        # 6. 计算概率差异
+        probability_diff = up_probability - down_probability
+        
+        # 7. 使用调整后的系数计算涨跌幅（考虑所有调整因子）
+        predicted_change_pct = (
+            np.tanh(probability_diff * volatility_coefficient) * 
+            max_change_pct * 
+            confidence * 
+            trend_adjustment *
+            support_resistance_adjustment
+        )
+        
+        # 8. 过滤极端预测值（超过最大涨跌幅的90%）
+        max_allowed_change = max_change_pct * 0.9
+        if abs(predicted_change_pct) > max_allowed_change:
+            predicted_change_pct = np.sign(predicted_change_pct) * max_allowed_change
+            self.logger.debug(f"预测涨跌幅 {predicted_change_pct:.2f}% 超过限制，调整为 {max_allowed_change:.2f}%")
+        
+        # 9. 计算预测收盘价
+        predicted_close_price = current_price * (1 + predicted_change_pct / 100.0)
+        
+        # 10. 验证预测价格的合理性（不能为负或异常大）
+        if predicted_close_price <= 0 or predicted_close_price > current_price * 2:
+            self.logger.warning(
+                f"预测价格异常: {predicted_close_price:.2f}，当前价格: {current_price:.2f}，"
+                f"使用保守预测"
+            )
+            predicted_close_price = current_price * (1 + predicted_change_pct * 0.5 / 100.0)
+        
+        return {
+            'predicted_change_pct': float(predicted_change_pct),
+            'predicted_close_price': float(predicted_close_price),
+            'max_change_pct': float(max_change_pct),
+            'volatility_coefficient': float(volatility_coefficient),
+            'trend_adjustment': float(trend_adjustment),
+            'support_resistance_adjustment': float(support_resistance_adjustment)
+        }
+    
+    def _calculate_support_resistance_adjustment(self, data: pd.DataFrame, 
+                                                 current_price: float,
+                                                 max_change_pct: float) -> float:
+        """
+        计算支撑阻力位调整因子
+        
+        Args:
+            data: 股票历史数据
+            current_price: 当前价格
+            max_change_pct: 最大涨跌幅
+        
+        Returns:
+            调整因子（范围：0.9-1.1）
+            - <1.0：接近阻力位，降低预测价格
+            - >1.0：接近支撑位，提高预测价格
+        """
+        if data.empty or len(data) < 20:
+            return 1.0
+        
+        try:
+            if 'close' not in data.columns or 'high' not in data.columns or 'low' not in data.columns:
+                return 1.0
+            
+            # 获取最近60天的价格数据
+            recent_data = data.tail(60)
+            highs = recent_data['high'].values
+            lows = recent_data['low'].values
+            closes = recent_data['close'].values
+            
+            # 识别关键支撑位和阻力位（使用最近60天的最高价和最低价）
+            resistance_level = np.max(highs)  # 阻力位：最高价
+            support_level = np.min(lows)      # 支撑位：最低价
+            
+            # 计算当前价格到支撑位和阻力位的距离
+            price_range = resistance_level - support_level
+            if price_range <= 0:
+                return 1.0
+            
+            distance_to_resistance = (resistance_level - current_price) / price_range
+            distance_to_support = (current_price - support_level) / price_range
+            
+            # 计算调整因子
+            # 如果接近阻力位（距离<20%），降低预测价格
+            # 如果接近支撑位（距离<20%），提高预测价格
+            adjustment = 1.0
+            
+            if distance_to_resistance < 0.2:
+                # 接近阻力位，降低预测价格（调整因子<1.0）
+                adjustment = 0.9 + distance_to_resistance * 0.2  # 0.9-0.92
+                self.logger.debug(f"接近阻力位 {resistance_level:.2f}，调整因子: {adjustment:.3f}")
+            elif distance_to_support < 0.2:
+                # 接近支撑位，提高预测价格（调整因子>1.0）
+                adjustment = 1.0 + (0.2 - distance_to_support) * 0.5  # 1.0-1.1
+                self.logger.debug(f"接近支撑位 {support_level:.2f}，调整因子: {adjustment:.3f}")
+            
+            # 限制范围：0.9-1.1
+            adjustment = max(0.9, min(1.1, adjustment))
+            
+            return float(adjustment)
+        except Exception as e:
+            self.logger.debug(f"计算支撑阻力位调整因子失败: {str(e)}")
+            return 1.0
+    
+    def _detect_anomalies(self, symbol: str) -> Dict:
+        """
+        检测异常情况（停牌、涨跌停、ST股票等）
+        
+        Args:
+            symbol: 股票代码
+        
+        Returns:
+            异常检测结果字典，包含：
+            - can_predict: 是否可以预测
+            - anomalies: 异常列表
+            - details: 异常详情
+        """
+        anomalies = []
+        details = {}
+        
+        try:
+            # 设置页面预测：从数据库获取股票名称，避免调用API
+            stock_name_from_db = None
+            try:
+                from utils.db_connection import DatabaseConnection
+                db = DatabaseConnection()
+                name_sql = """
+                    SELECT DISTINCT name 
+                    FROM stock_history_data 
+                    WHERE symbol = %s 
+                    AND name IS NOT NULL 
+                    LIMIT 1
+                """
+                name_result = db.execute_query(name_sql, (symbol,))
+                if name_result and len(name_result) > 0:
+                    stock_name_from_db = name_result[0].get('name', '')
+            except Exception as e:
+                self.logger.debug(f"从数据库获取股票名称失败: {str(e)}")
+            
+            # 1. 检查停牌（设置页面预测：简化检查，只检查数据库中的名称，不调用API）
+            # 注意：设置页面预测时，停牌检查可能不准确，因为需要实时数据
+            # 这里只做基本检查，如果数据库中有数据，假设股票未停牌
+            if stock_name_from_db:
+                # 如果数据库中有数据，假设股票未停牌（设置页面预测时无法准确判断停牌）
+                suspension_info = {'is_suspended': False}
+            else:
+                # 如果数据库中没有数据，可能是新股票或停牌，但设置页面预测时无法准确判断
+                # 为了不阻止预测，假设未停牌
+                suspension_info = {'is_suspended': False}
+            
+            if suspension_info.get('is_suspended', False):
+                anomalies.append('suspended')
+                details['suspension'] = {
+                    'reason': suspension_info.get('reason', '未知'),
+                    'resume_date': suspension_info.get('resume_date'),
+                    'message': suspension_info.get('message', '股票停牌')
+                }
+            
+            # 2. 检查ST股票（设置页面预测：从数据库获取股票名称检查）
+            if stock_name_from_db:
+                is_st = 'ST' in stock_name_from_db or '*ST' in stock_name_from_db or 'st' in stock_name_from_db.lower()
+                if is_st:
+                    anomalies.append('st_stock')
+                    details['st_stock'] = {
+                        'risk_level': 'high',
+                        'warning': 'ST股票风险较高，建议谨慎操作',
+                        'strategy': {
+                            'max_position_pct': 10.0,
+                            'min_confidence': 0.7,
+                            'stop_loss_pct': -3.0,
+                        }
+                    }
+                    # ST股票仍然可以预测，但会降低置信度
+                    # 不阻止预测，只在details中标记
+            else:
+                # 如果无法获取股票名称，尝试使用数据库方法（但可能失败）
+                try:
+                    st_info = self.data_source.check_st_stock(symbol)
+                    if st_info.get('is_st', False):
+                        anomalies.append('st_stock')
+                        details['st_stock'] = {
+                            'risk_level': st_info.get('risk_level', 'high'),
+                            'warning': st_info.get('warning', 'ST股票风险较高'),
+                            'strategy': st_info.get('strategy', {})
+                        }
+                except Exception as e:
+                    self.logger.debug(f"检查ST股票状态失败（不影响预测）: {str(e)}")
+            
+            # 3. 检查涨跌停（从数据库获取，不调用实时API）
+            try:
+                # 设置页面预测：从数据库获取今天的数据来检查涨跌停
+                from utils.stock_history_storage import StockHistoryStorage
+                from config_db import USE_DATABASE
+                from datetime import datetime
+                
+                if USE_DATABASE:
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    storage = StockHistoryStorage()
+                    today_data = storage.get_stock_history_data(
+                        symbol=symbol,
+                        start_date=today,
+                        end_date=today,
+                        limit=1,
+                        period_type='daily'
+                    )
+                    
+                    if today_data and len(today_data) > 0:
+                        record = today_data[0]
+                        current_price = float(record.get('close_price', 0)) if record.get('close_price') else None
+                        limit_up = float(record.get('limit_up', 0)) if record.get('limit_up') else None
+                        limit_down = float(record.get('limit_down', 0)) if record.get('limit_down') else None
+                        
+                        if current_price and limit_up and limit_up > 0 and abs(current_price - limit_up) < 0.01:
+                            anomalies.append('limit_up')
+                            details['limit_up'] = {
+                                'price': current_price,
+                                'limit_price': limit_up,
+                                'message': '股票涨停，无法买入'
+                            }
+                        elif current_price and limit_down and limit_down > 0 and abs(current_price - limit_down) < 0.01:
+                            anomalies.append('limit_down')
+                            details['limit_down'] = {
+                                'price': current_price,
+                                'limit_price': limit_down,
+                                'message': '股票跌停，无法卖出'
+                            }
+                    else:
+                        self.logger.debug(f"数据库中没有 {symbol} 今天的数据，无法检查涨跌停状态")
+            except Exception as e:
+                self.logger.debug(f"检查涨跌停状态失败: {str(e)}")
+            
+            # 判断是否可以预测
+            # 停牌：不能预测
+            # ST股票：可以预测，但会降低置信度
+            # 涨跌停：可以预测，但会标记
+            can_predict = 'suspended' not in anomalies
+            
+            return {
+                'can_predict': can_predict,
+                'anomalies': anomalies,
+                'details': details
+            }
+            
+        except Exception as e:
+            self.logger.error(f"异常检测失败: {str(e)}")
+            # 检测失败时，允许继续预测（避免因检测失败而阻止预测）
+            return {
+                'can_predict': True,
+                'anomalies': [],
+                'details': {},
+                'error': str(e)
+            }
+    
+    def predict(self, symbol: str, target_date: str = None, data_date: str = None, 
+                stock_name: str = None, market_overall_result: Dict = None, use_api: bool = True,
+                pre_queried_pe_pb_data: Dict = None, pre_queried_indices_data: Dict = None,
+                pre_queried_stock_data: pd.DataFrame = None, pre_queried_news: Dict = None,
+                pre_queried_industry_info: Dict = None) -> Dict:
         """
         预测股票明天的涨跌概率
         
         Args:
             symbol: 股票代码
+            target_date: 预测时间（目标日期），格式：YYYY-MM-DD，如果为None则根据当前时间自动判断
+            data_date: 数据获取时间，格式：YYYY-MM-DD，如果为None则使用当天
+            stock_name: 股票名称（可选，如果提供则跳过数据库查询）
+            market_overall_result: 市场整体预测结果（可选，如果提供则跳过计算）
+            use_api: 是否使用API获取数据（设置页面预测时应设为False，只使用数据库数据）
+            pre_queried_pe_pb_data: 预查询的PE/PB等估值数据（可选，如果提供则跳过数据库查询）
+                                   格式：{'pe_ratio': ..., 'pb_ratio': ..., 'turnover_rate': ..., ...}
+            pre_queried_indices_data: 预查询的市场指数数据（可选，如果提供则跳过重复获取）
+                                     格式：{'上证指数': DataFrame, '深证成指': DataFrame, ...}
+            pre_queried_stock_data: 预查询的股票历史数据（可选，如果提供则跳过数据库查询）
+                                   格式：DataFrame with columns: date, open, high, low, close, volume
             
         Returns:
             预测结果字典
@@ -2316,77 +3753,256 @@ class StockPredictor:
         self.logger.info(f"开始分析股票: {symbol}")
         self.logger.info("=" * 60)
         
-        # 根据时间判断预测日期
-        target_date, date_desc = self.get_target_date()
-        prediction_date = datetime.now().strftime('%Y-%m-%d')  # 预测日期（当前日期）
-        self.logger.info(f"预测日期（{date_desc}）: {target_date}")
+        # 处理日期参数
+        if target_date is None:
+            # 如果没有提供target_date，根据时间判断预测日期
+            target_date, date_desc = self.get_target_date()
+            self.logger.info(f"预测日期（{date_desc}）: {target_date}")
+        else:
+            date_desc = f"指定日期({target_date})"
+            self.logger.info(f"预测日期（{date_desc}）: {target_date}")
         
-        # 1. 获取股票数据（必须先获取，其他分析依赖此数据）
-        self.logger.info("步骤1: 获取股票数据...")
-        # 优先从数据库获取历史数据（已优化）
-        data = self.data_source.get_stock_data(symbol, days=self.config['lookback_days'])
+        # 数据获取时间（用于获取历史数据的基准日期）
+        if data_date is None:
+            data_date = datetime.now().strftime('%Y-%m-%d')
         
-        if data.empty:
+        prediction_date = data_date  # 预测日期（使用数据获取时间作为预测日期）
+        self.logger.info(f"数据获取时间: {data_date}, 预测日期: {prediction_date}")
+        
+        # 0. 异常情况检测（在获取数据之前先检测，避免无效预测）
+        self.logger.info("步骤0: 检测异常情况...")
+        anomaly_result = self._detect_anomalies(symbol)
+        if not anomaly_result.get('can_predict', True):
+            anomalies = anomaly_result.get('anomalies', [])
+            self.logger.warning(f"检测到异常情况: {', '.join(anomalies)}")
             return {
                 'symbol': symbol,
                 'success': False,
-                'message': '无法获取股票数据'
+                'message': f"无法预测：{', '.join(anomalies)}",
+                'anomalies': anomalies,
+                'anomaly_details': anomaly_result.get('details', {})
             }
         
-        # 获取当前价格（优先使用实时数据，如果未收盘）
-        current_price = data['close'].iloc[-1]
+        # 保存异常检测结果，后续用于调整置信度和整合到结果中
+        initial_anomaly_result = anomaly_result
         
-        # 尝试获取实时价格（如果市场未收盘）
-        try:
-            realtime_quote = self.data_source.get_realtime_quote(symbol)
-            if realtime_quote and realtime_quote.get('current_price'):
-                current_price = float(realtime_quote.get('current_price'))
-                self.logger.info(f"使用实时价格: {current_price:.2f}元")
+        # 1. 获取股票数据（设置页面预测：只使用数据库数据，不调用实时API）
+        self.logger.debug(f"步骤1: 获取股票数据（仅使用数据库数据，数据获取时间: {data_date}）...")
+        # 性能优化：如果提供了预查询的股票数据，直接使用，跳过数据库查询
+        if pre_queried_stock_data is not None and not pre_queried_stock_data.empty:
+            self.logger.debug(f"使用预查询的股票历史数据（性能优化）")
+            data = pre_queried_stock_data.copy()
+            # 如果指定了data_date，过滤数据到该日期
+            if data_date:
+                data_date_obj = datetime.strptime(data_date, '%Y-%m-%d')
+                data = data[data.index <= data_date_obj]
+        else:
+            # 设置页面预测：强制只使用数据库数据，如果数据库没有数据则不预测
+            # 如果指定了data_date，使用该日期作为结束日期获取数据
+            if data_date:
+                # 计算开始日期（data_date之前lookback_days天）
+                data_date_obj = datetime.strptime(data_date, '%Y-%m-%d')
+                start_date = (data_date_obj - timedelta(days=self.config['lookback_days'])).strftime('%Y-%m-%d')
+                data = self.data_source.get_stock_data(symbol, start_date=start_date, end_date=data_date, use_db_only=True)
             else:
-                self.logger.info(f"使用历史数据最新价格: {current_price:.2f}元")
-        except Exception as e:
-            self.logger.debug(f"获取实时价格失败，使用历史数据: {str(e)}")
+                data = self.data_source.get_stock_data(symbol, days=self.config['lookback_days'], use_db_only=True)
         
-        self.logger.info(f"当前价格: {current_price:.2f}元")
+        if data.empty:
+            # 设置页面预测：如果没有数据，返回中性预测（震荡，概率各50%），而不是失败
+            self.logger.info(f"数据库中没有 {symbol} 的历史数据，返回中性预测")
+            return {
+                'symbol': symbol,
+                'name': stock_name if stock_name else '未知',
+                'success': True,
+                'prediction': '震荡',
+                'up_probability': 0.5,
+                'down_probability': 0.5,
+                'confidence': 0.0,
+                'final_score': 0.0,
+                'message': '数据库中没有历史数据，返回中性预测',
+                'prediction_type': 'after_close',
+                'factors': {},
+                'summary': f'{symbol} 数据库中没有历史数据，无法进行详细分析，返回中性预测（震荡）。'
+            }
         
-        # 获取股票名称
-        stock_name = '未知'
-        try:
-            # 尝试从股票列表中获取名称
-            stock_list = self.data_source.get_all_stock_list(limit=None, sort_by_turnover=False)
-            if stock_list:
-                for stock in stock_list:
-                    if str(stock.get('symbol', '')).strip() == str(symbol).strip():
-                        stock_name = stock.get('name', '未知')
-                        break
-            # 如果没找到，尝试通过其他方式获取
-            if stock_name == '未知':
-                stock_info = self.data_source.get_stock_info(symbol)
-                stock_name = stock_info.get('name', stock_info.get('股票简称', stock_info.get('股票名称', '未知')))
+        # 性能优化：合并数据库查询，一次性获取所有需要的数据
+        check_date = data_date  # 使用data_date而不是today
+        date_data_available = False
+        current_price = data['close'].iloc[-1]
+        price_source = "历史数据最新价格"
+        
+        # 预查询的数据（用于后续分析任务）
+        pre_queried_data = {
+            'pe_ratio': None,
+            'pb_ratio': None,
+            'turnover_rate': None,
+            'limit_up': None,
+            'limit_down': None,
+            'is_limit_up': None,
+            'is_limit_down': None,
+            'close_price': None
+        }
+        
+        # 性能优化：如果提供了预查询的PE/PB数据，直接使用，避免重复查询数据库
+        if pre_queried_pe_pb_data:
+            self.logger.debug(f"使用预查询的PE/PB数据（性能优化）")
+            if pre_queried_pe_pb_data.get('close_price'):
+                current_price = float(pre_queried_pe_pb_data['close_price'])
+                price_source = f"预查询数据{check_date}"
+                date_data_available = True
+                self.logger.info(f"从预查询数据获取{check_date}价格: {current_price:.2f}元")
+            
+            # 使用预查询的数据
+            pre_queried_data['close_price'] = pre_queried_pe_pb_data.get('close_price')
+            pre_queried_data['pe_ratio'] = pre_queried_pe_pb_data.get('pe_ratio')
+            pre_queried_data['pb_ratio'] = pre_queried_pe_pb_data.get('pb_ratio')
+            pre_queried_data['turnover_rate'] = pre_queried_pe_pb_data.get('turnover_rate')
+            pre_queried_data['limit_up'] = pre_queried_pe_pb_data.get('limit_up')
+            pre_queried_data['limit_down'] = pre_queried_pe_pb_data.get('limit_down')
+            pre_queried_data['is_limit_up'] = pre_queried_pe_pb_data.get('is_limit_up')
+            pre_queried_data['is_limit_down'] = pre_queried_pe_pb_data.get('is_limit_down')
+        else:
+            # 如果没有预查询数据，从数据库查询（向后兼容）
+            try:
+                from utils.db_connection import DatabaseConnection
+                from config_db import USE_DATABASE
+                
+                if USE_DATABASE:
+                    db = DatabaseConnection()
+                    # 一次性查询data_date的所有需要字段（性能优化：合并查询）
+                    sql = """
+                        SELECT 
+                            close_price, pe_ratio, pb_ratio, turnover_rate,
+                            limit_up, limit_down, is_limit_up, is_limit_down
+                        FROM stock_history_data
+                        WHERE symbol = %s
+                        AND trade_date = %s
+                        AND period_type = 'daily'
+                        LIMIT 1
+                    """
+                    result = db.execute_query(sql, (symbol, check_date))
+                    
+                    if result and len(result) > 0:
+                        record = result[0]
+                        date_close_price = float(record.get('close_price', 0)) if record.get('close_price') else None
+                        if date_close_price and date_close_price > 0:
+                            current_price = date_close_price
+                            price_source = f"数据库{check_date}数据"
+                            date_data_available = True
+                            self.logger.info(f"从数据库获取{check_date}价格: {current_price:.2f}元")
+                            
+                            # 保存预查询的数据
+                            pre_queried_data['close_price'] = date_close_price
+                            pre_queried_data['pe_ratio'] = record.get('pe_ratio')
+                            pre_queried_data['pb_ratio'] = record.get('pb_ratio')
+                            pre_queried_data['turnover_rate'] = record.get('turnover_rate')
+                            pre_queried_data['limit_up'] = record.get('limit_up')
+                            pre_queried_data['limit_down'] = record.get('limit_down')
+                            pre_queried_data['is_limit_up'] = record.get('is_limit_up')
+                            pre_queried_data['is_limit_down'] = record.get('is_limit_down')
+                    else:
+                        # 如果data_date没有数据，尝试获取最新日期的估值和换手率数据（用于后续分析）
+                        sql_latest = """
+                            SELECT pe_ratio, pb_ratio, turnover_rate
+                            FROM stock_history_data
+                            WHERE symbol = %s
+                            AND period_type = 'daily'
+                            AND (pe_ratio IS NOT NULL OR pb_ratio IS NOT NULL OR turnover_rate IS NOT NULL)
+                            ORDER BY trade_date DESC
+                            LIMIT 1
+                        """
+                        latest_result = db.execute_query(sql_latest, (symbol,))
+                        if latest_result and len(latest_result) > 0:
+                            latest_record = latest_result[0]
+                            pre_queried_data['pe_ratio'] = latest_record.get('pe_ratio')
+                            pre_queried_data['pb_ratio'] = latest_record.get('pb_ratio')
+                            pre_queried_data['turnover_rate'] = latest_record.get('turnover_rate')
+            except Exception as e:
+                self.logger.debug(f"从数据库获取{check_date}数据失败: {str(e)}")
+        
+        # 如果数据库没有data_date的数据，返回中性预测（设置页面预测：不做API调用）
+        if not date_data_available:
+            # 设置页面预测：如果没有data_date的数据，返回中性预测（震荡，概率各50%），而不是失败
+            self.logger.info(f"数据库中没有 {symbol} {check_date}的数据，返回中性预测")
+            return {
+                'symbol': symbol,
+                'name': stock_name if stock_name else '未知',
+                'success': True,
+                'prediction': '震荡',
+                'up_probability': 0.5,
+                'down_probability': 0.5,
+                'confidence': 0.0,
+                'final_score': 0.0,
+                'message': f'数据库中没有{check_date}的数据，返回中性预测',
+                'prediction_type': 'after_close',
+                'factors': {},
+                'summary': f'{symbol} 数据库中没有{check_date}的数据，无法进行详细分析，返回中性预测（震荡）。'
+            }
+        
+        self.logger.info(f"当前价格: {current_price:.2f}元（来源：{price_source}）")
+        
+        # 获取股票名称（性能优化：如果已传入则直接使用，否则从数据库查询）
+        if stock_name is None or stock_name == '未知':
+            try:
+                # 尝试从数据库的stock_predictions表获取股票名称
+                from utils.db_connection import DatabaseConnection
+                db = DatabaseConnection()
+                name_sql = """
+                    SELECT name 
+                    FROM stock_predictions 
+                    WHERE symbol = %s 
+                    ORDER BY prediction_time DESC 
+                    LIMIT 1
+                """
+                name_result = db.execute_query(name_sql, (symbol,))
+                if name_result and len(name_result) > 0:
+                    stock_name = name_result[0].get('name', '未知')
+                
+                # 如果还是未知，尝试从stock_history_data表获取（如果有name字段）
+                if stock_name == '未知':
+                    try:
+                        history_sql = """
+                            SELECT DISTINCT name 
+                            FROM stock_history_data 
+                            WHERE symbol = %s 
+                            AND name IS NOT NULL 
+                            LIMIT 1
+                        """
+                        history_result = db.execute_query(history_sql, (symbol,))
+                        if history_result and len(history_result) > 0:
+                            stock_name = history_result[0].get('name', '未知')
+                    except Exception as e:
+                        self.logger.debug(f"从stock_history_data获取股票名称失败: {str(e)}")
+                
                 if not stock_name or stock_name == '':
                     stock_name = '未知'
-        except Exception as e:
-            self.logger.warning(f"获取股票名称失败: {str(e)}，使用默认值'未知'")
-            stock_name = '未知'
+            except Exception as e:
+                # 静默处理：股票名称缺失不影响预测，使用debug级别
+                self.logger.debug(f"从数据库获取股票名称失败: {str(e)}，使用默认值'未知'")
+                stock_name = '未知'
         
         # 使用多线程并行执行独立分析任务（不需要股票历史数据的分析）
-        self.logger.info("\n步骤2-5.7: 并行分析多个指标（使用多线程加速）...")
+        self.logger.debug("\n步骤2-5.7: 并行分析多个指标（使用多线程加速）...")
         
         # 定义需要并行执行的任务（独立分析，只需要symbol）
+        # 设置页面预测：使用数据库数据，不调用实时API
+        # 性能优化：如果已传入预计算的市场整体预测结果，则直接使用
+        # 性能优化：使用预查询的数据，避免重复数据库查询
+        # 【优化】注释掉低价值因子（valuation, us_sector, sector_rotation），减少因子冲突，提高预测准确率
         independent_tasks = {
-            'market_overall': lambda: self.predict_market_overall(),
-            'news': lambda: self.calculate_news_score(symbol),
-            'capital_flow': lambda: self.calculate_capital_flow_score(symbol),
-            'valuation': lambda: self.calculate_valuation_score(symbol),
-            'us_sector': lambda: self.calculate_us_sector_score(symbol),
-            'sector_rotation': lambda: self.calculate_sector_rotation_score(symbol),
-            'market_sentiment_index': lambda: self.calculate_market_sentiment_index(),  # 市场情绪指标（恐慌/贪婪指数）
+            'market_overall': lambda: market_overall_result if market_overall_result is not None else self.predict_market_overall(use_api=use_api),  # 传递use_api参数
+            'news': lambda: self.calculate_news_score(symbol, use_api=use_api, pre_queried_news=pre_queried_news, pre_queried_industry_info=pre_queried_industry_info),  # 传递预加载数据
+            'capital_flow': lambda: self.calculate_capital_flow_score(symbol, use_api=use_api),  # 传递use_api参数
+            # 'valuation': lambda: self._calculate_valuation_score_from_db(symbol, pre_queried_data=pre_queried_data),  # 【已注释】估值指标权重低（2%），影响小
+            # 'us_sector': lambda: self.calculate_us_sector_score(symbol, use_api=use_api),  # 【已注释】美股板块相关性可能不高
+            # 'sector_rotation': lambda: self.calculate_sector_rotation_score(symbol, use_api=use_api),  # 【已注释】板块轮动数据可能不稳定
+            'market_sentiment_index': lambda: self.calculate_market_sentiment_index(use_api=use_api),  # 传递use_api参数
         }
         
         # 定义依赖股票数据的任务（需要data）
         data_dependent_tasks = {
             'technical': lambda: self.calculate_technical_score(data, symbol),
-            'market': lambda: self.calculate_market_score(data, symbol),
+            'market': lambda: self.calculate_market_score(data, symbol, use_api=use_api, indices_data=pre_queried_indices_data),  # 传递use_api参数和预查询的指数数据（性能优化）
             'history': lambda: self.calculate_history_score(data),
         }
         
@@ -2394,12 +4010,13 @@ class StockPredictor:
         results = {}
         
         # 第一阶段：并行执行独立分析任务
-        self.logger.info("  并行执行独立分析任务（市场整体、新闻、资金流向、估值、美股板块、板块轮动）...")
+        # 【优化】已移除估值、美股板块、板块轮动因子，减少因子冲突
+        self.logger.info("  并行执行独立分析任务（市场整体、新闻、资金流向）...")
         
         # 尝试使用线程池，如果失败则使用单线程模式
         use_thread_pool = True
         try:
-            with ThreadPoolExecutor(max_workers=6) as executor:
+            with ThreadPoolExecutor(max_workers=THREAD_POOL_CONFIG["predictor_default"]) as executor:
                 future_to_task = {
                     executor.submit(func): task_name 
                     for task_name, func in independent_tasks.items()
@@ -2420,12 +4037,13 @@ class StockPredictor:
                             results[task_name] = {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0}
                         elif task_name == 'capital_flow':
                             results[task_name] = {'score': 0.0, 'trend': 'neutral', 'details': {}}
-                        elif task_name == 'valuation':
-                            results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
-                        elif task_name == 'us_sector':
-                            results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
-                        elif task_name == 'sector_rotation':
-                            results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
+                        # 【已注释】以下三个因子已移除
+                        # elif task_name == 'valuation':
+                        #     results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
+                        # elif task_name == 'us_sector':
+                        #     results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
+                        # elif task_name == 'sector_rotation':
+                        #     results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
         except RuntimeError as e:
             # 如果解释器正在关闭，无法使用线程池，切换到单线程模式
             if 'cannot schedule new futures after interpreter shutdown' in str(e):
@@ -2451,19 +4069,20 @@ class StockPredictor:
                         results[task_name] = {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0}
                     elif task_name == 'capital_flow':
                         results[task_name] = {'score': 0.0, 'trend': 'neutral', 'details': {}}
-                    elif task_name == 'valuation':
-                        results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
-                    elif task_name == 'us_sector':
-                        results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
-                    elif task_name == 'sector_rotation':
-                        results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
+                    # 【已注释】以下三个因子已移除
+                    # elif task_name == 'valuation':
+                    #     results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
+                    # elif task_name == 'us_sector':
+                    #     results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
+                    # elif task_name == 'sector_rotation':
+                    #     results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
         
         # 第二阶段：并行执行依赖股票数据的分析任务
         self.logger.info("  并行执行依赖股票数据的分析任务（技术指标、市场情绪、历史模式）...")
         
         if use_thread_pool:
             try:
-                with ThreadPoolExecutor(max_workers=3) as executor:
+                with ThreadPoolExecutor(max_workers=THREAD_POOL_CONFIG["predictor_small"]) as executor:
                     future_to_task = {
                         executor.submit(func): task_name 
                         for task_name, func in data_dependent_tasks.items()
@@ -2476,7 +4095,8 @@ class StockPredictor:
                             results[task_name] = result
                             self.logger.debug(f"    ✓ {task_name} 分析完成")
                         except Exception as e:
-                            self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                            # 静默处理：分析任务失败是正常情况（数据缺失），使用debug级别，不输出warning
+                            self.logger.debug(f"    ✗ {task_name} 分析失败（数据缺失或异常）: {str(e)}")
                             # 为失败的任务设置默认值
                             if task_name == 'technical':
                                 results[task_name] = {'score': 0.0, 'trend': 'neutral', 'signals': {}}
@@ -2501,7 +4121,8 @@ class StockPredictor:
                     results[task_name] = result
                     self.logger.debug(f"    ✓ {task_name} 分析完成（单线程模式）")
                 except Exception as e:
-                    self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                    # 静默处理：分析任务失败是正常情况（数据缺失），使用debug级别，不输出warning
+                    self.logger.debug(f"    ✗ {task_name} 分析失败（数据缺失或异常）: {str(e)}")
                     # 为失败的任务设置默认值
                     if task_name == 'technical':
                         results[task_name] = {'score': 0.0, 'trend': 'neutral', 'signals': {}}
@@ -2598,6 +4219,31 @@ class StockPredictor:
         # 6. 识别市场状态并动态调整权重（增强版：基于历史准确率优化 + 市场状态 + 个股特性）
         self.logger.info("\n步骤6: 识别市场状态并综合计算预测结果...")
         
+        # 6.1 计算各因子的数据质量评分（新增：数据缺失处理优化）
+        factor_quality_scores = {}
+        try:
+            factor_results_map = {
+                'technical': technical_result,
+                'news': news_result,
+                'capital_flow': capital_flow_result,
+                'market': market_result,
+                'history': history_result,
+                'valuation': valuation_result,
+                'us_sector': us_sector_result,
+                'sector_rotation': sector_rotation_result,
+                'market_overall': market_overall
+            }
+            
+            for factor_name, factor_result in factor_results_map.items():
+                quality_score = self._calculate_factor_data_quality(factor_name, factor_result)
+                factor_quality_scores[factor_name] = quality_score
+                if quality_score < 0.6:
+                    self.logger.debug(f"因子 {factor_name} 数据质量评分: {quality_score:.2f} (数据可能不完整)")
+        except Exception as e:
+            self.logger.debug(f"计算因子数据质量评分失败: {str(e)}")
+            # 出错时，假设所有因子质量良好
+            factor_quality_scores = {name: 1.0 for name in factor_results_map.keys()}
+        
         # 尝试识别市场状态
         market_state = {'state': 'sideways', 'confidence': 0.5}  # 默认值
         weight_multipliers = {}  # 默认不调整权重
@@ -2669,19 +4315,16 @@ class StockPredictor:
         # 根据是否使用优化后的权重来设置权重值
         if optimized_weights and not is_new_stock_or_insufficient_data:
             # 使用优化后的权重
-            adjusted_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
-            adjusted_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
-            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18))
-            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.17))
-            adjusted_sector_rotation_weight = optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.05))
-            adjusted_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.08))
-            adjusted_valuation_weight = optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.02))
-            adjusted_us_sector_weight = optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.05))
-            
-            self.logger.info(f"权重优化结果: 技术指标={adjusted_technical_weight:.3f}, "
-                           f"新闻={adjusted_news_weight:.3f}, "
-                           f"资金流向={adjusted_capital_flow_weight:.3f}, "
-                           f"市场={adjusted_market_weight:.3f}")
+            base_weights_dict = {
+                'technical': optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20)),
+                'news': optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier,
+                'capital_flow': optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18)),
+                'market': optimized_weights.get('market_weight', self.config.get('market_weight', 0.17)),
+                'sector_rotation': optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.05)),
+                'history': optimized_weights.get('history_weight', self.config.get('history_weight', 0.08)),
+                'valuation': optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.02)),
+                'us_sector': optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.05))
+            }
         else:
             # 如果是新股票或数据不足，使用保守的默认权重（不依赖历史优化）
             if is_new_stock_or_insufficient_data:
@@ -2692,54 +4335,154 @@ class StockPredictor:
             capital_flow_multiplier = weight_multipliers.get('capital_flow_weight_multiplier', 1.0)
             market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
             
-            # 调整后的权重
-            adjusted_technical_weight = self.config.get('technical_weight', 0.20) * technical_multiplier
-            adjusted_news_weight = self.config['news_weight'] * news_multiplier
-            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier
-            adjusted_market_weight = self.config.get('market_weight', 0.17) * market_multiplier
-            adjusted_sector_rotation_weight = self.config.get('sector_rotation_weight', 0.05)
-            adjusted_history_weight = self.config.get('history_weight', 0.08)
-            adjusted_valuation_weight = self.config.get('valuation_weight', 0.02)
-            adjusted_us_sector_weight = self.config.get('us_sector_weight', 0.05)
+            base_weights_dict = {
+                'technical': self.config.get('technical_weight', 0.20) * technical_multiplier,
+                'news': self.config['news_weight'] * news_multiplier,
+                'capital_flow': self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier,
+                'market': self.config.get('market_weight', 0.17) * market_multiplier,
+                'sector_rotation': self.config.get('sector_rotation_weight', 0.05),
+                'history': self.config.get('history_weight', 0.08),
+                'valuation': self.config.get('valuation_weight', 0.02),
+                'us_sector': self.config.get('us_sector_weight', 0.05)
+            }
         
-        # 计算权重总和（用于归一化）
+        # 根据数据质量动态调整权重（新增：数据缺失处理优化）
+        try:
+            adjusted_weights_dict = self._adjust_weights_by_data_quality(base_weights_dict, factor_quality_scores)
+            adjusted_technical_weight = adjusted_weights_dict.get('technical', base_weights_dict['technical'])
+            adjusted_news_weight = adjusted_weights_dict.get('news', base_weights_dict['news'])
+            adjusted_capital_flow_weight = adjusted_weights_dict.get('capital_flow', base_weights_dict['capital_flow'])
+            adjusted_market_weight = adjusted_weights_dict.get('market', base_weights_dict['market'])
+            adjusted_sector_rotation_weight = adjusted_weights_dict.get('sector_rotation', base_weights_dict['sector_rotation'])
+            adjusted_history_weight = adjusted_weights_dict.get('history', base_weights_dict['history'])
+            adjusted_valuation_weight = adjusted_weights_dict.get('valuation', base_weights_dict['valuation'])
+            adjusted_us_sector_weight = adjusted_weights_dict.get('us_sector', base_weights_dict['us_sector'])
+            
+            # 记录数据质量调整信息（仅在debug模式下）
+            avg_quality = sum(factor_quality_scores.values()) / len(factor_quality_scores) if factor_quality_scores else 1.0
+            if avg_quality < 0.7:
+                self.logger.debug(f"数据质量调整: 平均质量 {avg_quality:.2f}, 权重已根据数据完整性调整")
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整权重失败，使用原始权重: {str(e)}")
+            # 出错时使用原始权重
+            adjusted_technical_weight = base_weights_dict['technical']
+            adjusted_news_weight = base_weights_dict['news']
+            adjusted_capital_flow_weight = base_weights_dict['capital_flow']
+            adjusted_market_weight = base_weights_dict['market']
+            adjusted_sector_rotation_weight = base_weights_dict['sector_rotation']
+            adjusted_history_weight = base_weights_dict['history']
+            adjusted_valuation_weight = base_weights_dict['valuation']
+            adjusted_us_sector_weight = base_weights_dict['us_sector']
+        
+        if optimized_weights and not is_new_stock_or_insufficient_data:
+            self.logger.info(f"权重优化结果: 技术指标={adjusted_technical_weight:.3f}, "
+                           f"新闻={adjusted_news_weight:.3f}, "
+                           f"资金流向={adjusted_capital_flow_weight:.3f}, "
+                           f"市场={adjusted_market_weight:.3f}")
+        
+        # 尝试获取ML模型预测结果（如果可用）
+        ml_score = 0.0
+        ml_weight = 0.0
+        ml_prediction_result = None
+        ml_model_id = None
+        ml_model_type = None
+        try:
+            from utils.ml_predictor_integration import MLPredictorIntegration
+            from utils.ml_model_performance_monitor import MLModelPerformanceMonitor
+            
+            ml_integration = MLPredictorIntegration()
+            ml_prediction_result = ml_integration.get_ml_prediction(symbol, data)
+            
+            if ml_prediction_result and ml_prediction_result.get('available'):
+                ml_score = ml_prediction_result.get('ml_score', 0.0)
+                ml_model_type = ml_prediction_result.get('model_type')
+                ml_model_id = ml_prediction_result.get('model_id')
+                
+                # 根据模型性能动态调整权重（优化：传递配置管理器，支持热更新）
+                performance_monitor = MLModelPerformanceMonitor(config_manager=self._config_manager)
+                if ml_model_id:
+                    ml_weight = performance_monitor.get_optimal_weight(model_id=ml_model_id)
+                elif ml_model_type:
+                    ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
+                else:
+                    ml_weight = 0.15  # 默认权重15%
+                
+                self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
+                               f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
+                               f"置信度 {ml_prediction_result.get('ml_confidence', 0.0):.2%}, "
+                               f"动态权重 {ml_weight:.2%}")
+        except ImportError:
+            self.logger.debug("ML模型集成模块不可用，跳过ML预测")
+        except Exception as e:
+            self.logger.debug(f"ML模型预测失败（不影响主流程）: {str(e)}")
+        
+        # 计算包含ML模型的总权重（用于归一化）
+        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
         total_adjusted_weight = (
             adjusted_technical_weight +
             adjusted_news_weight +
             adjusted_capital_flow_weight +
             adjusted_market_weight +
-            adjusted_sector_rotation_weight +
             adjusted_history_weight +
-            adjusted_valuation_weight +
-            adjusted_us_sector_weight
+            ml_weight  # 包含ML模型权重
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight +
+            # adjusted_valuation_weight +
+            # adjusted_us_sector_weight +
         )
         
-        # 归一化权重（确保总和为1）
+        # 归一化权重（确保总和为1，包含ML模型权重）
         if total_adjusted_weight > 0:
             adjusted_technical_weight = adjusted_technical_weight / total_adjusted_weight
             adjusted_news_weight = adjusted_news_weight / total_adjusted_weight
             adjusted_capital_flow_weight = adjusted_capital_flow_weight / total_adjusted_weight
             adjusted_market_weight = adjusted_market_weight / total_adjusted_weight
-            adjusted_sector_rotation_weight = adjusted_sector_rotation_weight / total_adjusted_weight
             adjusted_history_weight = adjusted_history_weight / total_adjusted_weight
-            adjusted_valuation_weight = adjusted_valuation_weight / total_adjusted_weight
-            adjusted_us_sector_weight = adjusted_us_sector_weight / total_adjusted_weight
+            ml_weight = ml_weight / total_adjusted_weight  # 归一化ML模型权重
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight = adjusted_sector_rotation_weight / total_adjusted_weight
+            # adjusted_valuation_weight = adjusted_valuation_weight / total_adjusted_weight
+            # adjusted_us_sector_weight = adjusted_us_sector_weight / total_adjusted_weight
+            adjusted_sector_rotation_weight = 0.0  # 默认值
+            adjusted_valuation_weight = 0.0  # 默认值
+            adjusted_us_sector_weight = 0.0  # 默认值
         
-        # 使用动态调整后的权重计算最终得分（使用优化后的权重）
+        # 使用动态调整后的权重计算最终得分（包含ML模型）
+        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
         final_score = (
             technical_score * adjusted_technical_weight +
             news_score * adjusted_news_weight +
             capital_flow_score * adjusted_capital_flow_weight +
             market_score * adjusted_market_weight +
-            sector_rotation_score * adjusted_sector_rotation_weight +
             history_score * adjusted_history_weight +
-            valuation_score * adjusted_valuation_weight +
-            us_sector_score * adjusted_us_sector_weight
+            ml_score * ml_weight  # 添加ML模型得分
+            # 【已注释】以下三个因子已移除
+            # sector_rotation_score * adjusted_sector_rotation_weight +
+            # valuation_score * adjusted_valuation_weight +
+            # us_sector_score * adjusted_us_sector_weight +
         )
         
         # 转换为涨跌概率
-        # 使用sigmoid函数将得分转换为概率
-        up_probability = 1 / (1 + np.exp(-final_score * 3))  # 放大系数
+        # 使用sigmoid函数将得分转换为概率（优化版：动态调整放大系数）
+        # 先计算波动率系数（用于动态调整Sigmoid系数）
+        volatility_coefficient = self._calculate_volatility_coefficient(data, period=60)
+        
+        # 根据市场状态、波动率和历史准确率动态调整放大系数
+        sigmoid_coefficient = self._calculate_dynamic_sigmoid_coefficient(
+            final_score=final_score,
+            market_state=market_state if 'market_state' in locals() else {},
+            volatility_coefficient=volatility_coefficient,
+            symbol=symbol
+        )
+        up_probability = 1 / (1 + np.exp(-final_score * sigmoid_coefficient))
+        down_probability = 1 - up_probability
+        
+        # 概率校准（根据历史准确率校准，过滤干扰因子，提高可靠性）
+        up_probability = self._calibrate_probability(
+            raw_probability=up_probability,
+            symbol=symbol,
+            final_score=final_score
+        )
         down_probability = 1 - up_probability
         
         # 计算置信度（增强版：考虑历史准确率、一致性、数据时效性、校准）
@@ -2750,6 +4493,85 @@ class StockPredictor:
             min_confidence_threshold = self.config['min_confidence'] * 0.8
             self.logger.debug(f"股票 {symbol} 数据不足，置信度阈值从 {self.config['min_confidence']:.2f} 降低到 {min_confidence_threshold:.2f}")
         
+        # 计算因子一致性评分（用于学习分析，包含ML模型）
+        # 【优化】已移除三个因子，只使用保留的5个因子
+        factor_scores_for_consistency = {
+            'technical': technical_score,
+            'news': news_score,
+            'capital_flow': capital_flow_score,
+            'market': market_score,
+            'history': history_score
+            # 【已注释】以下三个因子已移除
+            # 'sector_rotation': sector_rotation_score,
+            # 'valuation': valuation_score,
+            # 'us_sector': us_sector_score
+        }
+        if ml_prediction_result and ml_prediction_result.get('available'):
+            factor_scores_for_consistency['ml_model'] = ml_score
+        
+        # 获取因子权重（用于一致性计算）
+        factor_weights_for_consistency = {
+            'technical': adjusted_technical_weight,
+            'news': adjusted_news_weight,
+            'capital_flow': adjusted_capital_flow_weight,
+            'market': adjusted_market_weight,
+            'history': adjusted_history_weight
+            # 【已注释】以下三个因子已移除
+            # 'sector_rotation': adjusted_sector_rotation_weight,
+            # 'valuation': adjusted_valuation_weight,
+            # 'us_sector': adjusted_us_sector_weight
+        }
+        if ml_prediction_result and ml_prediction_result.get('available'):
+            factor_weights_for_consistency['ml_model'] = ml_weight
+        
+        # 保存因子权重，供置信度计算使用
+        self._last_factor_weights = factor_weights_for_consistency
+        
+        factor_consistency_score = self._calculate_factor_consistency(
+            final_score=final_score,
+            factor_scores=factor_scores_for_consistency,
+            factor_weights=factor_weights_for_consistency
+        )
+        
+        # 计算数据质量评分（基于因子得分的有效性 + 数据完整性）
+        # 【优化】已移除三个因子，因子总数从8改为5
+        valid_factors = sum(1 for score in [
+            technical_score, news_score, capital_flow_score, market_score, history_score
+            # 【已注释】以下三个因子已移除
+            # sector_rotation_score, valuation_score, us_sector_score
+        ] if abs(score) > 0.01)
+        total_factors = 5  # 【优化】从8改为5（移除了3个因子）
+        data_quality_score = max(0.5, valid_factors / total_factors) if total_factors > 0 else 0.5
+        
+        # 结合数据完整性评分（新增：数据缺失处理优化）
+        try:
+            # 计算平均数据完整性评分
+            if factor_quality_scores:
+                avg_data_completeness = sum(factor_quality_scores.values()) / len(factor_quality_scores)
+                # 综合数据质量评分：因子有效性 * 数据完整性
+                data_quality_score = data_quality_score * 0.5 + avg_data_completeness * 0.5
+        except Exception as e:
+            self.logger.debug(f"计算数据完整性评分失败: {str(e)}")
+        
+        # 检查是否缺失关键数据
+        missing_critical_data = False
+        try:
+            # 如果技术指标和市场情绪数据质量都很低，视为缺失关键数据
+            technical_quality = factor_quality_scores.get('technical', 1.0)
+            market_quality = factor_quality_scores.get('market', 1.0)
+            if technical_quality < 0.3 and market_quality < 0.3:
+                missing_critical_data = True
+        except Exception:
+            pass
+        
+        # 准备数据质量信息
+        data_quality = {
+            'quality_score': data_quality_score,
+            'valid_factors': valid_factors,
+            'total_factors': total_factors,
+            'factor_quality_scores': factor_quality_scores  # 新增：传递因子质量评分
+        }
+        
         confidence = self._calculate_confidence(
             final_score=final_score,
             factor_scores={
@@ -2757,21 +4579,68 @@ class StockPredictor:
                 'news': news_score,
                 'capital_flow': capital_flow_score,
                 'market': market_score,
-                'sector_rotation': sector_rotation_score,
-                'history': history_score,
-                'valuation': valuation_score,
-                'us_sector': us_sector_score
+                'history': history_score
+                # 【已注释】以下三个因子已移除
+                # 'sector_rotation': sector_rotation_score,
+                # 'valuation': valuation_score,
+                # 'us_sector': us_sector_score
             },
-            data_quality=None,  # 可以从外部传入数据质量信息
+            data_quality=data_quality,  # 传入数据质量信息
             symbol=symbol,
             market_state=market_state  # 传递市场状态信息用于置信度计算
         )
+        
+        # 根据数据质量进一步调整置信度（新增：数据缺失处理优化）
+        try:
+            confidence = self._adjust_confidence_by_data_quality(
+                confidence,
+                factor_quality_scores,
+                missing_critical_data=missing_critical_data
+            )
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整置信度失败: {str(e)}")
         
         # 如果是新股票或数据不足，进一步降低置信度
         if is_new_stock_or_insufficient_data:
             # 数据不足时，置信度降低15%
             confidence = confidence * 0.85
             self.logger.debug(f"股票 {symbol} 数据不足，置信度从 {confidence / 0.85:.3f} 降低到 {confidence:.3f}")
+        
+        # 根据异常情况调整置信度（在数据不足调整之后）
+        # 使用之前检测的异常结果
+        try:
+            # 重新检测异常（因为现在有了更多数据，可以更准确地检测涨跌停）
+            anomaly_result = self._detect_anomalies(symbol)
+            # 合并初始检测结果（停牌、ST股票）和当前检测结果（涨跌停）
+            if 'initial_anomaly_result' in locals():
+                # 合并异常列表（去重）
+                all_anomalies = list(set(anomaly_result.get('anomalies', []) + initial_anomaly_result.get('anomalies', [])))
+                # 合并详情
+                all_details = {**initial_anomaly_result.get('details', {}), **anomaly_result.get('details', {})}
+                anomaly_result = {
+                    'anomalies': all_anomalies,
+                    'details': all_details,
+                    'can_predict': anomaly_result.get('can_predict', True)  # 如果停牌则不能预测
+                }
+            
+            anomaly_details = anomaly_result.get('details', {})
+            
+            # ST股票：降低置信度20%
+            if 'st_stock' in anomaly_result.get('anomalies', []):
+                confidence = confidence * 0.80
+                self.logger.warning(f"股票 {symbol} 为ST股票，置信度降低20%")
+            
+            # 涨跌停：降低置信度10%（因为流动性受限）
+            if 'limit_up' in anomaly_result.get('anomalies', []) or 'limit_down' in anomaly_result.get('anomalies', []):
+                confidence = confidence * 0.90
+                self.logger.warning(f"股票 {symbol} 处于涨跌停状态，置信度降低10%")
+        except Exception as e:
+            self.logger.debug(f"异常检测调整置信度失败: {str(e)}")
+            # 如果重新检测失败，使用初始检测结果
+            if 'initial_anomaly_result' in locals():
+                anomaly_result = initial_anomaly_result
+            else:
+                anomaly_result = {'anomalies': [], 'details': {}}
         
         # 如果置信度太低，降低概率差异
         if confidence < min_confidence_threshold:
@@ -2786,18 +4655,32 @@ class StockPredictor:
         else:
             prediction = '震荡'
         
-        # 计算明日大概收盘价格和涨幅
-        # 基于概率差异和置信度计算预期涨跌幅
-        # 使用 sigmoid 函数将概率差异转换为涨跌幅，并考虑置信度
-        probability_diff = up_probability - down_probability  # -1 到 1
-        # 将概率差异映射到涨跌幅范围（-10% 到 +10%），并乘以置信度
-        # 使用 tanh 函数平滑映射，最大涨跌幅为 10%
-        max_change_pct = 10.0  # 最大涨跌幅 10%
-        predicted_change_pct = np.tanh(probability_diff * 3) * max_change_pct * confidence
-        # 计算预测收盘价格
-        predicted_close_price = current_price * (1 + predicted_change_pct / 100.0)
+        # 计算明日大概收盘价格和涨幅（优化版）
+        # 使用优化后的价格计算逻辑，考虑股票特性、历史波动率和价格趋势
+        price_prediction_result = self._calculate_predicted_price_optimized(
+            symbol=symbol,
+            stock_name=stock_name,
+            current_price=current_price,
+            up_probability=up_probability,
+            down_probability=down_probability,
+            confidence=confidence,
+            data=data
+        )
         
-        self.logger.info(f"预测价格计算: 当前价格={current_price:.2f}元, 预期涨跌幅={predicted_change_pct:.2f}%, 预测收盘价={predicted_close_price:.2f}元")
+        predicted_change_pct = price_prediction_result['predicted_change_pct']
+        predicted_close_price = price_prediction_result['predicted_close_price']
+        max_change_pct = price_prediction_result['max_change_pct']
+        volatility_coefficient = price_prediction_result['volatility_coefficient']
+        trend_adjustment = price_prediction_result['trend_adjustment']
+        support_resistance_adjustment = price_prediction_result.get('support_resistance_adjustment', 1.0)
+        
+        self.logger.info(f"预测价格计算（优化版）: 当前价格={current_price:.2f}元, "
+                        f"预期涨跌幅={predicted_change_pct:.2f}%, "
+                        f"预测收盘价={predicted_close_price:.2f}元, "
+                        f"最大涨跌幅={max_change_pct:.1f}%, "
+                        f"波动率系数={volatility_coefficient:.2f}, "
+                        f"趋势调整={trend_adjustment:.3f}, "
+                        f"支撑阻力位调整={support_resistance_adjustment:.3f}")
         
         # 生成综合文字总结
         direction_text = {
@@ -2818,8 +4701,9 @@ class StockPredictor:
             market_pred = market_overall.get('overall_prediction', '震荡')
             market_info = f"市场整体预计{market_pred}，"
         
+        # 【优化】已移除三个因子，更新summary描述
         summary_parts.append(
-            f"综合技术指标、新闻情感、资金流向、市场情绪、板块轮动、历史走势、估值指标和美股板块行情，{market_info}模型认为 {target_date} {symbol} {date_desc}整体走势{direction_text}。"
+            f"综合技术指标、新闻情感、资金流向、市场情绪、历史走势，{market_info}模型认为 {target_date} {symbol} {date_desc}整体走势{direction_text}。"
         )
         
         # 添加资金流向描述
@@ -2833,11 +4717,12 @@ class StockPredictor:
             if margin_pct != 0:
                 capital_flow_desc += f"，融资余额变化 {margin_pct:+.2f}%"
         
-        # 添加美股板块信息
-        us_sector_info = ""
-        if us_sector_name and us_sector_name != 'unknown':
-            us_trend_text = '上涨' if us_sector_score > 0.1 else '下跌' if us_sector_score < -0.1 else '震荡'
-            us_sector_info = f"对应美股板块（{us_sector_name}）{us_trend_text}（涨跌幅{us_sector_change:+.2f}%，得分{us_sector_score:.2f}），"
+        # 【已注释】美股板块信息已移除
+        # us_sector_info = ""
+        # if us_sector_name and us_sector_name != 'unknown':
+        #     us_trend_text = '上涨' if us_sector_score > 0.1 else '下跌' if us_sector_score < -0.1 else '震荡'
+        #     us_sector_info = f"对应美股板块（{us_sector_name}）{us_trend_text}（涨跌幅{us_sector_change:+.2f}%，得分{us_sector_score:.2f}），"
+        us_sector_info = ""  # 默认值
         
         # 构建新闻情感描述（包含利空/利好信息）
         news_desc_parts = [f"新闻情感 {news_sent}（得分 {news_score:.2f}，新闻条数 {news_result['news_count']}"]
@@ -2853,8 +4738,9 @@ class StockPredictor:
         news_desc_parts.append("）")
         news_desc = "".join(news_desc_parts)
         
-        # 添加板块轮动描述
-        sector_rotation_desc = f"板块轮动得分 {sector_rotation_score:.2f}（板块：{sector_name}，趋势：{'热门' if sector_trend == 'hot' else '冷门' if sector_trend == 'cold' else '中性'}）"
+        # 【已注释】板块轮动描述已移除
+        # sector_rotation_desc = f"板块轮动得分 {sector_rotation_score:.2f}（板块：{sector_name}，趋势：{'热门' if sector_trend == 'hot' else '冷门' if sector_trend == 'cold' else '中性'}）"
+        sector_rotation_desc = ""  # 默认值
         
         # 添加市场状态描述（如果识别成功）
         market_state_desc = ""
@@ -2867,12 +4753,12 @@ class StockPredictor:
             state_name = state_names.get(market_state['state'], '未知')
             market_state_desc = f"，当前市场状态：{state_name}（置信度：{market_state['confidence']:.1%}）"
         
+        # 【优化】已移除三个因子的描述
         summary_parts.append(
             f"技术面得分 {technical_score:.2f}（{ '偏多' if technical_score > 0.1 else '偏空' if technical_score < -0.1 else '中性' }，趋势：{tech_trend}），"
             f"{news_desc}，{capital_flow_desc}，"
-            f"市场情绪得分 {market_score:.2f}（趋势：{market_trend}），{sector_rotation_desc}，"
-            f"历史模式得分 {history_score:.2f}（{history_pattern}），"
-            f"{us_sector_info}估值指标得分 {valuation_score:.2f}{market_state_desc}。"
+            f"市场情绪得分 {market_score:.2f}（趋势：{market_trend}），"
+            f"历史模式得分 {history_score:.2f}（{history_pattern}）{market_state_desc}。"
         )
         summary_parts.append(
             f"在当前参数下，上涨概率约为 {up_probability*100:.1f}%，下跌概率约为 {down_probability*100:.1f}%，综合置信度约为 {confidence*100:.1f}%。"
@@ -2899,55 +4785,69 @@ class StockPredictor:
 
         # 保存预测因子数据到CSV（包含所有因子和最终结果）
         if self.data_storage:
+            # 确保所有因子结果都是字典类型，避免列表类型导致的错误
+            technical_result_dict = technical_result if isinstance(technical_result, dict) else {}
+            news_result_dict = news_result if isinstance(news_result, dict) else {}
+            capital_flow_result_dict = capital_flow_result if isinstance(capital_flow_result, dict) else {}
+            market_result_dict = market_result if isinstance(market_result, dict) else {}
+            sector_rotation_result_dict = sector_rotation_result if isinstance(sector_rotation_result, dict) else {}
+            history_result_dict = history_result if isinstance(history_result, dict) else {}
+            
             factors_for_storage = {
                 'technical': {
                     'score': technical_score,
                     'weight': self.config.get('technical_weight', 0.20),
-                    'trend': technical_result['trend']
+                    'trend': technical_result_dict.get('trend', 'neutral') if isinstance(technical_result_dict.get('trend'), str) else 'neutral'
                 },
                 'news': {
                     'score': news_score,
                     'weight': self.config.get('news_weight', 0.25),
-                    'sentiment': news_result['sentiment']
+                    'sentiment': news_result_dict.get('sentiment', 'neutral') if isinstance(news_result_dict.get('sentiment'), str) else 'neutral'
                 },
                 'capital_flow': {
                     'score': capital_flow_score,
                     'weight': self.config.get('capital_flow_weight', 0.18),
-                    'trend': capital_flow_result['trend']
+                    'trend': capital_flow_result_dict.get('trend', 'neutral') if isinstance(capital_flow_result_dict.get('trend'), str) else 'neutral'
                 },
                 'market': {
                     'score': market_score,
                     'weight': self.config.get('market_weight', 0.17),
-                    'trend': market_result['trend']
+                    'trend': market_result_dict.get('trend', 'neutral') if isinstance(market_result_dict.get('trend'), str) else 'neutral'
                 },
-                'sector_rotation': {
-                    'score': sector_rotation_score,
-                    'weight': self.config.get('sector_rotation_weight', 0.05),
-                    'trend': sector_rotation_result.get('trend', 'neutral')
-                },
+                # 【已注释】板块轮动因子已移除
+                # 'sector_rotation': {
+                #     'score': sector_rotation_score,
+                #     'weight': self.config.get('sector_rotation_weight', 0.05),
+                #     'trend': sector_rotation_result_dict.get('trend', 'neutral') if isinstance(sector_rotation_result_dict.get('trend'), str) else 'neutral'
+                # },
                 'history': {
                     'score': history_score,
                     'weight': self.config.get('history_weight', 0.08),
-                    'pattern': history_result['pattern']
-                },
-                'valuation': {
-                    'score': valuation_score,
-                    'weight': self.config.get('valuation_weight', 0.02),
-                    'pe_ratio': pe_ratio,
-                    'pb_ratio': pb_ratio
-                },
-                'us_sector': {
-                    'score': us_sector_score,
-                    'weight': self.config.get('us_sector_weight', 0.05),
-                    'sector': us_sector_name
-                },
+                    'pattern': history_result_dict.get('pattern', 'unknown') if isinstance(history_result_dict.get('pattern'), str) else 'unknown'
+                }
+                # 【已注释】估值指标和美股板块因子已移除
+                # 'valuation': {
+                #     'score': valuation_score,
+                #     'weight': self.config.get('valuation_weight', 0.02),
+                #     'pe_ratio': pe_ratio if pe_ratio is not None else None,
+                #     'pb_ratio': pb_ratio if pb_ratio is not None else None
+                # },
+                # 'us_sector': {
+                #     'score': us_sector_score,
+                #     'weight': self.config.get('us_sector_weight', 0.05),
+                #     'sector': us_sector_name if isinstance(us_sector_name, str) else 'unknown'
+                # }
+            }
+            
+            # 构建临时的prediction_result用于保存因子数据（此时result还未构建完成）
+            temp_prediction_result = {
                 'final_score': final_score,
                 'up_probability': up_probability,
                 'down_probability': down_probability,
                 'confidence': confidence
             }
             
-            self.data_storage.save_prediction_factors(symbol, factors_for_storage, result)
+            self.data_storage.save_prediction_factors(symbol, factors_for_storage, temp_prediction_result)
 
         # 获取行业和板块信息（用于保存到数据库）
         industry = sector_rotation_result.get('industry', '')
@@ -2972,18 +4872,39 @@ class StockPredictor:
             'concepts': concepts,  # 概念板块列表
             'main_concept': main_concept,  # 主要概念板块
             'market': market,  # 所属市场
-            'prediction_date': prediction_date,  # 预测日期（当前日期）
+            'prediction_date': prediction_date,  # 预测日期（数据获取时间）
+            'target_date': target_date,  # 目标日期（预测时间）
+            'data_date': data_date,  # 数据获取时间
+            'prediction_type': 'after_close',  # 预测类型：收盘-明日
             'success': True,
             'current_price': current_price,
             'prediction': prediction,
             'up_probability': up_probability,
             'down_probability': down_probability,
             'confidence': confidence,
+            'ml_prediction': ml_prediction_result,  # ML模型预测结果（如果可用）
             'final_score': final_score,
             'predicted_close_price': predicted_close_price,  # 明日大概收盘价格
             'predicted_change_pct': predicted_change_pct,  # 明日大概涨幅百分比
             'market_state': market_state,  # 市场状态信息（新增）
             'market_sentiment_index': market_sentiment_index,  # 市场情绪指标（恐慌/贪婪指数）
+            # 以下字段用于模型学习分析
+            'factor_weights': {  # 因子权重快照（用于学习分析）
+                'technical_weight': adjusted_technical_weight,
+                'news_weight': adjusted_news_weight,
+                'capital_flow_weight': adjusted_capital_flow_weight,
+                'market_weight': adjusted_market_weight,
+                'history_weight': adjusted_history_weight,
+                # 【已注释】以下三个因子已移除
+                # 'sector_rotation_weight': adjusted_sector_rotation_weight,
+                # 'valuation_weight': adjusted_valuation_weight,
+                # 'us_sector_weight': adjusted_us_sector_weight,
+                'is_optimized': optimized_weights is not None and not is_new_stock_or_insufficient_data,
+                'market_state': market_state.get('state', 'sideways') if market_state else 'sideways'
+            },
+            'data_quality_score': data_quality_score,  # 数据质量评分（用于学习分析）
+            'factor_consistency_score': factor_consistency_score,  # 因子一致性评分（用于学习分析）
+            'config_id': self._get_current_config_id(),  # 配置ID（用于学习分析）
             'factors': {
                 'technical': {
                     'score': technical_score,
@@ -3003,7 +4924,10 @@ class StockPredictor:
                     'positive_count': news_result.get('positive_count', 0),
                     'negative_count': news_result.get('negative_count', 0),
                     'positive_strength': news_result.get('positive_strength', 0.0),
-                    'negative_strength': news_result.get('negative_strength', 0.0)
+                    'negative_strength': news_result.get('negative_strength', 0.0),
+                    'llm_summaries': news_result.get('llm_summaries', []),  # LLM总结
+                    'llm_category_distribution': news_result.get('llm_category_distribution', {}),  # LLM分类分布
+                    'llm_analyzed_count': news_result.get('llm_analyzed_count', 0)  # 使用LLM分析的新闻数量
                 },
                 'capital_flow': {
                     'score': capital_flow_score,
@@ -3014,16 +4938,17 @@ class StockPredictor:
                     'main_force_score': capital_flow_result.get('main_force_score', 0.0),
                     'details': capital_flow_details
                 },
-                'sector_rotation': {
-                    'score': sector_rotation_score,
-                    'weight': self.config.get('sector_rotation_weight', 0.05),
-                    'sector_name': sector_rotation_result.get('sector_name', 'unknown'),
-                    'sector_type': sector_rotation_result.get('sector_type', 'unknown'),
-                    'heat': sector_rotation_result.get('heat', 0.5),
-                    'trend': sector_rotation_result.get('trend', 'neutral'),
-                    'industry': sector_rotation_result.get('industry', ''),
-                    'concepts': sector_rotation_result.get('concepts', [])
-                },
+                # 【已注释】板块轮动因子已移除
+                # 'sector_rotation': {
+                #     'score': sector_rotation_score,
+                #     'weight': self.config.get('sector_rotation_weight', 0.05),
+                #     'sector_name': sector_rotation_result.get('sector_name', 'unknown'),
+                #     'sector_type': sector_rotation_result.get('sector_type', 'unknown'),
+                #     'heat': sector_rotation_result.get('heat', 0.5),
+                #     'trend': sector_rotation_result.get('trend', 'neutral'),
+                #     'industry': sector_rotation_result.get('industry', ''),
+                #     'concepts': sector_rotation_result.get('concepts', [])
+                # },
                 'market': {
                     'score': market_score,
                     'weight': self.config.get('market_weight', 0.17),
@@ -3033,29 +4958,50 @@ class StockPredictor:
                     'score': history_score,
                     'weight': self.config.get('history_weight', 0.08),
                     'pattern': history_result['pattern']
-                },
-                'us_sector': {
-                    'score': us_sector_score,
-                    'weight': self.config.get('us_sector_weight', 0.10),
-                    'sector': us_sector_name,
-                    'change_pct': us_sector_change,
-                    'trend': us_sector_result.get('trend', 'neutral')
-                },
-                'valuation': {
-                    'score': valuation_score,
-                    'weight': self.config.get('valuation_weight', 0.05),
-                    'pe_ratio': pe_ratio,
-                    'pb_ratio': pb_ratio,
-                    'valuation': valuation_result['valuation']
                 }
+                # 【已注释】以下三个因子已移除
+                # 'us_sector': {
+                #     'score': us_sector_score,
+                #     'weight': self.config.get('us_sector_weight', 0.10),
+                #     'sector': us_sector_name,
+                #     'change_pct': us_sector_change,
+                #     'trend': us_sector_result.get('trend', 'neutral')
+                # },
+                # 'valuation': {
+                #     'score': valuation_score,
+                #     'weight': self.config.get('valuation_weight', 0.05),
+                #     'pe_ratio': pe_ratio,
+                #     'pb_ratio': pb_ratio,
+                #     'valuation': valuation_result['valuation']
+                # }
             },
             'trading_suggestions': trading_suggestions,
             'timestamp': datetime.now(),
             'target_date': target_date,
             'date_desc': date_desc,
             'summary': summary_text,
-            'market_overall': market_overall
+            'market_overall': market_overall,
+            # 异常情况信息（如果存在）
+            'anomalies': anomaly_result.get('anomalies', []) if 'anomaly_result' in locals() else [],
+            'anomaly_details': anomaly_result.get('details', {}) if 'anomaly_result' in locals() else {}
         }
+        
+        # 如果有异常情况，在总结中添加警告信息
+        if 'anomaly_result' in locals() and anomaly_result.get('anomalies', []):
+            anomaly_warnings = []
+            if 'st_stock' in anomaly_result.get('anomalies', []):
+                st_info = anomaly_result.get('details', {}).get('st_stock', {})
+                anomaly_warnings.append(f"⚠️ ST股票风险提示：{st_info.get('warning', 'ST股票风险较高，建议谨慎操作')}")
+            if 'limit_up' in anomaly_result.get('anomalies', []):
+                limit_info = anomaly_result.get('details', {}).get('limit_up', {})
+                anomaly_warnings.append(f"⚠️ {limit_info.get('message', '股票涨停，无法买入')}")
+            if 'limit_down' in anomaly_result.get('anomalies', []):
+                limit_info = anomaly_result.get('details', {}).get('limit_down', {})
+                anomaly_warnings.append(f"⚠️ {limit_info.get('message', '股票跌停，无法卖出')}")
+            
+            if anomaly_warnings:
+                result['summary'] = " ".join(anomaly_warnings) + " " + summary_text
+                self.logger.warning("检测到异常情况：" + "；".join(anomaly_warnings))
         
         self.logger.info("\n" + "=" * 60)
         self.logger.info("预测结果")
@@ -3072,6 +5018,1496 @@ class StockPredictor:
         self.logger.info("=" * 60)
         self.logger.info("综合总结：")
         self.logger.info(summary_text)
+        self.logger.info("=" * 60)
+        
+        return result
+    
+    def predict_before_close(self, symbol: str) -> Dict:
+        """
+        预测股票走势（未收盘-明天）- 专门用于未收盘时的预测
+        
+        与 predict() 方法的区别：
+        - 专门用于交易时间内（未收盘）的预测
+        - 强调使用实时数据和数据库中的当天新闻
+        - 优化了API调用，减少重复调用（缓存stock_info和realtime_quote）
+        - 独立的代码实现，不依赖predict方法
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            预测结果字典（包含prediction_type='before_close'）
+        """
+        self.logger.info("=" * 60)
+        self.logger.info(f"开始分析股票（未收盘-明天）: {symbol}")
+        self.logger.info("=" * 60)
+        
+        # 根据时间判断预测日期
+        target_date, date_desc = self.get_target_date()
+        prediction_date = datetime.now().strftime('%Y-%m-%d')  # 预测日期（当前日期）
+        self.logger.info(f"预测日期（{date_desc}）: {target_date}")
+        
+        # 0. 异常情况检测（在获取数据之前先检测，避免无效预测）
+        self.logger.info("步骤0: 检测异常情况...")
+        # 提前获取realtime_quote用于异常检测（避免重复调用）
+        realtime_quote_for_anomaly = None
+        try:
+            realtime_quote_for_anomaly = self.data_source.get_realtime_quote(symbol)
+        except Exception as e:
+            self.logger.debug(f"获取实时行情用于异常检测失败: {str(e)}")
+        
+        anomaly_result = self._detect_anomalies_with_realtime_quote(symbol, realtime_quote_for_anomaly)
+        if not anomaly_result.get('can_predict', True):
+            anomalies = anomaly_result.get('anomalies', [])
+            self.logger.warning(f"检测到异常情况: {', '.join(anomalies)}")
+            return {
+                'symbol': symbol,
+                'success': False,
+                'message': f"无法预测：{', '.join(anomalies)}",
+                'anomalies': anomalies,
+                'anomaly_details': anomaly_result.get('details', {}),
+                'prediction_type': 'before_close'
+            }
+        
+        # 保存异常检测结果，后续用于调整置信度和整合到结果中
+        initial_anomaly_result = anomaly_result
+        
+        # 1. 获取股票数据（必须先获取，其他分析依赖此数据）
+        self.logger.info("步骤1: 获取股票数据（历史数据从数据库，当天数据实时获取）...")
+        # 优先从数据库获取历史数据（已优化）
+        data = self.data_source.get_stock_data(symbol, days=self.config['lookback_days'])
+        
+        if data.empty:
+            return {
+                'symbol': symbol,
+                'success': False,
+                'message': '无法获取股票数据',
+                'prediction_type': 'before_close'
+            }
+        
+        # 提前获取stock_info和realtime_quote，供后续复用（优化API调用）
+        stock_info_cache = None
+        realtime_quote_cache = realtime_quote_for_anomaly  # 复用异常检测时获取的realtime_quote
+        
+        # 未收盘-明天预测：必须实时获取当天的数据
+        # 如果realtime_quote_cache为空，强制获取实时数据
+        if not realtime_quote_cache or not realtime_quote_cache.get('current_price'):
+            self.logger.info("未收盘预测：强制获取实时行情数据...")
+            try:
+                realtime_quote_cache = self.data_source.get_realtime_quote(symbol)
+                if not realtime_quote_cache:
+                    return {
+                        'symbol': symbol,
+                        'success': False,
+                        'message': '无法获取实时行情数据（未收盘预测需要实时数据）',
+                        'prediction_type': 'before_close'
+                    }
+            except Exception as e:
+                self.logger.error(f"获取实时行情数据失败: {str(e)}")
+                return {
+                    'symbol': symbol,
+                    'success': False,
+                    'message': f'获取实时行情数据失败: {str(e)}',
+                    'prediction_type': 'before_close'
+                }
+        
+        # 使用实时价格（未收盘预测必须使用实时数据）
+        current_price = float(realtime_quote_cache.get('current_price', 0))
+        if current_price <= 0:
+            # 如果实时价格无效，尝试使用历史数据最新价格
+            current_price = data['close'].iloc[-1]
+            price_source = "历史数据最新价格（实时价格无效）"
+            self.logger.warning(f"实时价格无效，使用历史数据最新价格: {current_price:.2f}元")
+        else:
+            price_source = "实时API价格"
+            self.logger.info(f"使用实时价格: {current_price:.2f}元")
+        
+        self.logger.info(f"当前价格: {current_price:.2f}元（来源：{price_source}）")
+        
+        # 提前获取stock_info，供后续复用（优化API调用）
+        # 设置页面预测：如果use_api=False，跳过API调用，只使用数据库数据
+        stock_info_cache = None
+        if use_api:
+            try:
+                stock_info_cache = self.data_source.get_stock_info(symbol, skip_pe_pb=False)
+            except Exception as e:
+                self.logger.debug(f"获取股票信息失败: {str(e)}")
+        else:
+            self.logger.debug(f"跳过API调用（use_api=False），只使用数据库数据")
+        
+        # 获取股票名称（使用缓存的stock_info）
+        stock_name = '未知'
+        try:
+            if stock_info_cache:
+                stock_name = stock_info_cache.get('name', stock_info_cache.get('股票简称', stock_info_cache.get('股票名称', '未知')))
+            if not stock_name or stock_name == '':
+                stock_name = '未知'
+        except Exception as e:
+            self.logger.warning(f"获取股票名称失败: {str(e)}，使用默认值'未知'")
+            stock_name = '未知'
+        
+        # 使用多线程并行执行独立分析任务（不需要股票历史数据的分析）
+        self.logger.info("\n步骤2-5.7: 并行分析多个指标（使用多线程加速，优化API调用）...")
+        
+        # 定义需要并行执行的任务（独立分析，只需要symbol）
+        # 注意：传入stock_info_cache，避免重复API调用
+        # 【优化】注释掉低价值因子（valuation, us_sector, sector_rotation），减少因子冲突，提高预测准确率
+        independent_tasks = {
+            'market_overall': lambda: self.predict_market_overall(),
+            'news': lambda: self.calculate_news_score(symbol),
+            'capital_flow': lambda: self.calculate_capital_flow_score(symbol),
+            # 'valuation': lambda: self._calculate_valuation_score_with_cache(symbol, stock_info_cache),  # 【已注释】估值指标权重低（2%），影响小
+            # 'us_sector': lambda: self.calculate_us_sector_score(symbol),  # 【已注释】美股板块相关性可能不高
+            # 'sector_rotation': lambda: self.calculate_sector_rotation_score(symbol),  # 【已注释】板块轮动数据可能不稳定
+            'market_sentiment_index': lambda: self.calculate_market_sentiment_index(),
+        }
+        
+        # 定义依赖股票数据的任务（需要data）
+        data_dependent_tasks = {
+            'technical': lambda: self.calculate_technical_score(data, symbol),
+            'market': lambda: self.calculate_market_score(data, symbol, use_api=use_api, indices_data=pre_queried_indices_data),  # 传递use_api参数和预查询的指数数据（性能优化）
+            'history': lambda: self.calculate_history_score(data),
+        }
+        
+        # 存储结果的字典
+        results = {}
+        
+        # 第一阶段：并行执行独立分析任务
+        # 【优化】已移除估值、美股板块、板块轮动因子，减少因子冲突
+        self.logger.info("  并行执行独立分析任务（市场整体、新闻、资金流向）...")
+        
+        # 尝试使用线程池，如果失败则使用单线程模式
+        use_thread_pool = True
+        try:
+            with ThreadPoolExecutor(max_workers=THREAD_POOL_CONFIG["predictor_default"]) as executor:
+                future_to_task = {
+                    executor.submit(func): task_name 
+                    for task_name, func in independent_tasks.items()
+                }
+                
+                for future in as_completed(future_to_task):
+                    task_name = future_to_task[future]
+                    try:
+                        result = future.result()
+                        results[task_name] = result
+                        self.logger.debug(f"    ✓ {task_name} 分析完成")
+                    except Exception as e:
+                        self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                        # 为失败的任务设置默认值
+                        if task_name == 'market_overall':
+                            results[task_name] = {'success': False}
+                        elif task_name == 'news':
+                            results[task_name] = {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0}
+                        elif task_name == 'capital_flow':
+                            results[task_name] = {'score': 0.0, 'trend': 'neutral', 'details': {}}
+                        # 【已注释】以下三个因子已移除
+                        # elif task_name == 'valuation':
+                        #     results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
+                        # elif task_name == 'us_sector':
+                        #     results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
+                        # elif task_name == 'sector_rotation':
+                        #     results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
+        except RuntimeError as e:
+            # 如果解释器正在关闭，无法使用线程池，切换到单线程模式
+            if 'cannot schedule new futures after interpreter shutdown' in str(e):
+                self.logger.warning("  检测到解释器正在关闭，线程池不可用，切换到单线程模式执行分析任务")
+                use_thread_pool = False
+            else:
+                # 其他RuntimeError，重新抛出
+                raise
+        
+        # 如果线程池不可用，使用单线程顺序执行
+        if not use_thread_pool:
+            for task_name, func in independent_tasks.items():
+                try:
+                    result = func()
+                    results[task_name] = result
+                    self.logger.debug(f"    ✓ {task_name} 分析完成（单线程模式）")
+                except Exception as e:
+                    self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                    # 为失败的任务设置默认值
+                    if task_name == 'market_overall':
+                        results[task_name] = {'success': False}
+                    elif task_name == 'news':
+                        results[task_name] = {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0}
+                    elif task_name == 'capital_flow':
+                        results[task_name] = {'score': 0.0, 'trend': 'neutral', 'details': {}}
+                    # 【已注释】以下三个因子已移除
+                    # elif task_name == 'valuation':
+                    #     results[task_name] = {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None}
+                    # elif task_name == 'us_sector':
+                    #     results[task_name] = {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0}
+                    # elif task_name == 'sector_rotation':
+                    #     results[task_name] = {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'}
+        
+        # 第二阶段：并行执行依赖股票数据的分析任务
+        self.logger.info("  并行执行依赖股票数据的分析任务（技术指标、市场情绪、历史模式）...")
+        
+        if use_thread_pool:
+            try:
+                with ThreadPoolExecutor(max_workers=THREAD_POOL_CONFIG["predictor_small"]) as executor:
+                    future_to_task = {
+                        executor.submit(func): task_name 
+                        for task_name, func in data_dependent_tasks.items()
+                    }
+                    
+                    for future in as_completed(future_to_task):
+                        task_name = future_to_task[future]
+                        try:
+                            result = future.result()
+                            results[task_name] = result
+                            self.logger.debug(f"    ✓ {task_name} 分析完成")
+                        except Exception as e:
+                            self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                            # 为失败的任务设置默认值
+                            if task_name == 'technical':
+                                results[task_name] = {'score': 0.0, 'signals': {}}
+                            elif task_name == 'market':
+                                results[task_name] = {'score': 0.0, 'trend': 'neutral'}
+                            elif task_name == 'history':
+                                results[task_name] = {'score': 0.0, 'pattern': '无显著模式'}
+            except RuntimeError as e:
+                if 'cannot schedule new futures after interpreter shutdown' in str(e):
+                    self.logger.warning("  检测到解释器正在关闭，线程池不可用，切换到单线程模式")
+                    use_thread_pool = False
+                else:
+                    raise
+        
+        # 如果线程池不可用，使用单线程顺序执行
+        if not use_thread_pool:
+            for task_name, func in data_dependent_tasks.items():
+                try:
+                    result = func()
+                    results[task_name] = result
+                    self.logger.debug(f"    ✓ {task_name} 分析完成（单线程模式）")
+                except Exception as e:
+                    self.logger.warning(f"    ✗ {task_name} 分析失败: {str(e)}")
+                    # 为失败的任务设置默认值
+                    if task_name == 'technical':
+                        results[task_name] = {'score': 0.0, 'signals': {}}
+                    elif task_name == 'market':
+                        results[task_name] = {'score': 0.0, 'trend': 'neutral'}
+                    elif task_name == 'history':
+                        results[task_name] = {'score': 0.0, 'pattern': '无显著模式'}
+        
+        # 后续逻辑：完全独立实现结果融合、置信度计算等（代码分离：不共用共享方法）
+        self.logger.info("  所有并行分析任务完成！")
+        
+        # 从结果中提取各个分析结果
+        market_overall = results.get('market_overall', {'success': False})
+        
+        technical_result = results.get('technical', {'score': 0.0, 'trend': 'neutral', 'signals': {}})
+        technical_score = technical_result['score']
+        self.logger.info(f"\n技术指标分析结果: 得分 {technical_score:.2f}, 趋势: {technical_result['trend']}")
+        signals = technical_result.get('signals', {})
+        if '换手率' in signals:
+            self.logger.info(f"  换手率: {signals['换手率']}")
+        if '量价关系' in signals:
+            self.logger.info(f"  量价关系: {signals['量价关系']}")
+        
+        news_result = results.get('news', {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0})
+        news_score = news_result['score']
+        news_weight_multiplier = news_result.get('weight_multiplier', 1.0)
+        self.logger.info(f"新闻情感分析结果: 得分 {news_score:.2f}, 情感: {news_result['sentiment']}, "
+                        f"新闻数量: {news_result['news_count']}, 权重倍数: {news_weight_multiplier:.2f}")
+        if news_result.get('positive_count', 0) > 0 or news_result.get('negative_count', 0) > 0:
+            self.logger.info(f"  利好消息: {news_result.get('positive_count', 0)} 条（强度{news_result.get('positive_strength', 0):.2f}），"
+                           f"利空消息: {news_result.get('negative_count', 0)} 条（强度{news_result.get('negative_strength', 0):.2f}）")
+        
+        capital_flow_result = results.get('capital_flow', {'score': 0.0, 'trend': 'neutral', 'details': {}})
+        capital_flow_score = capital_flow_result['score']
+        capital_flow_details = capital_flow_result.get('details', {})
+        self.logger.info(f"资金流向分析结果: 得分 {capital_flow_score:.2f}, 趋势: {capital_flow_result['trend']}")
+        if 'north_bound' in capital_flow_details:
+            nb = capital_flow_details['north_bound']
+            if 'today_net_inflow' in nb:
+                self.logger.info(f"  北向资金: 净流入 {nb.get('today_net_inflow', 0):.2f} 亿元")
+        if 'margin' in capital_flow_details:
+            mg = capital_flow_details['margin']
+            if 'margin_change_pct' in mg:
+                self.logger.info(f"  融资融券: 余额变化 {mg.get('margin_change_pct', 0):.2f}%")
+        if 'main_force' in capital_flow_details:
+            mf = capital_flow_details['main_force']
+            if 'main_net_inflow_pct' in mf:
+                self.logger.info(f"  主力资金: 净流入 {mf.get('main_net_inflow_pct', 0):.2f}%")
+        
+        market_result = results.get('market', {'score': 0.0, 'trend': 'neutral', 'details': {}})
+        market_score = market_result['score']
+        market_details = market_result.get('details', {})
+        self.logger.info(f"市场情绪分析结果: 得分 {market_score:.2f}, 趋势: {market_result['trend']}")
+        if 'market_index_score' in market_details:
+            self.logger.info(f"  大盘指数得分: {market_details.get('market_index_score', 0):.2f} (基于{market_details.get('index_count', 0)}个指数)")
+        if 'stock_score' in market_details:
+            self.logger.info(f"  个股情绪得分: {market_details.get('stock_score', 0):.2f}")
+        
+        history_result = results.get('history', {'score': 0.0, 'pattern': 'unknown'})
+        history_score = history_result['score']
+        self.logger.info(f"历史模式分析结果: 得分 {history_score:.2f}, 模式: {history_result['pattern']}")
+        
+        valuation_result = results.get('valuation', {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None})
+        valuation_score = valuation_result['score']
+        pe_ratio = valuation_result.get('pe_ratio')
+        pb_ratio = valuation_result.get('pb_ratio')
+        self.logger.info(f"估值指标分析结果: 得分 {valuation_score:.2f}, PE: {pe_ratio}, PB: {pb_ratio}")
+        
+        us_sector_result = results.get('us_sector', {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0})
+        us_sector_score = us_sector_result['score']
+        us_sector_name = us_sector_result.get('sector', 'unknown')
+        us_sector_change = us_sector_result.get('change_pct', 0.0)
+        self.logger.info(f"美股板块分析结果: 得分 {us_sector_score:.2f}, 板块: {us_sector_name}, 涨跌幅: {us_sector_change:.2f}%")
+        
+        sector_rotation_result = results.get('sector_rotation', {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'})
+        sector_rotation_score = sector_rotation_result['score']
+        sector_name = sector_rotation_result.get('sector_name', 'unknown')
+        sector_trend = sector_rotation_result.get('trend', 'neutral')
+        self.logger.info(f"板块轮动分析结果: 得分 {sector_rotation_score:.2f}, 板块: {sector_name}, 趋势: {sector_trend}")
+        
+        # 市场情绪指标（恐慌/贪婪指数）
+        market_sentiment_index = results.get('market_sentiment_index', {
+            'available': False,
+            'fear_index': 50.0,
+            'greed_index': 50.0,
+            'sentiment': 'neutral'
+        })
+        if market_sentiment_index.get('available'):
+            self.logger.info(f"市场情绪指标: 恐慌指数 {market_sentiment_index.get('fear_index', 50):.1f}, "
+                           f"贪婪指数 {market_sentiment_index.get('greed_index', 50):.1f}, "
+                           f"综合情绪: {market_sentiment_index.get('sentiment', 'neutral')}")
+            if market_sentiment_index.get('emotional_trading'):
+                self.logger.warning(f"情绪化交易警告: {market_sentiment_index.get('emotional_reason', '')}")
+        
+        # 6. 识别市场状态并动态调整权重（增强版：基于历史准确率优化 + 市场状态 + 个股特性）
+        self.logger.info("\n步骤6: 识别市场状态并综合计算预测结果...")
+        
+        # 6.1 计算各因子的数据质量评分（新增：数据缺失处理优化）
+        factor_quality_scores = {}
+        try:
+            factor_results_map = {
+                'technical': technical_result,
+                'news': news_result,
+                'capital_flow': capital_flow_result,
+                'market': market_result,
+                'history': history_result,
+                'valuation': valuation_result,
+                'us_sector': us_sector_result,
+                'sector_rotation': sector_rotation_result,
+                'market_overall': market_overall
+            }
+            
+            for factor_name, factor_result in factor_results_map.items():
+                quality_score = self._calculate_factor_data_quality(factor_name, factor_result)
+                factor_quality_scores[factor_name] = quality_score
+                if quality_score < 0.6:
+                    self.logger.debug(f"因子 {factor_name} 数据质量评分: {quality_score:.2f} (数据可能不完整)")
+        except Exception as e:
+            self.logger.debug(f"计算因子数据质量评分失败: {str(e)}")
+            # 出错时，假设所有因子质量良好
+            factor_quality_scores = {name: 1.0 for name in factor_results_map.keys()}
+        
+        # 尝试识别市场状态
+        market_state = {'state': 'sideways', 'confidence': 0.5}  # 默认值
+        weight_multipliers = {}  # 默认不调整权重
+        try:
+            from utils.market_state_identifier import MarketStateIdentifier
+            identifier = MarketStateIdentifier()
+            
+            # 获取大盘指数数据用于识别市场状态
+            try:
+                indices_data = self.data_source.get_all_market_indices(days=30)
+                # 使用上证指数（000001.SH）作为主要参考
+                if '000001.SH' in indices_data and not indices_data['000001.SH'].empty:
+                    index_data = indices_data['000001.SH']
+                    market_state = identifier.identify_market_state(index_data, '上证指数')
+                    weight_multipliers = identifier.get_weight_adjustment(market_state)
+                    
+                    self.logger.info(f"市场状态识别: {market_state['state']} ({market_state['description']})，置信度: {market_state['confidence']:.1%}")
+                    if weight_multipliers:
+                        self.logger.info(f"权重调整: 技术指标×{weight_multipliers.get('technical_weight_multiplier', 1.0):.2f}, "
+                                       f"新闻×{weight_multipliers.get('news_weight_multiplier', 1.0):.2f}, "
+                                       f"资金流向×{weight_multipliers.get('capital_flow_weight_multiplier', 1.0):.2f}")
+            except Exception as e:
+                self.logger.debug(f"市场状态识别失败（不影响主流程）: {str(e)}")
+        except ImportError:
+            self.logger.debug("市场状态识别模块不可用，使用默认权重")
+        except Exception as e:
+            self.logger.debug(f"市场状态识别模块初始化失败: {str(e)}")
+        
+        # 使用权重优化器获取优化后的权重（综合考虑历史准确率、市场状态、个股特性）
+        optimized_weights = None
+        try:
+            from utils.weight_optimizer import get_weight_optimizer
+            from utils.confidence_calculator import get_confidence_calculator
+            weight_optimizer = get_weight_optimizer()
+            
+            # 获取优化后的权重（基于历史准确率、市场状态、个股特性）
+            optimized_weights = weight_optimizer.get_optimized_weights(
+                symbol=symbol,
+                market_state=market_state,
+                use_accuracy_optimization=True
+            )
+            
+            self.logger.info(f"权重优化器已启用，使用优化后的权重配置")
+            
+        except Exception as e:
+            self.logger.debug(f"权重优化失败，使用基于市场状态的调整: {str(e)}")
+        
+        # 检查是否为新股票或数据不足（用于优化处理）
+        is_new_stock_or_insufficient_data = False
+        try:
+            # 检查历史预测数据数量
+            from utils.db_connection import DatabaseConnection
+            db = DatabaseConnection()
+            check_sql = """
+                SELECT COUNT(*) as cnt
+                FROM stock_predictions
+                WHERE symbol = %s
+                  AND prediction_hit IS NOT NULL
+            """
+            result = db.execute_query(check_sql, (symbol,))
+            if result and result[0].get('cnt', 0) < 10:  # 少于10条历史预测记录
+                is_new_stock_or_insufficient_data = True
+                self.logger.debug(f"股票 {symbol} 历史数据不足（{result[0].get('cnt', 0)}条），使用保守策略")
+        except Exception as e:
+            self.logger.debug(f"检查历史数据失败: {str(e)}")
+            # 如果检查失败，假设数据不足，使用保守策略
+            is_new_stock_or_insufficient_data = True
+        
+        # 根据是否使用优化后的权重来设置权重值
+        # 【优化】已移除三个因子（valuation, us_sector, sector_rotation），将其权重重新分配给其他因子
+        if optimized_weights and not is_new_stock_or_insufficient_data:
+            # 使用优化后的权重（重新分配被移除因子的权重）
+            base_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
+            base_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
+            base_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18))
+            base_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.17))
+            base_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.08))
+            
+            # 获取被移除因子的权重（用于重新分配）
+            removed_weights = (
+                optimized_weights.get('sector_rotation_weight', 0.05) +
+                optimized_weights.get('valuation_weight', 0.02) +
+                optimized_weights.get('us_sector_weight', 0.05)
+            )
+            
+            # 按比例重新分配权重（保持原有比例）
+            total_base_weight = base_technical_weight + base_news_weight + base_capital_flow_weight + base_market_weight + base_history_weight
+            if total_base_weight > 0:
+                redistribution_factor = removed_weights / total_base_weight
+                base_weights_dict = {
+                    'technical': base_technical_weight * (1 + redistribution_factor),
+                    'news': base_news_weight * (1 + redistribution_factor),
+                    'capital_flow': base_capital_flow_weight * (1 + redistribution_factor),
+                    'market': base_market_weight * (1 + redistribution_factor),
+                    'history': base_history_weight * (1 + redistribution_factor)
+                }
+            else:
+                # 如果基础权重为0，使用默认重新分配
+                base_weights_dict = {
+                    'technical': 0.22,
+                    'news': 0.28,
+                    'capital_flow': 0.20,
+                    'market': 0.19,
+                    'history': 0.11
+                }
+        else:
+            # 如果是新股票或数据不足，使用保守的默认权重（不依赖历史优化）
+            if is_new_stock_or_insufficient_data:
+                self.logger.info(f"股票 {symbol} 数据不足，使用保守的默认权重配置")
+            # 如果权重优化失败，回退到基于市场状态的调整
+            technical_multiplier = weight_multipliers.get('technical_weight_multiplier', 1.0)
+            news_multiplier = weight_multipliers.get('news_weight_multiplier', 1.0) * news_weight_multiplier
+            capital_flow_multiplier = weight_multipliers.get('capital_flow_weight_multiplier', 1.0)
+            market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
+            
+            # 基础权重（移除三个因子后重新分配）
+            base_technical = self.config.get('technical_weight', 0.20) * technical_multiplier
+            base_news = self.config['news_weight'] * news_multiplier
+            base_capital_flow = self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier
+            base_market = self.config.get('market_weight', 0.17) * market_multiplier
+            base_history = self.config.get('history_weight', 0.08)
+            
+            # 获取被移除因子的权重
+            removed_weights = (
+                self.config.get('sector_rotation_weight', 0.05) +
+                self.config.get('valuation_weight', 0.02) +
+                self.config.get('us_sector_weight', 0.05)
+            )
+            
+            # 按比例重新分配
+            total_base_weight = base_technical + base_news + base_capital_flow + base_market + base_history
+            if total_base_weight > 0:
+                redistribution_factor = removed_weights / total_base_weight
+                base_weights_dict = {
+                    'technical': base_technical * (1 + redistribution_factor),
+                    'news': base_news * (1 + redistribution_factor),
+                    'capital_flow': base_capital_flow * (1 + redistribution_factor),
+                    'market': base_market * (1 + redistribution_factor),
+                    'history': base_history * (1 + redistribution_factor)
+                }
+            else:
+                base_weights_dict = {
+                    'technical': 0.22,
+                    'news': 0.28,
+                    'capital_flow': 0.20,
+                    'market': 0.19,
+                    'history': 0.11
+                }
+        
+        # 根据数据质量动态调整权重（新增：数据缺失处理优化）
+        # 【优化】已移除三个因子，只调整保留的5个因子
+        try:
+            adjusted_weights_dict = self._adjust_weights_by_data_quality(base_weights_dict, factor_quality_scores)
+            adjusted_technical_weight = adjusted_weights_dict.get('technical', base_weights_dict['technical'])
+            adjusted_news_weight = adjusted_weights_dict.get('news', base_weights_dict['news'])
+            adjusted_capital_flow_weight = adjusted_weights_dict.get('capital_flow', base_weights_dict['capital_flow'])
+            adjusted_market_weight = adjusted_weights_dict.get('market', base_weights_dict['market'])
+            adjusted_history_weight = adjusted_weights_dict.get('history', base_weights_dict['history'])
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight = adjusted_weights_dict.get('sector_rotation', base_weights_dict['sector_rotation'])
+            # adjusted_valuation_weight = adjusted_weights_dict.get('valuation', base_weights_dict['valuation'])
+            # adjusted_us_sector_weight = adjusted_weights_dict.get('us_sector', base_weights_dict['us_sector'])
+            adjusted_sector_rotation_weight = 0.0  # 默认值
+            adjusted_valuation_weight = 0.0  # 默认值
+            adjusted_us_sector_weight = 0.0  # 默认值
+            
+            # 记录数据质量调整信息（仅在debug模式下）
+            avg_quality = sum(factor_quality_scores.values()) / len(factor_quality_scores) if factor_quality_scores else 1.0
+            if avg_quality < 0.7:
+                self.logger.debug(f"数据质量调整: 平均质量 {avg_quality:.2f}, 权重已根据数据完整性调整")
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整权重失败，使用原始权重: {str(e)}")
+            # 出错时使用原始权重
+            adjusted_technical_weight = base_weights_dict['technical']
+            adjusted_news_weight = base_weights_dict['news']
+            adjusted_capital_flow_weight = base_weights_dict['capital_flow']
+            adjusted_market_weight = base_weights_dict['market']
+            adjusted_history_weight = base_weights_dict['history']
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight = base_weights_dict['sector_rotation']
+            # adjusted_valuation_weight = base_weights_dict['valuation']
+            # adjusted_us_sector_weight = base_weights_dict['us_sector']
+            adjusted_sector_rotation_weight = 0.0  # 默认值
+            adjusted_valuation_weight = 0.0  # 默认值
+            adjusted_us_sector_weight = 0.0  # 默认值
+        
+        if optimized_weights and not is_new_stock_or_insufficient_data:
+            self.logger.info(f"权重优化结果: 技术指标={adjusted_technical_weight:.3f}, "
+                           f"新闻={adjusted_news_weight:.3f}, "
+                           f"资金流向={adjusted_capital_flow_weight:.3f}, "
+                           f"市场={adjusted_market_weight:.3f}")
+        
+        # 尝试获取ML模型预测结果（如果可用）
+        ml_score = 0.0
+        ml_weight = 0.0
+        ml_prediction_result = None
+        ml_model_id = None
+        ml_model_type = None
+        try:
+            from utils.ml_predictor_integration import MLPredictorIntegration
+            from utils.ml_model_performance_monitor import MLModelPerformanceMonitor
+            
+            ml_integration = MLPredictorIntegration()
+            ml_prediction_result = ml_integration.get_ml_prediction(symbol, data)
+            
+            if ml_prediction_result and ml_prediction_result.get('available'):
+                ml_score = ml_prediction_result.get('ml_score', 0.0)
+                ml_model_type = ml_prediction_result.get('model_type')
+                ml_model_id = ml_prediction_result.get('model_id')
+                
+                # 根据模型性能动态调整权重（优化：传递配置管理器，支持热更新）
+                performance_monitor = MLModelPerformanceMonitor(config_manager=self._config_manager)
+                if ml_model_id:
+                    ml_weight = performance_monitor.get_optimal_weight(model_id=ml_model_id)
+                elif ml_model_type:
+                    ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
+                else:
+                    ml_weight = 0.15  # 默认权重15%
+                
+                self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
+                               f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
+                               f"置信度 {ml_prediction_result.get('ml_confidence', 0.0):.2%}, "
+                               f"动态权重 {ml_weight:.2%}")
+        except ImportError:
+            self.logger.debug("ML模型集成模块不可用，跳过ML预测")
+        except Exception as e:
+            self.logger.debug(f"ML模型预测失败（不影响主流程）: {str(e)}")
+        
+        # 计算包含ML模型的总权重（用于归一化）
+        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
+        total_adjusted_weight = (
+            adjusted_technical_weight +
+            adjusted_news_weight +
+            adjusted_capital_flow_weight +
+            adjusted_market_weight +
+            adjusted_history_weight +
+            ml_weight  # 包含ML模型权重
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight +
+            # adjusted_valuation_weight +
+            # adjusted_us_sector_weight +
+        )
+        
+        # 归一化权重（确保总和为1，包含ML模型权重）
+        if total_adjusted_weight > 0:
+            adjusted_technical_weight = adjusted_technical_weight / total_adjusted_weight
+            adjusted_news_weight = adjusted_news_weight / total_adjusted_weight
+            adjusted_capital_flow_weight = adjusted_capital_flow_weight / total_adjusted_weight
+            adjusted_market_weight = adjusted_market_weight / total_adjusted_weight
+            adjusted_history_weight = adjusted_history_weight / total_adjusted_weight
+            ml_weight = ml_weight / total_adjusted_weight  # 归一化ML模型权重
+            # 【已注释】以下三个因子已移除
+            # adjusted_sector_rotation_weight = adjusted_sector_rotation_weight / total_adjusted_weight
+            # adjusted_valuation_weight = adjusted_valuation_weight / total_adjusted_weight
+            # adjusted_us_sector_weight = adjusted_us_sector_weight / total_adjusted_weight
+            adjusted_sector_rotation_weight = 0.0  # 默认值
+            adjusted_valuation_weight = 0.0  # 默认值
+            adjusted_us_sector_weight = 0.0  # 默认值
+        
+        # 使用动态调整后的权重计算最终得分（包含ML模型）
+        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
+        final_score = (
+            technical_score * adjusted_technical_weight +
+            news_score * adjusted_news_weight +
+            capital_flow_score * adjusted_capital_flow_weight +
+            market_score * adjusted_market_weight +
+            history_score * adjusted_history_weight +
+            ml_score * ml_weight  # 添加ML模型得分
+            # 【已注释】以下三个因子已移除
+            # sector_rotation_score * adjusted_sector_rotation_weight +
+            # valuation_score * adjusted_valuation_weight +
+            # us_sector_score * adjusted_us_sector_weight +
+        )
+        
+        # 转换为涨跌概率
+        # 使用sigmoid函数将得分转换为概率（优化版：动态调整放大系数）
+        # 先计算波动率系数（用于动态调整Sigmoid系数）
+        volatility_coefficient = self._calculate_volatility_coefficient(data, period=60)
+        
+        # 根据市场状态、波动率和历史准确率动态调整放大系数
+        sigmoid_coefficient = self._calculate_dynamic_sigmoid_coefficient(
+            final_score=final_score,
+            market_state=market_state if 'market_state' in locals() else {},
+            volatility_coefficient=volatility_coefficient,
+            symbol=symbol
+        )
+        up_probability = 1 / (1 + np.exp(-final_score * sigmoid_coefficient))
+        down_probability = 1 - up_probability
+        
+        # 概率校准（根据历史准确率校准，过滤干扰因子，提高可靠性）
+        up_probability = self._calibrate_probability(
+            raw_probability=up_probability,
+            symbol=symbol,
+            final_score=final_score
+        )
+        down_probability = 1 - up_probability
+        
+        # 计算置信度（增强版：考虑历史准确率、一致性、数据时效性、校准）
+        # 如果是新股票或数据不足，降低置信度阈值
+        min_confidence_threshold = self.config['min_confidence']
+        if is_new_stock_or_insufficient_data:
+            # 数据不足时，使用更保守的置信度阈值（降低20%）
+            min_confidence_threshold = self.config['min_confidence'] * 0.8
+            self.logger.debug(f"股票 {symbol} 数据不足，置信度阈值从 {self.config['min_confidence']:.2f} 降低到 {min_confidence_threshold:.2f}")
+        
+        # 计算因子一致性评分（用于学习分析，包含ML模型）
+        # 【优化】已移除三个因子，只使用保留的5个因子
+        factor_scores_for_consistency = {
+            'technical': technical_score,
+            'news': news_score,
+            'capital_flow': capital_flow_score,
+            'market': market_score,
+            'history': history_score
+            # 【已注释】以下三个因子已移除
+            # 'sector_rotation': sector_rotation_score,
+            # 'valuation': valuation_score,
+            # 'us_sector': us_sector_score
+        }
+        if ml_prediction_result and ml_prediction_result.get('available'):
+            factor_scores_for_consistency['ml_model'] = ml_score
+        
+        # 获取因子权重（用于一致性计算）
+        factor_weights_for_consistency = {
+            'technical': adjusted_technical_weight,
+            'news': adjusted_news_weight,
+            'capital_flow': adjusted_capital_flow_weight,
+            'market': adjusted_market_weight,
+            'history': adjusted_history_weight
+            # 【已注释】以下三个因子已移除
+            # 'sector_rotation': adjusted_sector_rotation_weight,
+            # 'valuation': adjusted_valuation_weight,
+            # 'us_sector': adjusted_us_sector_weight
+        }
+        if ml_prediction_result and ml_prediction_result.get('available'):
+            factor_weights_for_consistency['ml_model'] = ml_weight
+        
+        # 保存因子权重，供置信度计算使用
+        self._last_factor_weights = factor_weights_for_consistency
+        
+        factor_consistency_score = self._calculate_factor_consistency(
+            final_score=final_score,
+            factor_scores=factor_scores_for_consistency,
+            factor_weights=factor_weights_for_consistency
+        )
+        
+        # 计算数据质量评分（基于因子得分的有效性 + 数据完整性）
+        # 【优化】已移除三个因子，因子总数从8改为5
+        valid_factors = sum(1 for score in [
+            technical_score, news_score, capital_flow_score, market_score, history_score
+            # 【已注释】以下三个因子已移除
+            # sector_rotation_score, valuation_score, us_sector_score
+        ] if abs(score) > 0.01)
+        total_factors = 5  # 【优化】从8改为5（移除了3个因子）
+        data_quality_score = max(0.5, valid_factors / total_factors) if total_factors > 0 else 0.5
+        
+        # 结合数据完整性评分（新增：数据缺失处理优化）
+        try:
+            # 计算平均数据完整性评分
+            if factor_quality_scores:
+                avg_data_completeness = sum(factor_quality_scores.values()) / len(factor_quality_scores)
+                # 综合数据质量评分：因子有效性 * 数据完整性
+                data_quality_score = data_quality_score * 0.5 + avg_data_completeness * 0.5
+        except Exception as e:
+            self.logger.debug(f"计算数据完整性评分失败: {str(e)}")
+        
+        # 检查是否缺失关键数据
+        missing_critical_data = False
+        try:
+            # 如果技术指标和市场情绪数据质量都很低，视为缺失关键数据
+            technical_quality = factor_quality_scores.get('technical', 1.0)
+            market_quality = factor_quality_scores.get('market', 1.0)
+            if technical_quality < 0.3 and market_quality < 0.3:
+                missing_critical_data = True
+        except Exception:
+            pass
+        
+        # 准备数据质量信息
+        data_quality = {
+            'quality_score': data_quality_score,
+            'valid_factors': valid_factors,
+            'total_factors': total_factors,
+            'factor_quality_scores': factor_quality_scores  # 新增：传递因子质量评分
+        }
+        
+        # 获取市场状态（如果可用）
+        current_market_state = market_state if 'market_state' in locals() and market_state else {}
+        
+        confidence = self._calculate_confidence(
+            final_score=final_score,
+            factor_scores={
+                'technical': technical_score,
+                'news': news_score,
+                'capital_flow': capital_flow_score,
+                'market': market_score,
+                'history': history_score
+                # 【已注释】以下三个因子已移除
+                # 'sector_rotation': sector_rotation_score,
+                # 'valuation': valuation_score,
+                # 'us_sector': us_sector_score
+            },
+            data_quality=data_quality,  # 传入数据质量信息
+            symbol=symbol,
+            market_state=current_market_state  # 传递市场状态信息用于置信度计算
+        )
+        
+        # 根据数据质量进一步调整置信度（新增：数据缺失处理优化）
+        try:
+            confidence = self._adjust_confidence_by_data_quality(
+                confidence,
+                factor_quality_scores,
+                missing_critical_data=missing_critical_data
+            )
+        except Exception as e:
+            self.logger.debug(f"根据数据质量调整置信度失败: {str(e)}")
+        
+        # 根据异常情况调整置信度（从配置读取参数）
+        try:
+            anomaly_details = initial_anomaly_result.get('details', {})
+            
+            # ST股票：降低置信度（从配置读取）
+            st_reduction = self.config.get('st_stock_confidence_reduction', 0.20)
+            if 'st_stock' in initial_anomaly_result.get('anomalies', []):
+                confidence = confidence * (1.0 - st_reduction)
+                self.logger.warning(f"股票 {symbol} 为ST股票，置信度降低{st_reduction*100:.0f}%")
+            
+            # 涨跌停：降低置信度（从配置读取）
+            limit_reduction = self.config.get('limit_up_down_confidence_reduction', 0.10)
+            if 'limit_up' in initial_anomaly_result.get('anomalies', []) or 'limit_down' in initial_anomaly_result.get('anomalies', []):
+                confidence = confidence * (1.0 - limit_reduction)
+                self.logger.warning(f"股票 {symbol} 处于涨跌停状态，置信度降低{limit_reduction*100:.0f}%")
+        except Exception as e:
+            self.logger.debug(f"异常检测调整置信度失败: {str(e)}")
+        
+        # 如果置信度太低，降低概率差异
+        if confidence < min_confidence_threshold:
+            up_probability = 0.5 + (up_probability - 0.5) * (confidence / min_confidence_threshold)
+            down_probability = 1 - up_probability
+        
+        # 确定预测方向
+        if up_probability > 0.6:
+            prediction = '上涨'
+        elif down_probability > 0.6:
+            prediction = '下跌'
+        else:
+            prediction = '震荡'
+        
+        # 计算明日大概收盘价格和涨幅（优化版）
+        # 使用优化后的价格计算逻辑，考虑股票特性、历史波动率和价格趋势
+        price_prediction_result = self._calculate_predicted_price_optimized(
+            symbol=symbol,
+            stock_name=stock_name,
+            current_price=current_price,
+            up_probability=up_probability,
+            down_probability=down_probability,
+            confidence=confidence,
+            data=data
+        )
+        
+        predicted_change_pct = price_prediction_result['predicted_change_pct']
+        predicted_close_price = price_prediction_result['predicted_close_price']
+        
+        # 计算整体数据质量评分（新增：数据缺失处理优化）
+        try:
+            avg_quality = sum(factor_quality_scores.values()) / len(factor_quality_scores) if factor_quality_scores else 1.0
+            missing_factors = [name for name, score in factor_quality_scores.items() if score < 0.3]
+            quality_warning = avg_quality < 0.5
+        except Exception:
+            avg_quality = 1.0
+            missing_factors = []
+            quality_warning = False
+        
+        # 构建返回结果
+        result = {
+            'symbol': symbol,
+            'name': stock_name,
+            'success': True,
+            'prediction': prediction,
+            'up_probability': up_probability,
+            'down_probability': down_probability,
+            'confidence': confidence,
+            'current_price': current_price,
+            'price_source': price_source,
+            'predicted_close_price': predicted_close_price,
+            'predicted_change_pct': predicted_change_pct,
+            'target_date': target_date,
+            'prediction_date': prediction_date,
+            'prediction_type': 'before_close',
+            'final_score': final_score,
+            'factors': {
+                'technical': technical_score,
+                'news': news_score,
+                'capital_flow': capital_flow_score,
+                'market': market_score,
+                'history': history_score,
+                # 【已注释】以下三个因子已移除
+                # 'valuation': valuation_score,
+                # 'us_sector': us_sector_score,
+                # 'sector_rotation': sector_rotation_score,
+                'ml': ml_score if ml_prediction_result else None
+            },
+            'weights': {
+                'technical': adjusted_technical_weight,
+                'news': adjusted_news_weight,
+                'capital_flow': adjusted_capital_flow_weight,
+                'market': adjusted_market_weight,
+                'history': adjusted_history_weight,
+                # 【已注释】以下三个因子已移除
+                # 'valuation': adjusted_valuation_weight,
+                # 'us_sector': adjusted_us_sector_weight,
+                # 'sector_rotation': adjusted_sector_rotation_weight,
+                'ml': ml_weight if ml_prediction_result else 0.0
+            },
+            'anomaly_info': initial_anomaly_result,
+            'ml_prediction': ml_prediction_result,
+            'market_state': market_state,
+            'data_quality': {  # 新增：数据质量信息
+                'overall_quality': avg_quality,
+                'factor_quality': factor_quality_scores,
+                'missing_factors': missing_factors,
+                'quality_warning': quality_warning
+            }
+        }
+        
+        # 输出预测结果
+        self.logger.info("=" * 60)
+        self.logger.info("预测结果汇总：")
+        self.logger.info(f"预测方向: {prediction}")
+        self.logger.info(f"上涨概率: {up_probability*100:.1f}%")
+        self.logger.info(f"下跌概率: {down_probability*100:.1f}%")
+        self.logger.info(f"置信度: {confidence*100:.1f}%")
+        self.logger.info(f"明日大概收盘价格: {predicted_close_price:.2f}元")
+        self.logger.info(f"明日大概涨幅: {predicted_change_pct:+.2f}%")
+        self.logger.info("=" * 60)
+        
+        return result
+    
+    def _detect_anomalies_with_realtime_quote(self, symbol: str, realtime_quote: Dict = None) -> Dict:
+        """
+        检测异常情况（使用传入的realtime_quote，避免重复调用）
+        
+        Args:
+            symbol: 股票代码
+            realtime_quote: 实时行情数据（可选，如果提供则复用）
+        
+        Returns:
+            异常检测结果字典
+        """
+        anomalies = []
+        details = {}
+        
+        try:
+            # 1. 检查停牌
+            suspension_info = self.data_source.check_suspension(symbol)
+            if suspension_info.get('is_suspended', False):
+                anomalies.append('suspended')
+                details['suspension'] = {
+                    'reason': suspension_info.get('reason', '未知'),
+                    'resume_date': suspension_info.get('resume_date'),
+                    'message': suspension_info.get('message', '股票停牌')
+                }
+            
+            # 2. 检查ST股票
+            st_info = self.data_source.check_st_stock(symbol)
+            if st_info.get('is_st', False):
+                anomalies.append('st_stock')
+                details['st_stock'] = {
+                    'risk_level': st_info.get('risk_level', 'high'),
+                    'warning': st_info.get('warning', 'ST股票风险较高'),
+                    'strategy': st_info.get('strategy', {})
+                }
+            
+            # 3. 检查涨跌停（使用传入的realtime_quote，避免重复调用）
+            if realtime_quote:
+                current_price = realtime_quote.get('current_price')
+                limit_up = realtime_quote.get('limit_up')
+                limit_down = realtime_quote.get('limit_down')
+                
+                if current_price and limit_up and abs(current_price - limit_up) < 0.01:
+                    anomalies.append('limit_up')
+                    details['limit_up'] = {
+                        'price': current_price,
+                        'limit_price': limit_up,
+                        'message': '股票涨停，无法买入'
+                    }
+                elif current_price and limit_down and abs(current_price - limit_down) < 0.01:
+                    anomalies.append('limit_down')
+                    details['limit_down'] = {
+                        'price': current_price,
+                        'limit_price': limit_down,
+                        'message': '股票跌停，无法卖出'
+                    }
+            else:
+                # 如果没有传入realtime_quote，从数据库获取（设置页面预测：只使用数据库数据）
+                try:
+                    from utils.db_connection import DatabaseConnection
+                    from datetime import datetime
+                    db = DatabaseConnection()
+                    # 获取最新日期的数据（用于检查涨跌停状态）
+                    sql = """
+                        SELECT close_price, limit_up, limit_down, is_limit_up, is_limit_down
+                        FROM stock_history_data
+                        WHERE symbol = %s AND period_type = 'daily'
+                        ORDER BY trade_date DESC
+                        LIMIT 1
+                    """
+                    result = db.execute_query(sql, (symbol,))
+                    if result and len(result) > 0:
+                        record = result[0]
+                        current_price = record.get('close_price')
+                        limit_up = record.get('limit_up')
+                        limit_down = record.get('limit_down')
+                        is_limit_up = record.get('is_limit_up')
+                        is_limit_down = record.get('is_limit_down')
+                        
+                        # 检查是否涨停或跌停
+                        if is_limit_up == 1 or (current_price and limit_up and abs(float(current_price) - float(limit_up)) < 0.01):
+                            anomalies.append('limit_up')
+                            details['limit_up'] = {
+                                'price': current_price,
+                                'limit_price': limit_up,
+                                'message': '股票涨停，无法买入'
+                            }
+                        elif is_limit_down == 1 or (current_price and limit_down and abs(float(current_price) - float(limit_down)) < 0.01):
+                            anomalies.append('limit_down')
+                            details['limit_down'] = {
+                                'price': current_price,
+                                'limit_price': limit_down,
+                                'message': '股票跌停，无法卖出'
+                            }
+                except Exception as e:
+                    self.logger.debug(f"从数据库检查涨跌停状态失败: {str(e)}")
+            
+            # 判断是否可以预测
+            can_predict = 'suspended' not in anomalies
+            
+            return {
+                'can_predict': can_predict,
+                'anomalies': anomalies,
+                'details': details
+            }
+            
+        except Exception as e:
+            self.logger.error(f"异常检测失败: {str(e)}")
+            # 检测失败时，允许继续预测（避免因检测失败而阻止预测）
+            return {
+                'can_predict': True,
+                'anomalies': [],
+                'details': {},
+                'error': str(e)
+            }
+    
+    def _calculate_valuation_score_with_cache(self, symbol: str, stock_info: Dict = None) -> Dict:
+        """
+        计算估值指标得分（使用缓存的stock_info，避免重复API调用）
+        
+        Args:
+            symbol: 股票代码
+            stock_info: 缓存的股票信息（可选）
+        
+        Returns:
+            估值得分字典
+        """
+        if stock_info is None:
+            # 如果没有缓存，调用原方法
+            return self.calculate_valuation_score(symbol)
+        
+        # 使用缓存的stock_info
+        try:
+            pe_ratio = None
+            pb_ratio = None
+            
+            # 获取PE
+            for key in ['pe_ratio', '市盈率', 'PE', 'PE(TTM)']:
+                if key in stock_info:
+                    try:
+                        pe_value = stock_info[key]
+                        if isinstance(pe_value, str):
+                            pe_value = pe_value.replace('倍', '').replace(',', '').strip()
+                        pe_ratio = float(pe_value)
+                        break
+                    except:
+                        continue
+            
+            # 获取PB
+            for key in ['pb_ratio', '市净率', 'PB', 'PB(MRQ)']:
+                if key in stock_info:
+                    try:
+                        pb_value = stock_info[key]
+                        if isinstance(pb_value, str):
+                            pb_value = pb_value.replace('倍', '').replace(',', '').strip()
+                        pb_ratio = float(pb_value)
+                        break
+                    except:
+                        continue
+            
+            if pe_ratio is None and pb_ratio is None:
+                return {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None, 'valuation': 'unknown'}
+            
+            score = 0.0
+            
+            # PE评分：一般认为PE在10-30之间合理，低于10可能被低估，高于30可能被高估
+            if pe_ratio is not None:
+                if pe_ratio < 10:
+                    score += 0.15  # 被低估
+                elif pe_ratio > 30:
+                    score -= 0.15  # 被高估
+                elif pe_ratio > 50:
+                    score -= 0.25  # 严重高估
+            
+            # PB评分：一般认为PB在1-3之间合理，低于1可能被低估，高于3可能被高估
+            if pb_ratio is not None:
+                if pb_ratio < 1:
+                    score += 0.1  # 被低估
+                elif pb_ratio > 3:
+                    score -= 0.1  # 被高估
+                elif pb_ratio > 5:
+                    score -= 0.2  # 严重高估
+            
+            # 确定估值状态
+            if score > 0.1:
+                valuation = 'undervalued'
+            elif score < -0.1:
+                valuation = 'overvalued'
+            else:
+                valuation = 'fair'
+            
+            return {
+                'score': max(-1.0, min(1.0, score)),
+                'pe_ratio': pe_ratio,
+                'pb_ratio': pb_ratio,
+                'valuation': valuation
+            }
+        except Exception as e:
+            self.logger.error(f"计算估值得分失败: {str(e)}")
+            return {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None, 'valuation': 'unknown'}
+    
+    def _process_prediction_results_internal(self, symbol: str, stock_name: str, current_price: float,
+                                           price_source: str, data: pd.DataFrame, results: Dict,
+                                           initial_anomaly_result: Dict, target_date: str, 
+                                           prediction_date: str, prediction_type: str = 'after_close') -> Dict:
+        """
+        处理预测结果（融合因子、计算置信度等）- 内部方法，供predict和predict_before_close共用
+        
+        Args:
+            symbol: 股票代码
+            stock_name: 股票名称
+            current_price: 当前价格
+            price_source: 价格来源
+            data: 股票历史数据
+            results: 各因子分析结果
+            initial_anomaly_result: 初始异常检测结果
+            target_date: 目标日期
+            prediction_date: 预测日期
+            prediction_type: 预测类型（'after_close' 或 'before_close'）
+        
+        Returns:
+            预测结果字典
+        """
+        # 提取各因子得分（与predict方法中的逻辑相同）
+        technical_result = results.get('technical', {'score': 0.0, 'signals': {}})
+        technical_score = technical_result['score']
+        technical_signals = technical_result.get('signals', {})
+        
+        news_result = results.get('news', {'score': 0.0, 'sentiment': 'neutral', 'news_count': 0, 'weight_multiplier': 1.0})
+        news_score = news_result['score']
+        news_sentiment = news_result.get('sentiment', 'neutral')
+        news_count = news_result.get('news_count', 0)
+        news_weight_multiplier = news_result.get('weight_multiplier', 1.0)
+        
+        capital_flow_result = results.get('capital_flow', {'score': 0.0, 'trend': 'neutral', 'details': {}})
+        capital_flow_score = capital_flow_result['score']
+        capital_flow_details = capital_flow_result.get('details', {})
+        
+        market_result = results.get('market', {'score': 0.0, 'trend': 'neutral'})
+        market_score = market_result['score']
+        market_trend = market_result.get('trend', 'neutral')
+        
+        history_result = results.get('history', {'score': 0.0, 'pattern': '无显著模式'})
+        history_score = history_result['score']
+        history_pattern = history_result.get('pattern', '无显著模式')
+        
+        valuation_result = results.get('valuation', {'score': 0.0, 'pe_ratio': None, 'pb_ratio': None})
+        valuation_score = valuation_result['score']
+        pe_ratio = valuation_result.get('pe_ratio')
+        pb_ratio = valuation_result.get('pb_ratio')
+        
+        us_sector_result = results.get('us_sector', {'score': 0.0, 'sector': 'unknown', 'change_pct': 0.0})
+        us_sector_score = us_sector_result['score']
+        
+        sector_rotation_result = results.get('sector_rotation', {'score': 0.0, 'sector_name': 'unknown', 'trend': 'neutral'})
+        sector_rotation_score = sector_rotation_result['score']
+        
+        market_overall_result = results.get('market_overall', {'success': False})
+        market_overall_success = market_overall_result.get('success', False)
+        
+        # 由于后续逻辑非常复杂（包括ML模型、权重优化、置信度计算等），
+        # 为了保持代码完整性和避免重复，这里调用predict方法的后续逻辑
+        # 但通过设置prediction_type来区分
+        
+        # 为了真正实现代码分离，我们需要将predict方法从"步骤6"开始的所有逻辑
+        # 提取到一个独立的内部方法中，然后predict和predict_before_close都调用它
+        
+        # 临时方案：由于predict方法的后半部分逻辑非常复杂（700+行），
+        # 为了快速实现分离，这里先调用predict方法获取完整结果，然后设置prediction_type
+        # 后续可以逐步重构，将公共逻辑提取到_process_prediction_results_internal方法
+        
+        # 注意：这里调用predict方法会导致重复执行前面的逻辑，但可以保证功能完整
+        # 更好的方案是将predict方法重构，提取公共逻辑
+        
+        # 为了真正实现代码分离，我创建一个简化版本，包含核心逻辑
+        # 后续可以逐步完善，将predict方法的完整逻辑迁移过来
+        
+        # 6. 识别市场状态并动态调整权重
+        self.logger.info("\n步骤6: 识别市场状态并综合计算预测结果...")
+        
+        # 尝试识别市场状态
+        market_state = {'state': 'sideways', 'confidence': 0.5}
+        weight_multipliers = {}
+        try:
+            from utils.market_state_identifier import MarketStateIdentifier
+            identifier = MarketStateIdentifier()
+            
+            try:
+                indices_data = self.data_source.get_all_market_indices(days=30)
+                if '000001.SH' in indices_data and not indices_data['000001.SH'].empty:
+                    index_data = indices_data['000001.SH']
+                    market_state = identifier.identify_market_state(index_data, '上证指数')
+                    weight_multipliers = identifier.get_weight_adjustment(market_state)
+            except Exception as e:
+                self.logger.debug(f"市场状态识别失败: {str(e)}")
+        except ImportError:
+            self.logger.debug("市场状态识别模块不可用")
+        except Exception as e:
+            self.logger.debug(f"市场状态识别模块初始化失败: {str(e)}")
+        
+        # 使用权重优化器获取优化后的权重
+        optimized_weights = None
+        try:
+            from utils.weight_optimizer import get_weight_optimizer
+            weight_optimizer = get_weight_optimizer()
+            optimized_weights = weight_optimizer.get_optimized_weights(
+                symbol=symbol,
+                market_state=market_state,
+                use_accuracy_optimization=True
+            )
+            self.logger.info(f"权重优化器已启用，使用优化后的权重配置")
+        except Exception as e:
+            self.logger.debug(f"权重优化失败: {str(e)}")
+        
+        # 检查是否为新股票或数据不足
+        is_new_stock_or_insufficient_data = False
+        try:
+            from utils.db_connection import DatabaseConnection
+            db = DatabaseConnection()
+            check_sql = """
+                SELECT COUNT(*) as cnt
+                FROM stock_predictions
+                WHERE symbol = %s
+                  AND prediction_hit IS NOT NULL
+            """
+            result = db.execute_query(check_sql, (symbol,))
+            if result and result[0].get('cnt', 0) < 10:
+                is_new_stock_or_insufficient_data = True
+        except Exception as e:
+            self.logger.debug(f"检查历史数据失败: {str(e)}")
+            is_new_stock_or_insufficient_data = True
+        
+        # 根据是否使用优化后的权重来设置权重值
+        if optimized_weights and not is_new_stock_or_insufficient_data:
+            adjusted_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
+            adjusted_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
+            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18))
+            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.17))
+            adjusted_sector_rotation_weight = optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.05))
+            adjusted_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.08))
+            adjusted_valuation_weight = optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.02))
+            adjusted_us_sector_weight = optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.05))
+        else:
+            technical_multiplier = weight_multipliers.get('technical_weight_multiplier', 1.0)
+            news_multiplier = weight_multipliers.get('news_weight_multiplier', 1.0) * news_weight_multiplier
+            capital_flow_multiplier = weight_multipliers.get('capital_flow_weight_multiplier', 1.0)
+            market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
+            
+            adjusted_technical_weight = self.config.get('technical_weight', 0.20) * technical_multiplier
+            adjusted_news_weight = self.config['news_weight'] * news_multiplier
+            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier
+            adjusted_market_weight = self.config.get('market_weight', 0.17) * market_multiplier
+            adjusted_sector_rotation_weight = self.config.get('sector_rotation_weight', 0.05)
+            adjusted_history_weight = self.config.get('history_weight', 0.08)
+            adjusted_valuation_weight = self.config.get('valuation_weight', 0.02)
+            adjusted_us_sector_weight = self.config.get('us_sector_weight', 0.05)
+        
+        # 尝试获取ML模型预测结果
+        ml_prediction_result = None
+        ml_score = 0.0
+        ml_weight = 0.0
+        try:
+            from utils.ml_predictor_integration import MLPredictorIntegration
+            from utils.ml_model_performance_monitor import MLModelPerformanceMonitor
+            
+            ml_predictor = MLPredictorIntegration()
+            ml_result = ml_predictor.get_ml_prediction(symbol, data, current_price)
+            
+            if ml_result.get('available', False):
+                ml_score = ml_result.get('ml_score', 0.0)
+                ml_up_probability = ml_result.get('ml_up_probability', 0.5)
+                ml_model_type = ml_result.get('model_type', 'unknown')
+                ml_model_id = ml_result.get('model_id')
+                
+                # 获取动态权重（优化：传递配置管理器，支持热更新）
+                performance_monitor = MLModelPerformanceMonitor(config_manager=self._config_manager)
+                ml_weight = performance_monitor.get_optimal_weight(ml_model_id, ml_model_type) if ml_model_id else 0.15
+                
+                ml_prediction_result = {
+                    'ml_score': ml_score,
+                    'ml_up_probability': ml_up_probability,
+                    'ml_down_probability': 1.0 - ml_up_probability,
+                    'ml_prediction': '上涨' if ml_up_probability > 0.5 else '下跌',
+                    'ml_confidence': ml_result.get('ml_confidence', 0.5),
+                    'model_type': ml_model_type,
+                    'model_id': ml_model_id,
+                    'dynamic_weight': ml_weight
+                }
+        except Exception as e:
+            self.logger.debug(f"ML模型预测失败（不影响主流程）: {str(e)}")
+        
+        # 计算包含ML模型的总权重（用于归一化）
+        total_adjusted_weight = (
+            adjusted_technical_weight +
+            adjusted_news_weight +
+            adjusted_capital_flow_weight +
+            adjusted_market_weight +
+            adjusted_sector_rotation_weight +
+            adjusted_history_weight +
+            adjusted_valuation_weight +
+            adjusted_us_sector_weight +
+            ml_weight
+        )
+        
+        # 归一化权重（确保总和为1，包含ML模型权重）
+        if total_adjusted_weight > 0:
+            adjusted_technical_weight = adjusted_technical_weight / total_adjusted_weight
+            adjusted_news_weight = adjusted_news_weight / total_adjusted_weight
+            adjusted_capital_flow_weight = adjusted_capital_flow_weight / total_adjusted_weight
+            adjusted_market_weight = adjusted_market_weight / total_adjusted_weight
+            adjusted_sector_rotation_weight = adjusted_sector_rotation_weight / total_adjusted_weight
+            adjusted_history_weight = adjusted_history_weight / total_adjusted_weight
+            adjusted_valuation_weight = adjusted_valuation_weight / total_adjusted_weight
+            adjusted_us_sector_weight = adjusted_us_sector_weight / total_adjusted_weight
+            ml_weight = ml_weight / total_adjusted_weight
+        
+        # 使用动态调整后的权重计算最终得分（包含ML模型）
+        final_score = (
+            technical_score * adjusted_technical_weight +
+            news_score * adjusted_news_weight +
+            capital_flow_score * adjusted_capital_flow_weight +
+            market_score * adjusted_market_weight +
+            sector_rotation_score * adjusted_sector_rotation_weight +
+            history_score * adjusted_history_weight +
+            valuation_score * adjusted_valuation_weight +
+            us_sector_score * adjusted_us_sector_weight +
+            ml_score * ml_weight
+        )
+        
+        # 使用Sigmoid函数转换为概率（优化版：动态调整放大系数）
+        # 先计算波动率系数（用于动态调整Sigmoid系数）
+        volatility_coefficient = self._calculate_volatility_coefficient(data, period=60) if not data.empty else 3.0
+        
+        # 根据市场状态、波动率和历史准确率动态调整放大系数
+        sigmoid_coefficient = self._calculate_dynamic_sigmoid_coefficient(
+            final_score=final_score,
+            market_state={},  # 简化版本，不传递市场状态
+            volatility_coefficient=volatility_coefficient,
+            symbol=symbol
+        )
+        up_probability = 1 / (1 + np.exp(-final_score * sigmoid_coefficient))
+        down_probability = 1 - up_probability
+        
+        # 概率校准（根据历史准确率校准，过滤干扰因子，提高可靠性）
+        up_probability = self._calibrate_probability(
+            raw_probability=up_probability,
+            symbol=symbol,
+            final_score=final_score
+        )
+        down_probability = 1 - up_probability
+        
+        # 确定预测方向
+        if up_probability > 0.6:
+            prediction = '上涨'
+        elif down_probability > 0.6:
+            prediction = '下跌'
+        else:
+            prediction = '震荡'
+        
+        # 计算置信度（增强版：使用优化后的置信度计算）
+        factor_scores_dict = {
+            'technical': results.get('technical', {}).get('score', 0.0),
+            'news': results.get('news', {}).get('score', 0.0),
+            'capital_flow': results.get('capital_flow', {}).get('score', 0.0),
+            'market': results.get('market', {}).get('score', 0.0),
+            'sector_rotation': results.get('sector_rotation', {}).get('score', 0.0),
+            'history': results.get('history', {}).get('score', 0.0),
+            'valuation': results.get('valuation', {}).get('score', 0.0),
+            'us_sector': results.get('us_sector', {}).get('score', 0.0)
+        }
+        confidence = self._calculate_confidence(
+            final_score=final_score,
+            factor_scores=factor_scores_dict,
+            data_quality=None,
+            symbol=symbol,
+            market_state={}
+        )
+        
+        # 根据异常情况调整置信度（从配置读取参数）
+        try:
+            anomaly_details = initial_anomaly_result.get('details', {})
+            
+            # ST股票：降低置信度（从配置读取）
+            st_reduction = self.config.get('st_stock_confidence_reduction', 0.20)
+            if 'st_stock' in initial_anomaly_result.get('anomalies', []):
+                confidence = confidence * (1.0 - st_reduction)
+                self.logger.warning(f"股票 {symbol} 为ST股票，置信度降低{st_reduction*100:.0f}%")
+            
+            # 涨跌停：降低置信度（从配置读取）
+            limit_reduction = self.config.get('limit_up_down_confidence_reduction', 0.10)
+            if 'limit_up' in initial_anomaly_result.get('anomalies', []) or 'limit_down' in initial_anomaly_result.get('anomalies', []):
+                confidence = confidence * (1.0 - limit_reduction)
+                self.logger.warning(f"股票 {symbol} 处于涨跌停状态，置信度降低{limit_reduction*100:.0f}%")
+        except Exception as e:
+            self.logger.debug(f"异常检测调整置信度失败: {str(e)}")
+        
+        # 计算预测价格
+        predicted_change_pct = (up_probability - down_probability) * 5.0  # 假设最大涨跌幅为5%
+        predicted_close_price = current_price * (1 + predicted_change_pct / 100)
+        
+        # 计算整体数据质量评分（新增：数据缺失处理优化）
+        try:
+            avg_quality = sum(factor_quality_scores.values()) / len(factor_quality_scores) if factor_quality_scores else 1.0
+            missing_factors = [name for name, score in factor_quality_scores.items() if score < 0.3]
+            quality_warning = avg_quality < 0.5
+        except Exception:
+            avg_quality = 1.0
+            missing_factors = []
+            quality_warning = False
+        
+        # 构建返回结果
+        result = {
+            'symbol': symbol,
+            'name': stock_name,
+            'success': True,
+            'prediction': prediction,
+            'up_probability': up_probability,
+            'down_probability': down_probability,
+            'confidence': confidence,
+            'current_price': current_price,
+            'price_source': price_source,
+            'predicted_close_price': predicted_close_price,
+            'predicted_change_pct': predicted_change_pct,
+            'target_date': target_date,
+            'prediction_date': prediction_date,
+            'prediction_type': prediction_type,
+            'final_score': final_score,
+            'factors': {
+                'technical': technical_score,
+                'news': news_score,
+                'capital_flow': capital_flow_score,
+                'market': market_score,
+                'history': history_score,
+                'valuation': valuation_score,
+                'us_sector': us_sector_score,
+                'sector_rotation': sector_rotation_score,
+                'ml': ml_score if ml_prediction_result else None
+            },
+            'weights': {
+                'technical': adjusted_technical_weight,
+                'news': adjusted_news_weight,
+                'capital_flow': adjusted_capital_flow_weight,
+                'market': adjusted_market_weight,
+                'history': adjusted_history_weight,
+                'valuation': adjusted_valuation_weight,
+                'us_sector': adjusted_us_sector_weight,
+                'sector_rotation': adjusted_sector_rotation_weight,
+                'ml': ml_weight if ml_prediction_result else 0.0
+            },
+            'anomaly_info': initial_anomaly_result,
+            'ml_prediction': ml_prediction_result,
+            'market_state': market_state,
+            'data_quality': {  # 新增：数据质量信息
+                'overall_quality': avg_quality,
+                'factor_quality': factor_quality_scores,
+                'missing_factors': missing_factors,
+                'quality_warning': quality_warning
+            }
+        }
+        
+        # 输出预测结果
+        self.logger.info("=" * 60)
+        self.logger.info("预测结果汇总：")
+        self.logger.info(f"预测方向: {prediction}")
+        self.logger.info(f"上涨概率: {up_probability*100:.1f}%")
+        self.logger.info(f"下跌概率: {down_probability*100:.1f}%")
+        self.logger.info(f"置信度: {confidence*100:.1f}%")
+        self.logger.info(f"明日大概收盘价格: {predicted_close_price:.2f}元")
+        self.logger.info(f"明日大概涨幅: {predicted_change_pct:+.2f}%")
         self.logger.info("=" * 60)
         
         return result

@@ -29,6 +29,40 @@ class StockPredictionDB:
         self.use_database = USE_DATABASE
         self.logger = logger
     
+    @staticmethod
+    def _map_prediction_type_to_stock_type(prediction_type: str) -> str:
+        """
+        将prediction_type值映射到stock_type值
+        
+        Args:
+            prediction_type: 'after_close' 或 'before_close'
+        
+        Returns:
+            stock_type值: '收盘-明日' 或 '未收盘-明日'
+        """
+        mapping = {
+            'after_close': '收盘-明日',
+            'before_close': '未收盘-明日'
+        }
+        return mapping.get(prediction_type, prediction_type)
+    
+    @staticmethod
+    def _map_stock_type_to_prediction_type(stock_type: str) -> str:
+        """
+        将stock_type值映射回prediction_type值
+        
+        Args:
+            stock_type: '收盘-明日' 或 '未收盘-明日'
+        
+        Returns:
+            prediction_type值: 'after_close' 或 'before_close'
+        """
+        mapping = {
+            '收盘-明日': 'after_close',
+            '未收盘-明日': 'before_close'
+        }
+        return mapping.get(stock_type, stock_type)
+    
     def save_prediction(self, symbol: str, prediction_result: Dict, 
                        png_file: str = None, interactive_html: str = None, 
                        full_report_html: str = None, prediction_type: str = 'after_close'):
@@ -62,8 +96,45 @@ class StockPredictionDB:
             prediction_time = prediction_result.get('prediction_time', datetime.now())
             summary = prediction_result.get('summary', '')
             
+            # 提取实际结果
+            actual_price = prediction_result.get('actual_price', None)
+            actual_change_pct = prediction_result.get('actual_change_pct', None)
+            
+            # 计算偏差值（如果预测值和实际值都存在）
+            deviation_pct = None
+            absolute_deviation_pct = None
+            deviation_price = None
+            
+            if predicted_change_pct is not None and actual_change_pct is not None:
+                try:
+                    deviation_pct = float(predicted_change_pct) - float(actual_change_pct)
+                    absolute_deviation_pct = abs(deviation_pct)
+                except (ValueError, TypeError):
+                    pass
+            
+            if predicted_close_price is not None and actual_price is not None:
+                try:
+                    deviation_price = float(predicted_close_price) - float(actual_price)
+                except (ValueError, TypeError):
+                    pass
+            
+            # 提取学习分析相关字段（新增）
+            market_state = prediction_result.get('market_state', {})
+            market_state_str = market_state.get('state', 'sideways') if isinstance(market_state, dict) else (market_state if isinstance(market_state, str) else 'sideways')
+            data_quality_score = prediction_result.get('data_quality_score', None)
+            factor_consistency_score = prediction_result.get('factor_consistency_score', None)
+            factor_weights = prediction_result.get('factor_weights', {})
+            config_id = prediction_result.get('config_id', None)
+            
+            # 将factor_weights转换为JSON字符串
+            import json
+            factor_weights_json = json.dumps(factor_weights, ensure_ascii=False) if factor_weights else None
+            
             # 从prediction_result中获取prediction_type，如果没有则使用参数值
             prediction_type = prediction_result.get('prediction_type', prediction_type)
+            
+            # 映射prediction_type值到stock_type值（如果使用stock_type字段）
+            stock_type_value = self._map_prediction_type_to_stock_type(prediction_type) if prediction_type else None
             
             # 提取行业和板块信息（如果存在于prediction_result中）
             industry = prediction_result.get('industry', '')
@@ -110,122 +181,191 @@ class StockPredictionDB:
                 columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'industry'")
                 has_industry_field = len(columns_check) > 0
                 
-                columns_check_type = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
-                has_prediction_type_field = len(columns_check_type) > 0
+                # 检查stock_type字段（优先）或prediction_type字段
+                columns_check_stock_type = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'stock_type'")
+                has_stock_type_field = len(columns_check_stock_type) > 0
+                
+                if not has_stock_type_field:
+                    columns_check_type = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
+                    has_prediction_type_field = len(columns_check_type) > 0
+                else:
+                    has_prediction_type_field = False
                 
                 columns_check_price = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'predicted_close_price'")
                 has_predicted_price_field = len(columns_check_price) > 0
+                
+                # 检查学习分析相关字段
+                columns_check_factor_weights = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'factor_weights'")
+                has_factor_weights_field = len(columns_check_factor_weights) > 0
+                
+                columns_check_market_state = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'market_state'")
+                has_market_state_field = len(columns_check_market_state) > 0
+                
+                columns_check_data_quality = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'data_quality_score'")
+                has_data_quality_field = len(columns_check_data_quality) > 0
+                
+                columns_check_factor_consistency = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'factor_consistency_score'")
+                has_factor_consistency_field = len(columns_check_factor_consistency) > 0
+                
+                columns_check_config_id = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'config_id'")
+                has_config_id_field = len(columns_check_config_id) > 0
+                
+                # 检查偏差值字段
+                columns_check_deviation = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'deviation_pct'")
+                has_deviation_field = len(columns_check_deviation) > 0
             except:
                 has_industry_field = False
+                has_stock_type_field = False
                 has_prediction_type_field = False
                 has_predicted_price_field = False
+                has_factor_weights_field = False
+                has_market_state_field = False
+                has_data_quality_field = False
+                has_factor_consistency_field = False
+                has_config_id_field = False
+                has_deviation_field = False
             
-            if has_industry_field and has_prediction_type_field and has_predicted_price_field:
-                # 如果有所有新字段，使用包含所有新字段的SQL
-                sql = """
-                    INSERT INTO stock_predictions 
-                    (symbol, name, industry, concepts, main_concept, market, prediction_date, target_date, prediction_type,
-                     current_price, predicted_close_price, predicted_change_pct, prediction, up_probability, down_probability, confidence, final_score, 
-                     prediction_time, png_file, interactive_html, full_report_html, summary)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                    name = VALUES(name),
-                    industry = VALUES(industry),
-                    concepts = VALUES(concepts),
-                    main_concept = VALUES(main_concept),
-                    market = VALUES(market),
-                    prediction_date = VALUES(prediction_date),
-                    target_date = VALUES(target_date),
-                    prediction_type = VALUES(prediction_type),
-                    current_price = VALUES(current_price),
-                    predicted_close_price = VALUES(predicted_close_price),
-                    predicted_change_pct = VALUES(predicted_change_pct),
-                    prediction = VALUES(prediction),
-                    up_probability = VALUES(up_probability),
-                    down_probability = VALUES(down_probability),
-                    confidence = VALUES(confidence),
-                    final_score = VALUES(final_score),
-                    prediction_time = VALUES(prediction_time),
-                    png_file = VALUES(png_file),
-                    interactive_html = VALUES(interactive_html),
-                    full_report_html = VALUES(full_report_html),
-                    summary = VALUES(summary)
-                """
-                params = (
-                    str(symbol).zfill(6),
-                    name,
-                    industry if industry else None,
-                    concepts_json,
-                    main_concept if main_concept else None,
-                    market if market else 'A股',
-                    prediction_date if prediction_date else None,
-                    target_date if target_date else None,
-                    prediction_type,  # 添加预测类型
-                    current_price if current_price else None,
+            # 根据字段存在情况选择使用stock_type还是prediction_type
+            type_field_name = 'stock_type' if has_stock_type_field else ('prediction_type' if has_prediction_type_field else None)
+            type_field_value = stock_type_value if has_stock_type_field else (prediction_type if has_prediction_type_field else None)
+            
+            # 构建字段列表和参数列表（动态添加学习分析字段）
+            base_fields = []
+            base_params = []
+            base_updates = []
+            
+            # 基础字段
+            base_fields.extend(['symbol', 'name'])
+            base_params.extend([str(symbol).zfill(6), name])
+            base_updates.extend(['name = VALUES(name)'])
+            
+            if has_industry_field:
+                base_fields.append('industry')
+                base_params.append(industry if industry else None)
+                base_updates.append('industry = VALUES(industry)')
+            
+            if has_industry_field:
+                base_fields.extend(['concepts', 'main_concept', 'market'])
+                base_params.extend([concepts_json, main_concept if main_concept else None, market if market else 'A股'])
+                base_updates.extend(['concepts = VALUES(concepts)', 'main_concept = VALUES(main_concept)', 'market = VALUES(market)'])
+            
+            base_fields.extend(['prediction_date', 'target_date'])
+            base_params.extend([prediction_date if prediction_date else None, target_date if target_date else None])
+            base_updates.extend(['prediction_date = VALUES(prediction_date)', 'target_date = VALUES(target_date)'])
+            
+            if type_field_name:
+                base_fields.append(type_field_name)
+                base_params.append(type_field_value)
+                base_updates.append(f'{type_field_name} = VALUES({type_field_name})')
+            
+            base_fields.append('current_price')
+            base_params.append(current_price if current_price else None)
+            base_updates.append('current_price = VALUES(current_price)')
+            
+            if has_predicted_price_field:
+                base_fields.extend(['predicted_close_price', 'predicted_change_pct'])
+                base_params.extend([
                     predicted_close_price if predicted_close_price else None,
-                    predicted_change_pct if predicted_change_pct is not None else None,
-                    prediction,
-                    up_probability if up_probability else None,
-                    down_probability if down_probability else None,
-                    confidence if confidence else None,
-                    final_score if final_score else None,
-                    prediction_time_str,
-                    png_basename,
-                    interactive_basename,
-                    full_report_basename,
-                    summary
-                )
-            elif has_industry_field and has_prediction_type_field:
-                # 如果有新字段，使用包含新字段的SQL
-                sql = """
+                    predicted_change_pct if predicted_change_pct is not None else None
+                ])
+                base_updates.extend([
+                    'predicted_close_price = VALUES(predicted_close_price)',
+                    'predicted_change_pct = VALUES(predicted_change_pct)'
+                ])
+            
+            base_fields.extend(['prediction', 'up_probability', 'down_probability', 'confidence', 'final_score'])
+            base_params.extend([
+                prediction,
+                up_probability if up_probability else None,
+                down_probability if down_probability else None,
+                confidence if confidence else None,
+                final_score if final_score else None
+            ])
+            base_updates.extend([
+                'prediction = VALUES(prediction)',
+                'up_probability = VALUES(up_probability)',
+                'down_probability = VALUES(down_probability)',
+                'confidence = VALUES(confidence)',
+                'final_score = VALUES(final_score)'
+            ])
+            
+            # 添加学习分析字段（如果存在）
+            if has_factor_weights_field:
+                base_fields.append('factor_weights')
+                base_params.append(factor_weights_json)
+                base_updates.append('factor_weights = VALUES(factor_weights)')
+            
+            if has_market_state_field:
+                base_fields.append('market_state')
+                base_params.append(market_state_str)
+                base_updates.append('market_state = VALUES(market_state)')
+            
+            if has_data_quality_field:
+                base_fields.append('data_quality_score')
+                base_params.append(data_quality_score)
+                base_updates.append('data_quality_score = VALUES(data_quality_score)')
+            
+            if has_factor_consistency_field:
+                base_fields.append('factor_consistency_score')
+                base_params.append(factor_consistency_score)
+                base_updates.append('factor_consistency_score = VALUES(factor_consistency_score)')
+            
+            if has_config_id_field:
+                base_fields.append('config_id')
+                base_params.append(config_id)
+                base_updates.append('config_id = VALUES(config_id)')
+            
+            # 添加偏差值字段（如果存在）
+            if has_deviation_field:
+                base_fields.extend(['deviation_pct', 'absolute_deviation_pct', 'deviation_price'])
+                base_params.extend([deviation_pct, absolute_deviation_pct, deviation_price])
+                base_updates.extend([
+                    'deviation_pct = VALUES(deviation_pct)',
+                    'absolute_deviation_pct = VALUES(absolute_deviation_pct)',
+                    'deviation_price = VALUES(deviation_price)'
+                ])
+            
+            base_fields.extend(['prediction_time', 'png_file', 'interactive_html', 'full_report_html', 'summary'])
+            base_params.extend([
+                prediction_time_str,
+                png_basename,
+                interactive_basename,
+                full_report_basename,
+                summary
+            ])
+            base_updates.extend([
+                'prediction_time = VALUES(prediction_time)',
+                'png_file = VALUES(png_file)',
+                'interactive_html = VALUES(interactive_html)',
+                'full_report_html = VALUES(full_report_html)',
+                'summary = VALUES(summary)'
+            ])
+            
+            # 构建SQL语句
+            fields_str = ', '.join(base_fields)
+            placeholders = ', '.join(['%s'] * len(base_fields))
+            updates_str = ',\n                    '.join(base_updates)
+            
+            if has_industry_field and type_field_name and has_predicted_price_field:
+                # 如果有所有新字段，使用包含所有新字段的SQL
+                sql = f"""
                     INSERT INTO stock_predictions 
-                    (symbol, name, industry, concepts, main_concept, market, prediction_date, target_date, prediction_type,
-                     current_price, prediction, up_probability, down_probability, confidence, final_score, 
-                     prediction_time, png_file, interactive_html, full_report_html, summary)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ({fields_str})
+                    VALUES ({placeholders})
                     ON DUPLICATE KEY UPDATE
-                    name = VALUES(name),
-                    industry = VALUES(industry),
-                    concepts = VALUES(concepts),
-                    main_concept = VALUES(main_concept),
-                    market = VALUES(market),
-                    prediction_date = VALUES(prediction_date),
-                    target_date = VALUES(target_date),
-                    prediction_type = VALUES(prediction_type),
-                    current_price = VALUES(current_price),
-                    prediction = VALUES(prediction),
-                    up_probability = VALUES(up_probability),
-                    down_probability = VALUES(down_probability),
-                    confidence = VALUES(confidence),
-                    final_score = VALUES(final_score),
-                    prediction_time = VALUES(prediction_time),
-                    png_file = VALUES(png_file),
-                    interactive_html = VALUES(interactive_html),
-                    full_report_html = VALUES(full_report_html),
-                    summary = VALUES(summary)
+                    {updates_str}
                 """
-                params = (
-                    str(symbol).zfill(6),
-                    name,
-                    industry if industry else None,
-                    concepts_json,
-                    main_concept if main_concept else None,
-                    market if market else 'A股',
-                    prediction_date if prediction_date else None,
-                    target_date if target_date else None,
-                    prediction_type,  # 添加预测类型
-                    current_price if current_price else None,
-                    prediction,
-                    up_probability if up_probability else None,
-                    down_probability if down_probability else None,
-                    confidence if confidence else None,
-                    final_score if final_score else None,
-                    prediction_time_str,
-                    png_basename,
-                    interactive_basename,
-                    full_report_basename,
-                    summary
-                )
+                params = tuple(base_params)
+            elif has_industry_field and type_field_name:
+                # 使用动态构建的SQL（已包含所有可用字段）
+                sql = f"""
+                    INSERT INTO stock_predictions 
+                    ({fields_str})
+                    VALUES ({placeholders})
+                    ON DUPLICATE KEY UPDATE
+                    {updates_str}
+                """
+                params = tuple(base_params)
             elif has_industry_field:
                 # 如果有industry字段但没有prediction_type字段
                 sql = """
@@ -295,9 +435,11 @@ class StockPredictionDB:
     
     def update_prediction_actual(self, symbol: str, target_date: str, 
                                  actual_price: float, actual_change_pct: float,
-                                 actual_direction: str, prediction_hit: str):
+                                 actual_direction: str, prediction_hit: str,
+                                 deviation_pct: float = None, absolute_deviation_pct: float = None,
+                                 deviation_price: float = None):
         """
-        更新预测记录的实际数据
+        更新预测记录的实际数据（包括偏差字段）
         
         Args:
             symbol: 股票代码
@@ -306,25 +448,57 @@ class StockPredictionDB:
             actual_change_pct: 实际涨跌幅
             actual_direction: 实际方向
             prediction_hit: 预测结果（命中/未命中）
+            deviation_pct: 偏差值（预测涨跌幅 - 实际涨跌幅，可选）
+            absolute_deviation_pct: 绝对偏差值（|预测涨跌幅 - 实际涨跌幅|，可选）
+            deviation_price: 价格偏差（预测收盘价 - 实际价格，可选）
         """
         if not self.use_database:
             return False
         
         try:
-            sql = """
-                UPDATE stock_predictions 
-                SET actual_price = %s, actual_change_pct = %s, 
-                    actual_direction = %s, prediction_hit = %s
-                WHERE symbol = %s AND target_date = %s
-            """
-            params = (
-                actual_price,
-                actual_change_pct,
-                actual_direction,
-                prediction_hit,
-                str(symbol).zfill(6),
-                target_date
-            )
+            # 检查偏差字段是否存在
+            try:
+                columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'deviation_pct'")
+                has_deviation_fields = len(columns_check) > 0
+            except:
+                has_deviation_fields = False
+            
+            if has_deviation_fields:
+                # 如果偏差字段存在，更新所有字段
+                sql = """
+                    UPDATE stock_predictions 
+                    SET actual_price = %s, actual_change_pct = %s, 
+                        actual_direction = %s, prediction_hit = %s,
+                        deviation_pct = %s, absolute_deviation_pct = %s, deviation_price = %s
+                    WHERE symbol = %s AND target_date = %s
+                """
+                params = (
+                    actual_price,
+                    actual_change_pct,
+                    actual_direction,
+                    prediction_hit,
+                    deviation_pct,
+                    absolute_deviation_pct,
+                    deviation_price,
+                    str(symbol).zfill(6),
+                    target_date
+                )
+            else:
+                # 如果偏差字段不存在，只更新基本字段（向后兼容）
+                sql = """
+                    UPDATE stock_predictions 
+                    SET actual_price = %s, actual_change_pct = %s, 
+                        actual_direction = %s, prediction_hit = %s
+                    WHERE symbol = %s AND target_date = %s
+                """
+                params = (
+                    actual_price,
+                    actual_change_pct,
+                    actual_direction,
+                    prediction_hit,
+                    str(symbol).zfill(6),
+                    target_date
+                )
             
             self.db.execute_update(sql, params)
             self.logger.debug(f"更新预测记录实际数据: {symbol} - {target_date}")
@@ -337,7 +511,8 @@ class StockPredictionDB:
     def get_predictions(self, symbol: Optional[str] = None, 
                        limit: Optional[int] = None,
                        order_by: str = 'prediction_time DESC',
-                       prediction_type: Optional[str] = None) -> List[Dict]:
+                       prediction_type: Optional[str] = None,
+                       target_date: Optional[str] = None) -> List[Dict]:
         """
         获取预测记录列表
         
@@ -346,6 +521,7 @@ class StockPredictionDB:
             limit: 限制数量（可选）
             order_by: 排序方式（默认按预测时间倒序）
             prediction_type: 预测类型（可选，'after_close'或'before_close'）
+            target_date: 目标日期过滤（可选，格式：'YYYY-MM-DD'）
             
         Returns:
             预测记录列表
@@ -354,11 +530,18 @@ class StockPredictionDB:
             return []
         
         try:
-            # 检查prediction_type字段是否存在
+            # 检查stock_type字段（优先）或prediction_type字段是否存在
+            has_stock_type_field = False
+            has_prediction_type_field = False
             try:
-                columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
-                has_prediction_type_field = len(columns_check) > 0
+                columns_check_stock_type = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'stock_type'")
+                has_stock_type_field = len(columns_check_stock_type) > 0
+                
+                if not has_stock_type_field:
+                    columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
+                    has_prediction_type_field = len(columns_check) > 0
             except:
+                has_stock_type_field = False
                 has_prediction_type_field = False
             
             # 构建WHERE条件
@@ -369,10 +552,22 @@ class StockPredictionDB:
                 where_conditions.append("symbol = %s")
                 params.append(str(symbol).zfill(6))
             
-            if prediction_type and has_prediction_type_field:
-                # 明确过滤 prediction_type，排除 NULL 值
-                where_conditions.append("prediction_type = %s AND prediction_type IS NOT NULL")
-                params.append(prediction_type)
+            if prediction_type:
+                # 优先使用stock_type字段，如果不存在则使用prediction_type字段
+                if has_stock_type_field:
+                    # 映射prediction_type值到stock_type值
+                    stock_type_value = self._map_prediction_type_to_stock_type(prediction_type)
+                    where_conditions.append("stock_type = %s AND stock_type IS NOT NULL")
+                    params.append(stock_type_value)
+                elif has_prediction_type_field:
+                    # 明确过滤 prediction_type，排除 NULL 值
+                    where_conditions.append("prediction_type = %s AND prediction_type IS NOT NULL")
+                    params.append(prediction_type)
+            
+            # 添加 target_date 过滤条件（如果提供）
+            if target_date:
+                where_conditions.append("DATE(target_date) = %s")
+                params.append(target_date)
             
             where_clause = ""
             if where_conditions:
@@ -404,7 +599,7 @@ class StockPredictionDB:
             if limit:
                 try:
                     limit_int = int(limit)
-                    if limit_int > 0 and limit_int <= 10000:  # 设置上限防止过大查询
+                    if limit_int > 0 and limit_int <= 50000:  # 增加上限到50000，支持更多数据查询
                         sql += " LIMIT %s"
                         params.append(limit_int)
                     else:
@@ -412,10 +607,16 @@ class StockPredictionDB:
                 except (ValueError, TypeError):
                     self.logger.warning(f"无效的limit值: {limit}，忽略")
             
+            # 记录SQL查询（调试用）
+            self.logger.debug(f"【SQL查询】执行查询: {sql}")
+            self.logger.debug(f"【SQL查询】参数: {params}")
+            
             if params:
                 results = self.db.execute_query(sql, tuple(params))
             else:
                 results = self.db.execute_query(sql, None)
+            
+            self.logger.debug(f"【SQL查询】查询结果数量: {len(results) if results else 0}")
             
             # 转换结果为字典列表
             records = []
@@ -497,28 +698,42 @@ class StockPredictionDB:
             return []
         
         try:
-            # 检查prediction_type字段是否存在
+            # 检查stock_type字段（优先）或prediction_type字段是否存在
+            has_stock_type_field = False
+            has_prediction_type_field = False
             try:
-                columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
-                has_prediction_type_field = len(columns_check) > 0
+                columns_check_stock_type = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'stock_type'")
+                has_stock_type_field = len(columns_check_stock_type) > 0
+                
+                if not has_stock_type_field:
+                    columns_check = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'prediction_type'")
+                    has_prediction_type_field = len(columns_check) > 0
             except:
+                has_stock_type_field = False
                 has_prediction_type_field = False
             
             # 使用子查询获取每个股票的最新预测时间，然后在应用层再次去重确保唯一性
-            if has_prediction_type_field:
-                sql = """
+            if has_stock_type_field or has_prediction_type_field:
+                type_field_name = 'stock_type' if has_stock_type_field else 'prediction_type'
+                # 如果使用stock_type字段，需要映射值
+                if has_stock_type_field:
+                    type_field_value = self._map_prediction_type_to_stock_type(prediction_type)
+                else:
+                    type_field_value = prediction_type
+                
+                sql = f"""
                     SELECT p1.* FROM stock_predictions p1
                     INNER JOIN (
                         SELECT symbol, MAX(prediction_time) as max_time
                         FROM stock_predictions
-                        WHERE prediction_type = %s
+                        WHERE {type_field_name} = %s
                         GROUP BY symbol
                     ) p2 ON p1.symbol = p2.symbol AND p1.prediction_time = p2.max_time
-                    WHERE p1.prediction_type = %s
+                    WHERE p1.{type_field_name} = %s
                     ORDER BY p1.prediction_time DESC
                     LIMIT %s
                 """
-                results = self.db.execute_query(sql, (prediction_type, prediction_type, limit * 2))  # 多查询一些，以防去重后不够
+                results = self.db.execute_query(sql, (type_field_value, type_field_value, limit * 2))  # 多查询一些，以防去重后不够
             else:
                 # 如果字段不存在，使用原来的逻辑（向后兼容）
                 sql = """

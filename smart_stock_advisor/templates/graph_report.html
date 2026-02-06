@@ -132,6 +132,10 @@
                         <div><strong>最终得分:</strong> <span id="finalScore">-</span></div>
                         <div><strong>上涨概率:</strong> <span id="upProb">-</span></div>
                         <div><strong>下跌概率:</strong> <span id="downProb">-</span></div>
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd;">
+                            <div><strong>明日收盘价:</strong> <span id="predictedClosePrice" style="color: #2c3e50; font-weight: bold;">-</span></div>
+                            <div><strong>明日预测涨幅:</strong> <span id="predictedChangePct" style="font-weight: bold;">-</span></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -179,6 +183,19 @@
                 document.getElementById('finalScore').textContent = data.final_score ? data.final_score.toFixed(4) : '-';
                 document.getElementById('upProb').textContent = data.up_probability ? (data.up_probability * 100).toFixed(1) + '%' : '-';
                 document.getElementById('downProb').textContent = data.down_probability ? (data.down_probability * 100).toFixed(1) + '%' : '-';
+                
+                // 更新明日收盘价和涨幅
+                const predictedPrice = data.predicted_close_price ? data.predicted_close_price.toFixed(2) + '元' : '-';
+                const predictedChange = data.predicted_change_pct !== null && data.predicted_change_pct !== undefined ? 
+                    (data.predicted_change_pct >= 0 ? '+' : '') + data.predicted_change_pct.toFixed(2) + '%' : '-';
+                const changeColor = data.predicted_change_pct >= 0 ? '#e74c3c' : '#27ae60';
+                
+                document.getElementById('predictedClosePrice').textContent = predictedPrice;
+                const changePctElement = document.getElementById('predictedChangePct');
+                changePctElement.textContent = predictedChange;
+                if (predictedChange !== '-') {
+                    changePctElement.style.color = changeColor;
+                }
                 
                 // 绘制图表
                 drawPieChart(data);
@@ -232,13 +249,13 @@
         function drawRadarChart(data) {
             const factors = data.factors || {};
             
-            const categories = ['技术指标', '新闻情感', '市场情绪', '历史模式', '美股板块'];
+            // 【已优化】移除已优化的因子：us_sector
+            const categories = ['技术指标', '新闻情感', '市场情绪', '历史模式'];
             const scores = [
                 factors.technical?.score || 0,
                 factors.news?.score || 0,
                 factors.market?.score || 0,
-                factors.history?.score || 0,
-                factors.us_sector?.score || 0
+                factors.history?.score || 0
             ];
             
             // 转换为0-1范围用于雷达图

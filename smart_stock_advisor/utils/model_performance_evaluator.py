@@ -40,19 +40,24 @@ class ModelPerformanceEvaluator:
             end_date = datetime.now().date()
             start_date = end_date - timedelta(days=days)
             
-            # 查询有实际结果的预测记录
+            # 查询有实际结果的预测记录（关联配置表，支持按配置版本分析）
+            # 优化：添加偏差值字段到查询中
+            # 注意：factor_weights字段可能不存在，从prediction_factors表获取权重信息
             sql = """
                 SELECT 
-                    symbol, name, prediction_date, target_date,
-                    prediction, up_probability, down_probability, confidence,
-                    actual_price, actual_change_pct, actual_direction, prediction_hit,
-                    current_price
-                FROM stock_predictions
-                WHERE target_date >= %s 
-                  AND target_date <= %s
-                  AND actual_price IS NOT NULL
-                  AND prediction_hit IS NOT NULL
-                ORDER BY target_date DESC
+                    sp.symbol, sp.name, sp.prediction_date, sp.target_date,
+                    sp.prediction, sp.up_probability, sp.down_probability, sp.confidence,
+                    sp.actual_price, sp.actual_change_pct, sp.actual_direction, sp.prediction_hit,
+                    sp.current_price, sp.config_id,
+                    sp.predicted_change_pct, sp.deviation_pct, sp.absolute_deviation_pct,
+                    pc.config_name, pc.is_active as config_is_active
+                FROM stock_predictions sp
+                LEFT JOIN prediction_config pc ON sp.config_id = pc.id
+                WHERE sp.target_date >= %s 
+                  AND sp.target_date <= %s
+                  AND sp.actual_price IS NOT NULL
+                  AND sp.prediction_hit IS NOT NULL
+                ORDER BY sp.target_date DESC
             """
             
             results = self.db.execute_query(sql, (start_date, end_date))
@@ -71,20 +76,36 @@ class ModelPerformanceEvaluator:
             direction_accuracy = hit_count / total_count if total_count > 0 else 0.0
             
             # 计算幅度误差（MAE）
+            # 优化：优先使用存储的偏差值，如果没有则计算
             magnitude_errors = []
             for r in results:
                 if r.get('actual_change_pct') is not None:
-                    # 根据预测方向估算预测涨跌幅
-                    if r.get('prediction') == '上涨':
-                        predicted_change = r.get('up_probability', 0.5) * 5.0  # 简化估算
-                    elif r.get('prediction') == '下跌':
-                        predicted_change = -r.get('down_probability', 0.5) * 5.0
+                    # 优先使用存储的绝对偏差值
+                    if r.get('absolute_deviation_pct') is not None:
+                        error = float(r.get('absolute_deviation_pct', 0))
+                        magnitude_errors.append(error)
+                    # 其次使用存储的偏差值
+                    elif r.get('deviation_pct') is not None:
+                        error = abs(float(r.get('deviation_pct', 0)))
+                        magnitude_errors.append(error)
+                    # 如果都没有，使用实际的predicted_change_pct计算
+                    elif r.get('predicted_change_pct') is not None:
+                        predicted_change = float(r.get('predicted_change_pct', 0))
+                        actual_change = float(r.get('actual_change_pct', 0))
+                        error = abs(predicted_change - actual_change)
+                        magnitude_errors.append(error)
+                    # 最后才使用简化的估算方法（向后兼容）
                     else:
-                        predicted_change = 0.0
-                    
-                    actual_change = float(r.get('actual_change_pct', 0))
-                    error = abs(predicted_change - actual_change)
-                    magnitude_errors.append(error)
+                        if r.get('prediction') == '上涨':
+                            predicted_change = r.get('up_probability', 0.5) * 5.0  # 简化估算
+                        elif r.get('prediction') == '下跌':
+                            predicted_change = -r.get('down_probability', 0.5) * 5.0
+                        else:
+                            predicted_change = 0.0
+                        
+                        actual_change = float(r.get('actual_change_pct', 0))
+                        error = abs(predicted_change - actual_change)
+                        magnitude_errors.append(error)
             
             magnitude_mae = sum(magnitude_errors) / len(magnitude_errors) if magnitude_errors else 0.0
             
@@ -492,6 +513,310 @@ class ModelPerformanceEvaluator:
             self.logger.error(f"保存性能记录失败: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
+    
+    def evaluate_comprehensive_performance(self, days: int = 30) -> Dict:
+        """
+        多指标综合评估
+        
+        Args:
+            days: 评估时间范围（天数）
+            
+        Returns:
+            综合评估结果字典（包含多个指标的综合评分）
+        """
+        try:
+            # 获取基础评估结果
+            prediction_result = self.evaluate_prediction_performance(days=days)
+            trading_result = self.evaluate_trading_performance(days=days)
+            
+            if not prediction_result.get('success'):
+                return prediction_result
+            
+            # 提取各项指标
+            direction_accuracy = prediction_result.get('direction_accuracy', 0)
+            magnitude_mae = prediction_result.get('magnitude_mae', 0)
+            confidence_calibration = prediction_result.get('confidence_calibration', {})
+            
+            # 计算置信度校准得分（期望高置信度对应高准确率）
+            calibration_score = 0.0
+            if confidence_calibration:
+                high_conf_accuracy = confidence_calibration.get('high', 0)
+                medium_conf_accuracy = confidence_calibration.get('medium', 0)
+                low_conf_accuracy = confidence_calibration.get('low', 0)
+                
+                # 理想情况下：high > medium > low
+                if high_conf_accuracy >= medium_conf_accuracy >= low_conf_accuracy:
+                    calibration_score = 1.0
+                elif high_conf_accuracy >= medium_conf_accuracy:
+                    calibration_score = 0.7
+                elif high_conf_accuracy >= low_conf_accuracy:
+                    calibration_score = 0.5
+                else:
+                    calibration_score = 0.3
+            
+            # 计算幅度误差得分（误差越小得分越高）
+            magnitude_score = max(0, 1 - magnitude_mae / 5.0)  # 假设最大误差为5%
+            
+            # 计算综合得分（加权平均）
+            weights = {
+                'direction': 0.4,  # 方向准确率权重40%
+                'magnitude': 0.3,  # 幅度准确率权重30%
+                'calibration': 0.3  # 置信度校准权重30%
+            }
+            
+            comprehensive_score = (
+                direction_accuracy * weights['direction'] +
+                magnitude_score * weights['magnitude'] +
+                calibration_score * weights['calibration']
+            )
+            
+            # 计算交易性能得分（如果有交易数据）
+            trading_score = 0.0
+            if trading_result.get('success') and trading_result.get('evaluated_count', 0) > 0:
+                win_rate = trading_result.get('win_rate', 0)
+                avg_return = trading_result.get('avg_return', 0)
+                
+                # 交易得分 = 胜率 * 0.5 + 平均收益率得分 * 0.5
+                return_score = min(1.0, max(0, (avg_return + 10) / 20))  # 将-10%到+10%映射到0-1
+                trading_score = win_rate * 0.5 + return_score * 0.5
+            
+            return {
+                'success': True,
+                'evaluation_date': prediction_result.get('evaluation_date'),
+                'time_period': f'{days}d',
+                'comprehensive_score': round(comprehensive_score, 4),
+                'trading_score': round(trading_score, 4) if trading_score > 0 else None,
+                'metrics': {
+                    'direction_accuracy': round(direction_accuracy, 4),
+                    'magnitude_mae': round(magnitude_mae, 4),
+                    'magnitude_score': round(magnitude_score, 4),
+                    'calibration_score': round(calibration_score, 4),
+                    'confidence_calibration': confidence_calibration
+                },
+                'weights': weights,
+                'prediction_details': prediction_result,
+                'trading_details': trading_result if trading_result.get('success') else None
+            }
+            
+        except Exception as e:
+            self.logger.error(f"综合评估失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {
+                'success': False,
+                'message': f'综合评估失败: {str(e)}'
+            }
+    
+    def evaluate_by_market_state(self, days: int = 30) -> Dict:
+        """
+        分市场状态评估
+        
+        Args:
+            days: 评估时间范围（天数）
+            
+        Returns:
+            按市场状态分组的评估结果
+        """
+        try:
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days)
+            
+            # 查询预测记录，包含市场状态
+            sql = """
+                SELECT 
+                    sp.symbol, sp.name, sp.prediction_date, sp.target_date,
+                    sp.prediction, sp.up_probability, sp.down_probability, sp.confidence,
+                    sp.actual_price, sp.actual_change_pct, sp.actual_direction, sp.prediction_hit,
+                    sp.current_price, sp.predicted_close_price, sp.predicted_change_pct,
+                    NULL as market_state
+                FROM stock_predictions sp
+                WHERE sp.target_date >= %s 
+                  AND sp.target_date <= %s
+                  AND sp.actual_price IS NOT NULL
+                  AND sp.prediction_hit IS NOT NULL
+                ORDER BY sp.target_date DESC
+            """
+            
+            results = self.db.execute_query(sql, (start_date, end_date))
+            
+            if not results:
+                return {
+                    'success': False,
+                    'message': f'没有找到 {days} 天内的预测记录'
+                }
+            
+            # 按市场状态分组
+            # 如果market_state字段不存在，所有记录都归为'unknown'
+            market_states = {}
+            for r in results:
+                market_state = r.get('market_state') or 'unknown'
+                if market_state not in market_states:
+                    market_states[market_state] = []
+                market_states[market_state].append(r)
+            
+            # 对每个市场状态进行评估
+            evaluation_by_state = {}
+            for state, state_results in market_states.items():
+                total_count = len(state_results)
+                hit_count = sum(1 for r in state_results if r.get('prediction_hit') == '命中')
+                direction_accuracy = hit_count / total_count if total_count > 0 else 0.0
+                
+                # 计算幅度误差
+                magnitude_errors = []
+                for r in state_results:
+                    if r.get('predicted_change_pct') is not None and r.get('actual_change_pct') is not None:
+                        predicted_change = float(r.get('predicted_change_pct', 0))
+                        actual_change = float(r.get('actual_change_pct', 0))
+                        error = abs(predicted_change - actual_change)
+                        magnitude_errors.append(error)
+                
+                magnitude_mae = sum(magnitude_errors) / len(magnitude_errors) if magnitude_errors else 0.0
+                
+                # 计算置信度分布
+                confidences = [float(r.get('confidence', 0)) for r in state_results if r.get('confidence') is not None]
+                avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                
+                evaluation_by_state[state] = {
+                    'sample_count': total_count,
+                    'direction_accuracy': round(direction_accuracy, 4),
+                    'magnitude_mae': round(magnitude_mae, 4),
+                    'avg_confidence': round(avg_confidence, 4),
+                    'hit_count': hit_count,
+                    'miss_count': total_count - hit_count
+                }
+            
+            return {
+                'success': True,
+                'evaluation_date': end_date.strftime('%Y-%m-%d'),
+                'time_period': f'{days}d',
+                'evaluation_by_state': evaluation_by_state,
+                'total_samples': len(results)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"分市场状态评估失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {
+                'success': False,
+                'message': f'分市场状态评估失败: {str(e)}'
+            }
+    
+    def evaluate_confidence_calibration(self, days: int = 30, bins: int = 10) -> Dict:
+        """
+        置信度校准评估（更详细的校准分析）
+        
+        Args:
+            days: 评估时间范围（天数）
+            bins: 置信度分箱数量
+            
+        Returns:
+            置信度校准评估结果
+        """
+        try:
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days)
+            
+            # 查询预测记录
+            sql = """
+                SELECT 
+                    confidence, prediction_hit
+                FROM stock_predictions
+                WHERE target_date >= %s 
+                  AND target_date <= %s
+                  AND prediction_hit IS NOT NULL
+                  AND confidence IS NOT NULL
+                ORDER BY confidence DESC
+            """
+            
+            results = self.db.execute_query(sql, (start_date, end_date))
+            
+            if not results:
+                return {
+                    'success': False,
+                    'message': f'没有找到 {days} 天内的预测记录'
+                }
+            
+            # 将置信度分箱
+            confidences = [float(r.get('confidence', 0)) for r in results]
+            min_conf = min(confidences) if confidences else 0
+            max_conf = max(confidences) if confidences else 1
+            
+            bin_width = (max_conf - min_conf) / bins if max_conf > min_conf else 1.0 / bins
+            
+            bins_data = {}
+            for i in range(bins):
+                bin_start = min_conf + i * bin_width
+                bin_end = min_conf + (i + 1) * bin_width
+                bins_data[i] = {
+                    'range': (bin_start, bin_end),
+                    'predictions': [],
+                    'hits': [],
+                    'count': 0,
+                    'hit_count': 0
+                }
+            
+            # 分配预测到各个箱
+            for r in results:
+                confidence = float(r.get('confidence', 0))
+                is_hit = (r.get('prediction_hit') == '命中')
+                
+                # 找到对应的箱
+                bin_idx = min(int((confidence - min_conf) / bin_width), bins - 1)
+                bins_data[bin_idx]['predictions'].append(confidence)
+                bins_data[bin_idx]['hits'].append(is_hit)
+                bins_data[bin_idx]['count'] += 1
+                if is_hit:
+                    bins_data[bin_idx]['hit_count'] += 1
+            
+            # 计算每个箱的校准度
+            calibration_data = []
+            for i in range(bins):
+                bin_info = bins_data[i]
+                if bin_info['count'] > 0:
+                    avg_confidence = sum(bin_info['predictions']) / len(bin_info['predictions'])
+                    actual_accuracy = bin_info['hit_count'] / bin_info['count']
+                    calibration_error = abs(avg_confidence - actual_accuracy)
+                    
+                    calibration_data.append({
+                        'bin': i,
+                        'confidence_range': bin_info['range'],
+                        'avg_confidence': round(avg_confidence, 4),
+                        'actual_accuracy': round(actual_accuracy, 4),
+                        'calibration_error': round(calibration_error, 4),
+                        'sample_count': bin_info['count']
+                    })
+            
+            # 计算总体校准误差（Expected Calibration Error, ECE）
+            ece = 0.0
+            total_samples = len(results)
+            for bin_info in calibration_data:
+                weight = bin_info['sample_count'] / total_samples if total_samples > 0 else 0
+                ece += weight * bin_info['calibration_error']
+            
+            # 计算最大校准误差（Maximum Calibration Error, MCE）
+            mce = max([bin_info['calibration_error'] for bin_info in calibration_data], default=0.0)
+            
+            return {
+                'success': True,
+                'evaluation_date': end_date.strftime('%Y-%m-%d'),
+                'time_period': f'{days}d',
+                'total_samples': total_samples,
+                'bins': bins,
+                'expected_calibration_error': round(ece, 4),
+                'max_calibration_error': round(mce, 4),
+                'calibration_bins': calibration_data,
+                'calibration_quality': 'excellent' if ece < 0.05 else ('good' if ece < 0.1 else ('fair' if ece < 0.2 else 'poor'))
+            }
+            
+        except Exception as e:
+            self.logger.error(f"置信度校准评估失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {
+                'success': False,
+                'message': f'置信度校准评估失败: {str(e)}'
+            }
 
 
 if __name__ == '__main__':

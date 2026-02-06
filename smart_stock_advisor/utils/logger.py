@@ -45,12 +45,61 @@ def get_logger(name: str) -> logging.Logger:
         - logger级别从配置文件的LOG_LEVEL读取
         - 日志格式：时间 - 模块名 - 级别 - 消息
         - 输出到标准输出（stdout），可由上层重定向到文件
+        - 使用延迟绑定，避免在重定向stdout时出现问题
     """
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL))
     
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
+        # 使用动态StreamHandler，每次写入时检查stream是否有效
+        class DynamicStreamHandler(logging.StreamHandler):
+            def __init__(self):
+                super().__init__(sys.stdout)
+                self._last_stream = sys.stdout
+            
+            def emit(self, record):
+                # 每次写入时检查并更新stream
+                try:
+                    # 检查当前stream是否有效
+                    if self.stream != sys.stdout:
+                        self.stream = sys.stdout
+                    # 尝试写入
+                    super().emit(record)
+                    self._last_stream = self.stream
+                except (ValueError, OSError, AttributeError) as e:
+                    # 如果stream已关闭或无效，尝试恢复
+                    error_msg = str(e).lower()
+                    if 'closed' in error_msg or 'i/o operation' in error_msg or 'attribute' in error_msg:
+                        try:
+                            # 尝试使用原始的stdout
+                            if hasattr(sys, 'stdout') and sys.stdout is not None:
+                                self.stream = sys.stdout
+                                super().emit(record)
+                                self._last_stream = self.stream
+                            else:
+                                # 如果stdout不可用，静默失败（避免循环错误）
+                                pass
+                        except:
+                            # 如果所有尝试都失败，静默失败（避免循环错误）
+                            pass
+                except Exception:
+                    # 其他错误也静默处理，避免循环错误
+                    pass
+            
+            def handleError(self, record):
+                # 重写handleError，避免写入已关闭的stderr导致循环错误
+                try:
+                    # 尝试使用当前的stream
+                    if self.stream and hasattr(self.stream, 'write'):
+                        try:
+                            self.stream.write(f'--- Logging error in {self.__class__.__name__} ---\n')
+                        except:
+                            pass
+                except:
+                    # 如果所有尝试都失败，静默失败（避免循环错误）
+                    pass
+        
+        handler = DynamicStreamHandler()
         handler.setLevel(getattr(logging, LOG_LEVEL))
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',

@@ -6,6 +6,7 @@
     <title>股票预测列表</title>
     <link rel="stylesheet" href="/static/common.css">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -177,6 +178,54 @@
         .btn-monitor:hover {
             background-color: #c0392b;
         }
+        /* 大盘预测信息栏样式 - 一行显示所有数据 - 已注释 */
+        /*
+        .market-prediction-bar {
+            background: white;
+            padding: 10px 30px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: row;
+            gap: 25px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .market-prediction-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .market-prediction-icon {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+        .market-prediction-label {
+            font-size: 15px;
+            color: #666;
+            font-weight: 500;
+        }
+        .market-prediction-direction {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+        .market-prediction-change {
+            font-size: 15px;
+            font-weight: 500;
+        }
+        .market-prediction-change.positive {
+            color: #f44336;
+        }
+        .market-prediction-change.negative {
+            color: #4caf50;
+        }
+        .market-prediction-loading {
+            font-size: 14px;
+            color: #999;
+        }
+        */
         /* 页签样式 */
         .tab-container {
             display: flex;
@@ -249,6 +298,12 @@
             transition: opacity 0.3s;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
+        /* 页签按钮的tooltip样式 */
+        .tab-button.tooltip-container .tooltip-text {
+            width: 350px;
+            line-height: 1.8;
+            margin-bottom: 8px;
+        }
         .tooltip-text::after {
             content: "";
             position: absolute;
@@ -267,9 +322,40 @@
             position: relative;
             cursor: help;
             border-bottom: 1px dotted #667eea;
+            display: inline-block;
         }
         .inline-tooltip .tooltip-text {
             width: 300px;
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 6px;
+            white-space: normal;
+            font-size: 12px;
+            line-height: 1.6;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .inline-tooltip .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #333;
+        }
+        .inline-tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
         }
         .btn-primary {
             background-color: #3498db;
@@ -422,15 +508,36 @@
         </div>
     </div>
     
+    <!-- 大盘预测信息栏 - 已注释 -->
+    <!--
+    <div class="market-prediction-bar" id="marketPredictionBar" style="display: none;">
+        <div class="market-prediction-loading" id="marketPredictionContent">正在加载预测数据...</div>
+    </div>
+    -->
+    
     <div class="main-container">
         <div class="container">
             <!-- 页签切换 -->
             <div class="tab-container" style="margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
-                <button class="tab-button active" id="tabAfterClose" onclick="switchTab('after_close')">
-                    📈 股票预测列表（收盘-明日）
+                <button class="tab-button tooltip-container active" id="tabAfterClose" onclick="switchTab('after_close')" style="position: relative;">
+                    📈 股票预测列表（收盘-明天）
+                    <span class="tooltip-text" style="width: 300px; white-space: normal; line-height: 1.8;">
+                        该预测定时每日21点进行预测
+                    </span>
                 </button>
-                <button class="tab-button" id="tabBeforeClose" onclick="switchTab('before_close')">
-                    ⏰ 股票预测列表（未收盘-明天）
+                <button class="tab-button tooltip-container" id="tabBeforeClose" onclick="switchTab('before_close')" style="position: relative;">
+                    ⏰ 股票预测列表（未收盘-明天？）
+                    <span class="tooltip-text" style="width: 350px; white-space: normal; line-height: 1.8;">
+                        1、建议在早上9点40分进行操作，预测当天未来走势。<br><br>
+                        2、建议在下午14点40进行预测，预测明天大概走势。<br><br>
+                        3、数据显示的预测时间根据1、2点说明自行判断当天走势还是明日走势。
+                    </span>
+                </button>
+                <button class="tab-button tooltip-container" id="tabReport" onclick="switchTab('report')" style="position: relative;">
+                    📊 股票预测分析报告
+                    <span class="tooltip-text" style="width: 300px; white-space: normal; line-height: 1.8;">
+                        多维度图形展示和预测股票列表分析
+                    </span>
                 </button>
             </div>
             
@@ -443,7 +550,15 @@
                         <div style="flex: 1; min-width: 200px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">搜索股票</label>
                             <input type="text" id="searchInput" placeholder="输入股票代码或名称..." 
+                                   onkeyup="handleSearchInput('after_close')"
+                                   oninput="handleSearchInput('after_close')"
                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="min-width: 150px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测日期</label>
+                            <input type="date" id="targetDateFilter" placeholder="选择预测日期（默认明天）" 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
+                                   title="选择要查看的预测日期，留空则显示明天的预测">
                         </div>
                         <div style="min-width: 150px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测类型</label>
@@ -488,6 +603,8 @@
                         <div style="flex: 1; min-width: 200px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">搜索股票</label>
                             <input type="text" id="searchInputBeforeClose" placeholder="输入股票代码或名称..." 
+                                   onkeyup="handleSearchInput('before_close')"
+                                   oninput="handleSearchInput('before_close')"
                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
                         </div>
                         <div style="min-width: 150px;">
@@ -517,6 +634,58 @@
                 
                 <!-- 分页区域 -->
                 <div id="paginationBeforeClose" style="margin-top: 20px; text-align: center; display: none;"></div>
+            </div>
+            
+            <!-- 股票预测分析报告页签 -->
+            <div id="tabContentReport" class="tab-content" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h1 style="margin: 0;">📊 股票预测分析报告</h1>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="font-weight: 500;">选择预测日期：</label>
+                        <input type="date" id="reportDateSelector" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <button onclick="reportPagination.currentPage = 1; loadPredictionReport(1);" style="padding: 8px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">加载报告</button>
+                    </div>
+                </div>
+                
+                <!-- 加载提示 -->
+                <div id="reportLoading" style="text-align: center; padding: 40px; color: #999;">
+                    正在加载预测分析报告...
+                </div>
+                
+                <!-- 报告内容容器 -->
+                <div id="reportContent" style="display: none;">
+                    <!-- 图表区域 -->
+                    <div style="margin-bottom: 30px;">
+                        <h2 style="margin-bottom: 20px; color: #2c3e50;">📈 多维度分析图表</h2>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
+                            <div class="chart-container" style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
+                                <div class="chart-title">涨跌方向分布</div>
+                                <canvas id="directionChart" style="max-height: 300px;"></canvas>
+                            </div>
+                            <div class="chart-container" style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
+                                <div class="chart-title">置信度分布</div>
+                                <canvas id="confidenceChart" style="max-height: 300px;"></canvas>
+                            </div>
+                            <div class="chart-container" style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
+                                <div class="chart-title">上涨概率分布</div>
+                                <canvas id="upProbChart" style="max-height: 300px;"></canvas>
+                            </div>
+                            <div class="chart-container" style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
+                                <div class="chart-title">预测涨幅分布</div>
+                                <canvas id="changePctChart" style="max-height: 300px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 股票列表区域 -->
+                    <div>
+                        <h2 style="margin-bottom: 20px; color: #2c3e50;">📋 预测股票列表</h2>
+                        <div id="reportStockList" class="stock-list">
+                            <!-- 股票列表将在这里动态生成 -->
+                        </div>
+                        <div id="reportPagination"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -624,6 +793,86 @@
                 });
         }
         
+        // 更新大盘预测信息 - 已注释
+        /*
+        function updateMarketPrediction() {
+            fetch('/api/market/prediction')
+                .then(response => response.json())
+                .then(data => {
+                    const predictionBar = document.getElementById('marketPredictionBar');
+                    if (!predictionBar) return;
+                    
+                    if (data.success && data.overall_prediction) {
+                        predictionBar.style.display = 'flex';
+                        
+                        const overallPred = data.overall_prediction;
+                        const overallChangePct = data.overall_predicted_change_pct || 0;
+                        const overallPoints = data.overall_predicted_points || 0;
+                        
+                        const changeClass = overallChangePct >= 0 ? 'positive' : 'negative';
+                        const changeSign = overallChangePct >= 0 ? '+' : '';
+                        
+                        // 图标映射
+                        const iconMap = {
+                            '明日大盘': '📊',
+                            '上证指数': '📈',
+                            '深证成指': '📉',
+                            '创业板指': '💹',
+                            '沪深300': '🔺',
+                            '中证500': '🔻',
+                            '科创50': '🚀'
+                        };
+                        
+                        let html = `
+                            <div class="market-prediction-item">
+                                <span class="market-prediction-icon">${iconMap['明日大盘'] || '📊'}</span>
+                                <span class="market-prediction-label">明日大盘</span>
+                                <span class="market-prediction-direction">${overallPred}</span>
+                                <span class="market-prediction-change ${changeClass}">
+                                    ${changeSign}${overallChangePct.toFixed(2)}% (${changeSign}${overallPoints.toFixed(2)}点)
+                                </span>
+                            </div>
+                        `;
+                        
+                        // 显示各指数预测
+                        const indexPredictions = data.index_predictions || {};
+                        for (const [indexName, pred] of Object.entries(indexPredictions)) {
+                            const predDirection = pred.prediction || '震荡';
+                            const changePct = pred.predicted_change_pct || 0;
+                            const points = pred.predicted_points || 0;
+                            const changeSign = changePct >= 0 ? '+' : '';
+                            const indexChangeClass = changePct >= 0 ? 'positive' : 'negative';
+                            const icon = iconMap[indexName] || '📊';
+                            
+                            html += `
+                                <div class="market-prediction-item">
+                                    <span class="market-prediction-icon">${icon}</span>
+                                    <span class="market-prediction-label">${indexName}</span>
+                                    <span class="market-prediction-direction">${predDirection}</span>
+                                    <span class="market-prediction-change ${indexChangeClass}">
+                                        ${changeSign}${changePct.toFixed(2)}% (${changeSign}${points.toFixed(2)}点)
+                                    </span>
+                                </div>
+                            `;
+                        }
+                        
+                        // 直接设置到predictionBar，而不是predictionContent
+                        predictionBar.innerHTML = html;
+                    } else {
+                        // 如果获取失败，隐藏预测栏
+                        predictionBar.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取大盘预测失败:', error);
+                    const predictionBar = document.getElementById('marketPredictionBar');
+                    if (predictionBar) {
+                        predictionBar.style.display = 'none';
+                    }
+                });
+        }
+        */
+        
         // 检查用户权限，显示/隐藏设置按钮
         function checkUserPermission() {
             fetch('/api/user/info')
@@ -666,6 +915,9 @@
             
             if (filters.search) {
                 params.append('search', filters.search);
+            }
+            if (filters.target_date) {
+                params.append('target_date', filters.target_date);
             }
             if (filters.prediction_direction) {
                 params.append('prediction_direction', filters.prediction_direction);
@@ -756,11 +1008,13 @@
         function applyFilters(tabType) {
             if (tabType === 'after_close') {
                 const search = document.getElementById('searchInput').value.trim();
+                const targetDate = document.getElementById('targetDateFilter').value.trim();
                 const predictionDirection = document.getElementById('predictionDirectionFilter').value;
                 const confidenceMin = document.getElementById('confidenceMinFilter').value.trim();
                 
                 currentFiltersAfterClose = {
                     search: search || '',
+                    target_date: targetDate || '',
                     prediction_direction: predictionDirection || '',
                     confidence_min: confidenceMin || ''
                 };
@@ -781,10 +1035,25 @@
             }
         }
         
+        // 处理搜索输入（实时搜索，延迟500ms执行，避免频繁请求）
+        let searchTimeout = null;
+        function handleSearchInput(tabType) {
+            // 清除之前的定时器
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            
+            // 设置新的定时器，500ms后执行搜索
+            searchTimeout = setTimeout(() => {
+                applyFilters(tabType);
+            }, 500);
+        }
+        
         // 重置搜索条件
         function resetFilters(tabType) {
             if (tabType === 'after_close') {
                 document.getElementById('searchInput').value = '';
+                document.getElementById('targetDateFilter').value = '';
                 document.getElementById('predictionDirectionFilter').value = '';
                 document.getElementById('confidenceMinFilter').value = '';
                 currentFiltersAfterClose = {};
@@ -889,34 +1158,58 @@
         }
         
         // 页签切换
+        // 全局变量：报告相关
+        let reportCharts = {};
+        let reportData = null;
+        let reportPagination = {
+            currentPage: 1,
+            pageSize: 100,
+            totalPages: 1,
+            totalCount: 0
+        };
+        
         function switchTab(tabType) {
             currentTab = tabType;
             
             // 更新页签按钮状态
             const tabAfterClose = document.getElementById('tabAfterClose');
             const tabBeforeClose = document.getElementById('tabBeforeClose');
+            const tabReport = document.getElementById('tabReport');
             const contentAfterClose = document.getElementById('tabContentAfterClose');
             const contentBeforeClose = document.getElementById('tabContentBeforeClose');
+            const contentReport = document.getElementById('tabContentReport');
+            
+            // 重置所有页签状态
+            tabAfterClose.classList.remove('active');
+            tabBeforeClose.classList.remove('active');
+            if (tabReport) tabReport.classList.remove('active');
+            contentAfterClose.classList.remove('active');
+            contentAfterClose.style.display = 'none';
+            contentBeforeClose.classList.remove('active');
+            contentBeforeClose.style.display = 'none';
+            if (contentReport) contentReport.style.display = 'none';
             
             if (tabType === 'after_close') {
                 tabAfterClose.classList.add('active');
-                tabBeforeClose.classList.remove('active');
                 contentAfterClose.classList.add('active');
                 contentAfterClose.style.display = 'block';
-                contentBeforeClose.classList.remove('active');
-                contentBeforeClose.style.display = 'none';
                 // 切换到收盘-明日页签时，加载数据
                 loadStockData(currentPageAfterClose);
-            } else {
-                tabAfterClose.classList.remove('active');
+            } else if (tabType === 'before_close') {
                 tabBeforeClose.classList.add('active');
-                contentAfterClose.classList.remove('active');
-                contentAfterClose.style.display = 'none';
                 contentBeforeClose.classList.add('active');
                 contentBeforeClose.style.display = 'block';
                 // 切换到未收盘页签时，加载数据和更新按钮状态
                 loadStockDataBeforeClose(currentPageBeforeClose);
                 updatePredictButtonState();
+            } else if (tabType === 'report') {
+                if (tabReport) tabReport.classList.add('active');
+                if (contentReport) {
+                    contentReport.classList.add('active');
+                    contentReport.style.display = 'block';
+                    // 切换到报告页签时，加载最新报告
+                    loadPredictionReport(1);
+                }
             }
         }
         
@@ -1164,8 +1457,8 @@
             const symbol = String(record.symbol || '').trim();
             const name = String(record.name || '').trim();
             const current_price = parseFloat(record.current_price || 0);
-            const predicted_close_price = record.predicted_close_price ? parseFloat(record.predicted_close_price) : null;
-            const predicted_change_pct = record.predicted_change_pct !== null && record.predicted_change_pct !== undefined ? parseFloat(record.predicted_change_pct) : null;
+            const predicted_close_price = (record.predicted_close_price !== null && record.predicted_close_price !== undefined) ? parseFloat(record.predicted_close_price) : null;
+            const predicted_change_pct = (record.predicted_change_pct !== null && record.predicted_change_pct !== undefined) ? parseFloat(record.predicted_change_pct) : null;
             const prediction = String(record.prediction || '震荡').trim();
             const up_prob = parseFloat(record.up_probability || 0);
             const down_prob = parseFloat(record.down_probability || 0);
@@ -1208,29 +1501,43 @@
             return (
                 '<div class="stock-item-wrapper" data-symbol="' + symbol + '">' +
                     '<div class="stock-item" data-symbol="' + symbol + '" data-name="' + name + '">' +
-                        '<div class="stock-code">' + symbol + '</div>' +
+                        '<div class="stock-code">' +
+                            '<span class="inline-tooltip">' + symbol +
+                            '<span class="tooltip-text">股票代码：<br>• A股代码格式：6位数字（如000001、600519）<br>• 前3位表示交易所：000-002为深交所，600-688为上交所<br>• 用于唯一标识一只股票</span></span>' +
+                        '</div>' +
                         '<div class="stock-name">' +
-                            '<div style="font-weight: 500;">' + name + '</div>' +
+                            '<div style="font-weight: 500;">' +
+                                '<span class="inline-tooltip">' + name +
+                                '<span class="tooltip-text">股票名称：<br>• 股票的正式名称<br>• 由交易所统一命名<br>• 用于识别股票所属公司</span></span>' +
+                            '</div>' +
                             '<div style="font-size: 11px; color: #999; margin-top: 2px;">' +
-                                '预测日期: ' + prediction_date + ' | 目标: ' + target_date + ' | ' +
+                                '<span class="inline-tooltip">预测日期: ' + prediction_date +
+                                '<span class="tooltip-text">预测日期：<br>• 进行预测的日期<br>• 即数据获取的日期<br>• 用于标识预测的时间点</span></span>' +
+                                ' | ' +
+                                '<span class="inline-tooltip">目标: ' + target_date +
+                                '<span class="tooltip-text">目标日期：<br>• 预测的目标日期<br>• 通常为下一个交易日<br>• 即预测该日期股票的涨跌情况</span></span>' +
+                                ' | ' +
                                 '<span class="inline-tooltip">置信度: ' + (confidence * 100).toFixed(1) + '%' +
                                 '<span class="tooltip-text">置信度表示预测的可靠程度。综合考虑了：<br>• 各因子得分的一致性<br>• 历史预测准确率<br>• 数据质量和时效性<br>• 市场状态<br>置信度越高，预测越可靠。</span></span>' +
                             '</div>' +
                         '</div>' +
                         '<div class="stock-price">' +
-                            '<div style="font-weight: 500;">' + current_price.toFixed(2) + '元</div>' +
-                            (predicted_close_price && predicted_close_price > 0 ? 
+                            '<div style="font-weight: 500;">' +
+                                '<span class="inline-tooltip">' + current_price.toFixed(2) + '元' +
+                                '<span class="tooltip-text">当前价格：<br>• 股票的最新收盘价<br>• 用于计算预测涨跌幅<br>• 作为预测的基准价格</span></span>' +
+                            '</div>' +
+                            (predicted_close_price !== null && predicted_close_price !== undefined && predicted_close_price > 0 ? 
                                 '<div style="font-size: 12px; color: #666; margin-top: 4px; font-weight: 500;">' +
-                                '<span class="inline-tooltip">预测: <span style="color: #2c3e50;">' + predicted_close_price.toFixed(2) + '元</span>' +
+                                '<span class="inline-tooltip">明日收盘价: <span style="color: #2c3e50;">' + predicted_close_price.toFixed(2) + '元</span>' +
                                 '<span class="tooltip-text">明日大概收盘价格。基于当前价格、上涨/下跌概率差异和置信度计算。计算公式：当前价格 × (1 + 预期涨跌幅%)，其中预期涨跌幅由概率差异和置信度决定。</span></span>' +
-                                '</div>' : '') +
-                            (predicted_change_pct !== null && predicted_change_pct !== undefined && predicted_change_pct !== 0 ? 
+                                '</div>' : 
+                                '<div style="font-size: 11px; color: #999; margin-top: 4px;">明日收盘价: 计算中...</div>') +
+                            (predicted_change_pct !== null && predicted_change_pct !== undefined ? 
                                 '<div style="font-size: 13px; font-weight: 600; color: ' + (predicted_change_pct >= 0 ? '#e74c3c' : '#27ae60') + '; margin-top: 2px;">' +
-                                '<span class="inline-tooltip">' + (predicted_change_pct >= 0 ? '+' : '') + predicted_change_pct.toFixed(2) + '%' +
+                                '<span class="inline-tooltip">明日预测涨幅: ' + (predicted_change_pct >= 0 ? '+' : '') + predicted_change_pct.toFixed(2) + '%' +
                                 '<span class="tooltip-text">明日大概涨幅。基于上涨概率与下跌概率的差异，结合置信度计算。概率差异越大、置信度越高，涨幅越大。最大涨跌幅限制在±10%以内。</span></span>' +
                                 '</div>' : 
-                                (predicted_close_price && predicted_close_price > 0 ? 
-                                    '<div style="font-size: 11px; color: #999; margin-top: 2px;">（涨幅计算中）</div>' : '')) +
+                                '<div style="font-size: 11px; color: #999; margin-top: 2px;">明日预测涨幅: 计算中...</div>') +
                         '</div>' +
                         '<div class="stock-prediction ' + pred_class + '">' +
                             '<span class="inline-tooltip">' + pred_icon + ' ' + prediction +
@@ -1279,7 +1586,11 @@
                     // 用户已登录，开始更新大盘信息
                     updateMarketInfo(); // 立即更新一次（会自动更新预测按钮状态）
                     // 只在交易时段定时更新（收盘后会自动停止）
-                    marketInfoInterval = setInterval(updateMarketInfo, 1000);
+                    // 优化：降低大盘信息更新频率（从1秒改为30秒），减少API调用压力
+                    marketInfoInterval = setInterval(updateMarketInfo, 30000);  // 30秒更新一次
+                    // 更新大盘预测信息（立即更新一次，然后每5分钟更新一次）- 已注释
+                    // updateMarketPrediction();
+                    // setInterval(updateMarketPrediction, 5 * 60 * 1000);
                 } else if (data && !data.success) {
                     // API 返回失败
                     const marketBar = document.getElementById('marketInfoBar');
@@ -1405,6 +1716,339 @@
                 modal.remove();
             }
         }
+        
+        // 加载预测分析报告
+        async function loadPredictionReport(page = 1) {
+            const loadingDiv = document.getElementById('reportLoading');
+            const contentDiv = document.getElementById('reportContent');
+            const dateSelector = document.getElementById('reportDateSelector');
+            
+            // 获取选择的日期，如果没有选择则使用今天
+            let selectedDate = dateSelector.value;
+            if (!selectedDate) {
+                const today = new Date();
+                selectedDate = today.toISOString().split('T')[0];
+                dateSelector.value = selectedDate;
+            }
+            
+            // 更新当前页码
+            reportPagination.currentPage = page;
+            
+            try {
+                loadingDiv.style.display = 'block';
+                contentDiv.style.display = 'none';
+                
+                // 调用API获取预测分析数据（带分页参数）
+                const pageSize = reportPagination.pageSize;
+                const response = await fetch(`/api/predictions/report?date=${selectedDate}&page=${page}&page_size=${pageSize}`);
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    reportData = result.data;
+                    
+                    // 更新分页信息
+                    if (result.data.pagination) {
+                        reportPagination.currentPage = result.data.pagination.page;
+                        reportPagination.pageSize = result.data.pagination.page_size;
+                        reportPagination.totalPages = result.data.pagination.total_pages;
+                        reportPagination.totalCount = result.data.pagination.total_count;
+                    }
+                    
+                    renderReportCharts(result.data);
+                    renderReportStockList(result.data.stocks || []);
+                    renderReportPagination();
+                    loadingDiv.style.display = 'none';
+                    contentDiv.style.display = 'block';
+                } else {
+                    loadingDiv.innerHTML = `<p style="color: #f44336;">加载失败: ${result.message || '未知错误'}</p>`;
+                }
+            } catch (error) {
+                console.error('加载报告失败:', error);
+                loadingDiv.innerHTML = `<p style="color: #f44336;">加载失败: ${error.message}</p>`;
+            }
+        }
+        
+        // 渲染报告图表
+        function renderReportCharts(data) {
+            const stats = data.statistics || {};
+            const stocks = data.stocks || [];
+            
+            // 销毁旧图表
+            Object.values(reportCharts).forEach(chart => {
+                if (chart) chart.destroy();
+            });
+            reportCharts = {};
+            
+            // 1. 涨跌方向分布饼图
+            const directionData = {
+                '上涨': stocks.filter(s => s.prediction === '上涨').length,
+                '下跌': stocks.filter(s => s.prediction === '下跌').length,
+                '震荡': stocks.filter(s => s.prediction === '震荡').length
+            };
+            const directionCtx = document.getElementById('directionChart');
+            if (directionCtx) {
+                reportCharts.direction = new Chart(directionCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: Object.keys(directionData),
+                        datasets: [{
+                            data: Object.values(directionData),
+                            backgroundColor: ['#4caf50', '#f44336', '#ff9800']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            title: { display: false }
+                        }
+                    }
+                });
+            }
+            
+            // 2. 置信度分布柱状图
+            const confidenceRanges = {
+                '0-0.2': stocks.filter(s => s.confidence >= 0 && s.confidence < 0.2).length,
+                '0.2-0.4': stocks.filter(s => s.confidence >= 0.2 && s.confidence < 0.4).length,
+                '0.4-0.6': stocks.filter(s => s.confidence >= 0.4 && s.confidence < 0.6).length,
+                '0.6-0.8': stocks.filter(s => s.confidence >= 0.6 && s.confidence < 0.8).length,
+                '0.8-1.0': stocks.filter(s => s.confidence >= 0.8 && s.confidence <= 1.0).length
+            };
+            const confidenceCtx = document.getElementById('confidenceChart');
+            if (confidenceCtx) {
+                reportCharts.confidence = new Chart(confidenceCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(confidenceRanges),
+                        datasets: [{
+                            label: '股票数量',
+                            data: Object.values(confidenceRanges),
+                            backgroundColor: '#2196f3'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            title: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            }
+            
+            // 3. 上涨概率分布柱状图
+            const upProbRanges = {
+                '0-20%': stocks.filter(s => s.up_probability >= 0 && s.up_probability < 0.2).length,
+                '20-40%': stocks.filter(s => s.up_probability >= 0.2 && s.up_probability < 0.4).length,
+                '40-60%': stocks.filter(s => s.up_probability >= 0.4 && s.up_probability < 0.6).length,
+                '60-80%': stocks.filter(s => s.up_probability >= 0.6 && s.up_probability < 0.8).length,
+                '80-100%': stocks.filter(s => s.up_probability >= 0.8 && s.up_probability <= 1.0).length
+            };
+            const upProbCtx = document.getElementById('upProbChart');
+            if (upProbCtx) {
+                reportCharts.upProb = new Chart(upProbCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(upProbRanges),
+                        datasets: [{
+                            label: '股票数量',
+                            data: Object.values(upProbRanges),
+                            backgroundColor: '#4caf50'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            title: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            }
+            
+            // 4. 预测涨幅分布柱状图
+            const changePctRanges = {
+                '<-5%': stocks.filter(s => s.predicted_change_pct !== null && s.predicted_change_pct < -5).length,
+                '-5%~0%': stocks.filter(s => s.predicted_change_pct !== null && s.predicted_change_pct >= -5 && s.predicted_change_pct < 0).length,
+                '0%~5%': stocks.filter(s => s.predicted_change_pct !== null && s.predicted_change_pct >= 0 && s.predicted_change_pct < 5).length,
+                '5%~10%': stocks.filter(s => s.predicted_change_pct !== null && s.predicted_change_pct >= 5 && s.predicted_change_pct < 10).length,
+                '>10%': stocks.filter(s => s.predicted_change_pct !== null && s.predicted_change_pct >= 10).length
+            };
+            const changePctCtx = document.getElementById('changePctChart');
+            if (changePctCtx) {
+                reportCharts.changePct = new Chart(changePctCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(changePctRanges),
+                        datasets: [{
+                            label: '股票数量',
+                            data: Object.values(changePctRanges),
+                            backgroundColor: ['#f44336', '#ff9800', '#ffc107', '#4caf50', '#2196f3']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            title: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            }
+        }
+        
+        // 渲染报告股票列表
+        function renderReportStockList(stocks) {
+            const container = document.getElementById('reportStockList');
+            if (!container) return;
+            
+            if (stocks.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无预测数据</div>';
+                return;
+            }
+            
+            let html = '<table style="width: 100%; border-collapse: collapse; background: white;">';
+            html += '<thead><tr style="background: #f5f5f5;">';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: left;">股票代码</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: left;">股票名称</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">预测方向</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">上涨概率</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">置信度</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">预测涨幅</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">当前价格</th>';
+            html += '<th style="padding: 12px; border: 1px solid #ddd; text-align: center;">预测价格</th>';
+            html += '</tr></thead><tbody>';
+            
+            stocks.forEach(stock => {
+                const directionColor = stock.prediction === '上涨' ? '#4caf50' : (stock.prediction === '下跌' ? '#f44336' : '#ff9800');
+                const changeColor = stock.predicted_change_pct >= 0 ? '#f44336' : '#27ae60';
+                
+                html += '<tr>';
+                html += `<td style="padding: 10px; border: 1px solid #ddd;">${stock.symbol || '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd;">${stock.name || '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ${directionColor}; font-weight: bold;">${stock.prediction || '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${stock.up_probability ? (stock.up_probability * 100).toFixed(1) + '%' : '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${stock.confidence ? (stock.confidence * 100).toFixed(1) + '%' : '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ${changeColor}; font-weight: bold;">${stock.predicted_change_pct !== null && stock.predicted_change_pct !== undefined ? (stock.predicted_change_pct >= 0 ? '+' : '') + stock.predicted_change_pct.toFixed(2) + '%' : '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${stock.current_price ? stock.current_price.toFixed(2) : '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${stock.predicted_close_price ? stock.predicted_close_price.toFixed(2) : '-'}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+        
+        // 渲染分页控件
+        function renderReportPagination() {
+            const container = document.getElementById('reportPagination');
+            if (!container) return;
+            
+            const pagination = reportPagination;
+            
+            if (pagination.totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            let html = '<div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 5px;">';
+            
+            // 显示总数和当前页信息
+            html += `<span style="margin-right: 20px; color: #666;">共 ${pagination.totalCount} 条记录，每页 ${pagination.pageSize} 条，第 ${pagination.currentPage}/${pagination.totalPages} 页</span>`;
+            
+            // 首页按钮
+            if (pagination.currentPage > 1) {
+                html += `<button onclick="loadPredictionReport(1)" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">首页</button>`;
+            } else {
+                html += `<button disabled style="padding: 8px 15px; background: #ccc; color: white; border: none; border-radius: 4px; cursor: not-allowed;">首页</button>`;
+            }
+            
+            // 上一页按钮
+            if (pagination.currentPage > 1) {
+                html += `<button onclick="loadPredictionReport(${pagination.currentPage - 1})" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">上一页</button>`;
+            } else {
+                html += `<button disabled style="padding: 8px 15px; background: #ccc; color: white; border: none; border-radius: 4px; cursor: not-allowed;">上一页</button>`;
+            }
+            
+            // 页码显示（显示当前页前后各2页）
+            const startPage = Math.max(1, pagination.currentPage - 2);
+            const endPage = Math.min(pagination.totalPages, pagination.currentPage + 2);
+            
+            if (startPage > 1) {
+                html += `<button onclick="loadPredictionReport(1)" style="padding: 8px 12px; background: white; color: #007bff; border: 1px solid #007bff; border-radius: 4px; cursor: pointer;">1</button>`;
+                if (startPage > 2) {
+                    html += `<span style="padding: 8px 5px;">...</span>`;
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === pagination.currentPage) {
+                    html += `<button disabled style="padding: 8px 12px; background: #007bff; color: white; border: 1px solid #007bff; border-radius: 4px; cursor: not-allowed; font-weight: bold;">${i}</button>`;
+                } else {
+                    html += `<button onclick="loadPredictionReport(${i})" style="padding: 8px 12px; background: white; color: #007bff; border: 1px solid #007bff; border-radius: 4px; cursor: pointer;">${i}</button>`;
+                }
+            }
+            
+            if (endPage < pagination.totalPages) {
+                if (endPage < pagination.totalPages - 1) {
+                    html += `<span style="padding: 8px 5px;">...</span>`;
+                }
+                html += `<button onclick="loadPredictionReport(${pagination.totalPages})" style="padding: 8px 12px; background: white; color: #007bff; border: 1px solid #007bff; border-radius: 4px; cursor: pointer;">${pagination.totalPages}</button>`;
+            }
+            
+            // 下一页按钮
+            if (pagination.currentPage < pagination.totalPages) {
+                html += `<button onclick="loadPredictionReport(${pagination.currentPage + 1})" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">下一页</button>`;
+            } else {
+                html += `<button disabled style="padding: 8px 15px; background: #ccc; color: white; border: none; border-radius: 4px; cursor: not-allowed;">下一页</button>`;
+            }
+            
+            // 末页按钮
+            if (pagination.currentPage < pagination.totalPages) {
+                html += `<button onclick="loadPredictionReport(${pagination.totalPages})" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">末页</button>`;
+            } else {
+                html += `<button disabled style="padding: 8px 15px; background: #ccc; color: white; border: none; border-radius: 4px; cursor: not-allowed;">末页</button>`;
+            }
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+        
+        // 页面加载时，如果是报告页签，设置默认日期为今天
+        window.addEventListener('DOMContentLoaded', function() {
+            const dateSelector = document.getElementById('reportDateSelector');
+            if (dateSelector && !dateSelector.value) {
+                const today = new Date();
+                dateSelector.value = today.toISOString().split('T')[0];
+            }
+            // 初始化分页信息
+            reportPagination = {
+                currentPage: 1,
+                pageSize: 100,
+                totalPages: 1,
+                totalCount: 0
+            };
+            
+            // 设置预测日期选择器的默认值为明天（留空表示使用默认值）
+            const targetDateFilter = document.getElementById('targetDateFilter');
+            if (targetDateFilter) {
+                // 不设置默认值，留空表示使用后端的默认值（明天）
+                // 用户可以选择历史日期来查看历史预测
+            }
+        });
     </script>
 </body>
 </html>

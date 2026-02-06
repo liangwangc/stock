@@ -51,7 +51,8 @@ INDICATOR_CONFIG = {
     "kdj_period": 9,      # KDJ周期
     "kdj_k_period": 3,    # KDJ K值平滑周期
     "kdj_d_period": 3,    # KDJ D值平滑周期
-    "cci_period": 14      # CCI周期
+    "cci_period": 14,     # CCI周期
+    "x2_period": 20       # X2指标周期（收盘价在N日价格区间中的相对位置，0-100）
 }
 
 # 新闻分析配置
@@ -66,6 +67,11 @@ NEWS_CONFIG = {
 # TuShare 配置
 # 已由用户申请的 TuShare token，用于通过 TuShare 获取数据和新闻
 TUSHARE_TOKEN = "773d7c4add914e2632426899d9ee52296e059334223a467e8cd07870"
+
+# Tushare网页登录配置（可选，用于网页方式获取新闻）
+# 如果配置了账号密码，系统会尝试登录后从网页获取新闻
+TUSHARE_USERNAME = None  # Tushare账号（手机或邮箱）
+TUSHARE_PASSWORD = None  # Tushare密码
 
 # 日志配置
 LOG_LEVEL = "INFO"
@@ -136,9 +142,48 @@ TRADING_TIME_CONFIG = {
 
 # 批量分析配置
 BATCH_ANALYSIS_CONFIG = {
-    "max_workers": 10,                  # 同时分析的股票数量（多线程并发数）
-                                      # 建议值：3-5（取决于网络和API限制）
-                                      # 如果API有频率限制，建议设置为较小值
-                                      # 如果网络和服务器性能好，可以设置更大值（如 5-10）
+    "max_workers": 20,                  # 同时分析的股票数量（多线程并发数）
+                                      # 设置页面股票分析推荐值：20（数据库模式，无API限制）
+                                      # 主页预测推荐值：5-10（实时API模式，有频率限制）
+                                      # 如果数据库性能好，可以设置更大值（如 20-30）
     "enable_parallel": True,           # 是否启用多线程并行分析
+}
+
+# ============================================================================
+# 系统常量定义（用于替换代码中的魔法数字）
+# ============================================================================
+
+# 线程池配置常量
+THREAD_POOL_CONFIG = {
+    "predictor_default": 6,            # 预测器默认线程数
+    "predictor_small": 3,              # 预测器小规模线程数
+    "ml_training_default": 16,         # ML训练默认线程数
+    "ml_training_max": 16,              # ML训练最大线程数
+    "data_collection_default": 15,      # 数据收集默认线程数
+    "data_collection_single": 1,       # 数据收集单线程
+    "scheduled_task_default": 2,       # 定时任务默认线程数
+    "web_api_default": 1,              # Web API默认线程数
+}
+
+# 置信度阈值常量
+CONFIDENCE_THRESHOLDS = {
+    "min": 0.5,                        # 最小置信度
+    "medium": 0.55,                     # 中等置信度（用于回测和交易决策）
+    "high": 0.6,                        # 高置信度（用于买入决策）
+    "very_high": 0.7,                   # 非常高置信度（用于强烈信号）
+}
+
+# 股票数量阈值常量
+SYMBOL_COUNT_THRESHOLDS = {
+    "small_batch": 10,                 # 小批量阈值（用于判断是否需要批量处理）
+    "medium_batch": 50,                # 中批量阈值（用于API限制检查）
+    "large_batch": 100,                # 大批量阈值（用于性能优化）
+}
+
+# 概率阈值常量
+PROBABILITY_THRESHOLDS = {
+    "buy_signal": 0.6,                 # 买入信号概率阈值
+    "strong_buy": 0.75,                # 强烈买入信号概率阈值
+    "sell_signal": 0.6,                # 卖出信号概率阈值
+    "strong_sell": 0.7,                # 强烈卖出信号概率阈值
 }

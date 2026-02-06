@@ -21,8 +21,13 @@ schedule>=1.2.0
 tqdm>=4.65.0
 
 # ========== Optional Dependencies (Enhanced Features) ==========
+# Technical Indicators (与证券公司算法一致)
+TA-Lib>=0.4.28          # 技术指标计算库（与证券公司算法一致，必需）
+
 # Machine Learning
 scikit-learn>=1.3.0
+xgboost>=2.0.0          # XGBoost机器学习库（ML模型训练必需）
+lightgbm>=4.0.0         # LightGBM机器学习库（ML模型训练必需）
 
 # Data Visualization
 matplotlib>=3.7.0

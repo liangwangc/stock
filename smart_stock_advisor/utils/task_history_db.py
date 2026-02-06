@@ -51,44 +51,56 @@ def save_task_history(task_id: str, user_id: Optional[int] = None, username: Opt
             conn = DatabaseConnection.get_connection()
             if conn:
                 with conn.cursor() as cursor:
-                    # 检查现有列
-                    cursor.execute("SHOW COLUMNS FROM analysis_tasks")
-                    existing_columns = [row[0] for row in cursor.fetchall()]
-                    
-                    # 需要添加的字段列表
-                    columns_to_add = []
-                    
-                    if 'analysis_type' not in existing_columns:
-                        columns_to_add.append("""
-                            ALTER TABLE `analysis_tasks` 
-                            ADD COLUMN `analysis_type` VARCHAR(20) DEFAULT 'by_count' 
-                            COMMENT '分析类型（by_count=按数量, by_symbols=按股票）' 
-                            AFTER `username`
-                        """)
-                    
-                    if 'symbols' not in existing_columns:
-                        columns_to_add.append("""
-                            ALTER TABLE `analysis_tasks` 
-                            ADD COLUMN `symbols` TEXT DEFAULT NULL 
-                            COMMENT '股票代码列表（JSON格式，仅在按股票模式时使用）' 
-                            AFTER `sort_type`
-                        """)
-                    
-                    # 执行添加字段的SQL
-                    for alter_sql in columns_to_add:
-                        try:
-                            cursor.execute(alter_sql)
-                            conn.commit()
-                            logger.info(f"成功添加字段到 analysis_tasks 表")
-                        except Exception as alter_error:
-                            error_msg = str(alter_error)
-                            # 如果字段已存在，忽略错误
-                            if 'Duplicate column' in error_msg or 'already exists' in error_msg.lower():
-                                logger.debug(f"字段可能已存在，跳过: {error_msg}")
-                            else:
-                                logger.warning(f"添加字段时出错（可能已存在）: {error_msg}")
+                    try:
+                        # 检查现有列
+                        cursor.execute("SHOW COLUMNS FROM analysis_tasks")
+                        columns_result = cursor.fetchall()
+                        
+                        # 处理返回结果（PyMySQL返回元组列表，第一个元素是列名）
+                        if columns_result:
+                            existing_columns = [row[0] if isinstance(row, (tuple, list)) else str(row) for row in columns_result]
+                        else:
+                            existing_columns = []
+                        
+                        # 需要添加的字段列表
+                        columns_to_add = []
+                        
+                        if 'analysis_type' not in existing_columns:
+                            columns_to_add.append("""
+                                ALTER TABLE `analysis_tasks` 
+                                ADD COLUMN `analysis_type` VARCHAR(20) DEFAULT 'by_count' 
+                                COMMENT '分析类型（by_count=按数量, by_symbols=按股票）' 
+                                AFTER `username`
+                            """)
+                        
+                        if 'symbols' not in existing_columns:
+                            columns_to_add.append("""
+                                ALTER TABLE `analysis_tasks` 
+                                ADD COLUMN `symbols` TEXT DEFAULT NULL 
+                                COMMENT '股票代码列表（JSON格式，仅在按股票模式时使用）' 
+                                AFTER `sort_type`
+                            """)
+                        
+                        # 执行添加字段的SQL
+                        for alter_sql in columns_to_add:
+                            try:
+                                cursor.execute(alter_sql)
+                                conn.commit()
+                                logger.info(f"成功添加字段到 analysis_tasks 表")
+                            except Exception as alter_error:
+                                error_msg = str(alter_error)
+                                # 如果字段已存在，忽略错误
+                                if 'Duplicate column' in error_msg or 'already exists' in error_msg.lower():
+                                    logger.debug(f"字段可能已存在，跳过: {error_msg}")
+                                else:
+                                    logger.warning(f"添加字段时出错（可能已存在）: {error_msg}")
+                    except Exception as show_columns_error:
+                        # 如果SHOW COLUMNS失败，记录错误但继续执行
+                        error_msg = str(show_columns_error)
+                        logger.warning(f"检查 analysis_tasks 表列结构时出错: {error_msg}")
         except Exception as alter_error:
-            logger.warning(f"检查或更新 analysis_tasks 表结构时出错: {str(alter_error)}")
+            error_msg = str(alter_error) if alter_error else "未知错误"
+            logger.warning(f"检查或更新 analysis_tasks 表结构时出错: {error_msg}")
             # 继续执行，不影响主流程
         
         # 转换时间格式

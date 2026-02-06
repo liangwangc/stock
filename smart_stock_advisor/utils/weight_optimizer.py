@@ -51,17 +51,23 @@ class WeightOptimizer:
             end_date = datetime.now().date()
             start_date = end_date - timedelta(days=days)
             
+            # 修改SQL：从stock_predictions表查询，通过JOIN关联prediction_factors表获取因子数据
+            # 使用symbol + prediction_date来关联（prediction_factors表的date字段对应prediction_date）
             sql = """
                 SELECT 
-                    symbol, prediction, up_probability, down_probability, confidence,
-                    actual_direction, prediction_hit, prediction_factors
-                FROM stock_predictions
-                WHERE target_date >= %s 
-                  AND target_date <= %s
-                  AND actual_direction IS NOT NULL
-                  AND prediction_hit IS NOT NULL
-                  AND prediction_factors IS NOT NULL
-                ORDER BY target_date DESC
+                    sp.symbol, sp.prediction, sp.up_probability, sp.down_probability, sp.confidence,
+                    sp.actual_direction, sp.prediction_hit, sp.target_date, sp.prediction_date,
+                    pf.technical_score, pf.news_score, pf.capital_flow_score, pf.market_score,
+                    pf.history_score
+                    -- 【已优化移除】以下三个因子已从预测模型中移除：pf.sector_rotation_score, pf.valuation_score, pf.us_sector_score
+                FROM stock_predictions sp
+                LEFT JOIN prediction_factors pf ON sp.symbol = pf.symbol 
+                    AND sp.prediction_date = pf.date
+                WHERE sp.target_date >= %s 
+                  AND sp.target_date <= %s
+                  AND sp.actual_direction IS NOT NULL
+                  AND sp.prediction_hit IS NOT NULL
+                ORDER BY sp.target_date DESC
             """
             
             results = self.db.execute_query(sql, (start_date, end_date))
@@ -115,39 +121,44 @@ class WeightOptimizer:
             'news': {'hit': 0, 'total': 0, 'score_sum': 0.0},
             'capital_flow': {'hit': 0, 'total': 0, 'score_sum': 0.0},
             'market': {'hit': 0, 'total': 0, 'score_sum': 0.0},
-            'sector_rotation': {'hit': 0, 'total': 0, 'score_sum': 0.0},
-            'history': {'hit': 0, 'total': 0, 'score_sum': 0.0},
-            'valuation': {'hit': 0, 'total': 0, 'score_sum': 0.0},
-            'us_sector': {'hit': 0, 'total': 0, 'score_sum': 0.0}
+            'history': {'hit': 0, 'total': 0, 'score_sum': 0.0}
+            # 【已优化移除】以下三个因子已从预测模型中移除：'sector_rotation', 'valuation', 'us_sector'
         }
         
         for r in results:
             try:
-                # 解析prediction_factors
-                factors_json = r.get('prediction_factors')
-                if not factors_json:
+                # 检查是否有因子数据（通过JOIN获取的字段）
+                has_factor_data = (
+                    r.get('technical_score') is not None or
+                    r.get('news_score') is not None or
+                    r.get('capital_flow_score') is not None
+                )
+                
+                if not has_factor_data:
+                    # 如果没有因子数据，跳过这条记录
                     continue
                 
-                if isinstance(factors_json, str):
-                    factors = json.loads(factors_json)
-                else:
-                    factors = factors_json
-                
                 is_hit = r.get('prediction_hit') == '命中'
+                prediction = r.get('prediction', '')
                 
                 # 分析各因子得分与预测准确性的关系
-                factor_names = ['technical', 'news', 'capital_flow', 'market', 
-                               'sector_rotation', 'history', 'valuation', 'us_sector']
+                # 【已优化移除】以下三个因子已从预测模型中移除：'sector_rotation', 'valuation', 'us_sector'
+                factor_mapping = {
+                    'technical': 'technical_score',
+                    'news': 'news_score',
+                    'capital_flow': 'capital_flow_score',
+                    'market': 'market_score',
+                    'history': 'history_score'
+                }
                 
-                for factor_name in factor_names:
-                    score_key = f'{factor_name}_score'
-                    if score_key in factors:
-                        score = float(factors.get(score_key, 0))
+                for factor_name, score_key in factor_mapping.items():
+                    score = r.get(score_key)
+                    if score is not None:
+                        score = float(score)
                         factor_performances[factor_name]['total'] += 1
                         factor_performances[factor_name]['score_sum'] += score
                         
                         # 如果因子得分与预测方向一致且预测命中，则认为该因子有效
-                        prediction = r.get('prediction', '')
                         if prediction == '上涨' and score > 0 and is_hit:
                             factor_performances[factor_name]['hit'] += 1
                         elif prediction == '下跌' and score < 0 and is_hit:
@@ -207,15 +218,14 @@ class WeightOptimizer:
                 optimal_weights[factor_name] = score / total_accuracy_score
         else:
             # 如果所有因子准确率都很低，使用默认权重
+            # 【已优化】移除三个已优化的因子，重新分配权重
             default_weights = {
-                'technical': 0.20,
-                'news': 0.25,
-                'capital_flow': 0.18,
-                'market': 0.17,
-                'sector_rotation': 0.05,
-                'history': 0.08,
-                'valuation': 0.02,
-                'us_sector': 0.05
+                'technical': 0.22,  # 从0.20调整为0.22（原权重重新分配）
+                'news': 0.28,  # 从0.25调整为0.28（原权重重新分配）
+                'capital_flow': 0.20,  # 从0.18调整为0.20（原权重重新分配）
+                'market': 0.19,  # 从0.17调整为0.19（原权重重新分配）
+                'history': 0.11  # 从0.08调整为0.11（原权重重新分配）
+                # 已移除：'sector_rotation': 0.05, 'valuation': 0.02, 'us_sector': 0.05
             }
             return default_weights
         
@@ -241,9 +251,8 @@ class WeightOptimizer:
             'capital_flow': 0.18,
             'market': 0.17,
             'sector_rotation': 0.05,
-            'history': 0.08,
-            'valuation': 0.02,
-            'us_sector': 0.05
+            'history': 0.11  # 从0.08调整为0.11（原权重重新分配）
+            # 【已优化移除】以下三个因子已从预测模型中移除：'sector_rotation': 0.05, 'valuation': 0.02, 'us_sector': 0.05
         }
         
         for factor_name, optimal_weight in optimal_weights.items():
@@ -286,80 +295,56 @@ class WeightOptimizer:
             market_cap = None
             stock_type = None
             
-            # 检查stock_info表是否存在以及是否有market_cap字段
+            # 尝试从历史数据中获取市值（stock_info表不存在，直接从stock_history_data获取）
             try:
+                # 从最新历史数据中获取市值
                 sql = """
-                    SELECT market_cap, total_market_cap, float_market_cap, 
-                           sector, industry, stock_type
-                    FROM stock_info
+                    SELECT total_market_cap, float_market_cap
+                    FROM stock_history_data
                     WHERE symbol = %s
+                    ORDER BY trade_date DESC
+                    LIMIT 1
                 """
-                stock_info = self.db.execute_query(sql, (symbol,))
-                
-                if stock_info:
-                    stock_data = stock_info[0]
-                    # 尝试多种市值字段名称
-                    market_cap = (stock_data.get('market_cap') or 
-                                stock_data.get('total_market_cap') or 
-                                stock_data.get('float_market_cap') or 0)
-                    stock_type = stock_data.get('stock_type', None)
-                    
-                    # 如果市值是元，转换为亿元
+                history_info = self.db.execute_query(sql, (symbol,))
+                if history_info:
+                    history_data = history_info[0]
+                    market_cap = (history_data.get('total_market_cap') or 
+                                history_data.get('float_market_cap') or 0)
                     if market_cap and market_cap > 0:
-                        if market_cap > 10000:  # 如果大于10000，可能是以元为单位，转换为亿元
+                        if market_cap > 10000:
                             market_cap = market_cap / 100000000  # 转换为亿元
             except Exception as e:
-                self.logger.debug(f"从stock_info表获取股票信息失败（可能字段不存在）: {str(e)}")
-                # 如果表不存在或字段不存在，尝试从历史数据中估算
-                try:
-                    # 从最新历史数据中获取市值
-                    sql2 = """
-                        SELECT total_market_cap, float_market_cap
-                        FROM stock_history_data
-                        WHERE symbol = %s
-                        ORDER BY date DESC
-                        LIMIT 1
-                    """
-                    history_info = self.db.execute_query(sql2, (symbol,))
-                    if history_info:
-                        history_data = history_info[0]
-                        market_cap = (history_data.get('total_market_cap') or 
-                                    history_data.get('float_market_cap') or 0)
-                        if market_cap and market_cap > 0:
-                            if market_cap > 10000:
-                                market_cap = market_cap / 100000000  # 转换为亿元
-                except Exception as e2:
-                    self.logger.debug(f"从历史数据获取市值失败: {str(e2)}")
-                    market_cap = None
+                self.logger.debug(f"从历史数据获取市值失败: {str(e)}")
+                market_cap = None
             
             adjusted_weights = base_weights.copy()
             
             # 根据市值调整权重（如果市值信息可用）
             if market_cap and market_cap > 0:
                 if market_cap > 500:  # 大盘股（市值>500亿）
-                    # 大盘股：增加资金流向和估值权重，降低技术指标权重
-                    adjusted_weights['capital_flow_weight'] = base_weights.get('capital_flow_weight', 0.18) * 1.3
-                    adjusted_weights['valuation_weight'] = base_weights.get('valuation_weight', 0.02) * 2.0
-                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.20) * 0.9
+                    # 大盘股：增加资金流向权重，降低技术指标权重
+                    # 【已优化移除】valuation_weight已从预测模型中移除
+                    adjusted_weights['capital_flow_weight'] = base_weights.get('capital_flow_weight', 0.20) * 1.3
+                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.22) * 0.9
                     self.logger.debug(f"股票{symbol}识别为大盘股（市值{market_cap:.1f}亿），调整权重")
                 elif market_cap < 100:  # 小盘股（市值<100亿）
-                    # 小盘股：增加技术指标和新闻权重，降低估值权重
-                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.20) * 1.2
-                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.25) * 1.15
-                    adjusted_weights['valuation_weight'] = base_weights.get('valuation_weight', 0.02) * 0.5
+                    # 小盘股：增加技术指标和新闻权重
+                    # 【已优化移除】valuation_weight已从预测模型中移除
+                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.22) * 1.2
+                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.28) * 1.15
                     self.logger.debug(f"股票{symbol}识别为小盘股（市值{market_cap:.1f}亿），调整权重")
             
             # 根据股票类型调整权重（如果类型信息可用）
             if stock_type:
                 if stock_type in ['成长股', 'growth', 'g']:
-                    # 成长股：增加新闻和板块轮动权重
-                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.25) * 1.2
-                    adjusted_weights['sector_rotation_weight'] = base_weights.get('sector_rotation_weight', 0.05) * 1.5
+                    # 成长股：增加新闻权重
+                    # 【已优化移除】sector_rotation_weight已从预测模型中移除
+                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.28) * 1.2
                     self.logger.debug(f"股票{symbol}识别为成长股，调整权重")
                 elif stock_type in ['价值股', 'value', 'v']:
-                    # 价值股：增加估值和历史权重
-                    adjusted_weights['valuation_weight'] = base_weights.get('valuation_weight', 0.02) * 2.5
-                    adjusted_weights['history_weight'] = base_weights.get('history_weight', 0.08) * 1.3
+                    # 价值股：增加历史权重
+                    # 【已优化移除】valuation_weight已从预测模型中移除
+                    adjusted_weights['history_weight'] = base_weights.get('history_weight', 0.11) * 1.3
                     self.logger.debug(f"股票{symbol}识别为价值股，调整权重")
             
             # 归一化权重（确保总和为1）
@@ -446,14 +431,13 @@ class WeightOptimizer:
         """
         # 1. 获取基础权重（默认权重或配置中的权重）
         base_weights = {
-            'technical_weight': 0.20,
-            'news_weight': 0.25,
-            'capital_flow_weight': 0.18,
-            'market_weight': 0.17,
-            'sector_rotation_weight': 0.05,
-            'history_weight': 0.08,
-            'valuation_weight': 0.02,
-            'us_sector_weight': 0.05
+            # 【已优化】移除三个已优化的因子，重新分配权重
+            'technical_weight': 0.22,  # 从0.20调整为0.22（原权重重新分配）
+            'news_weight': 0.28,  # 从0.25调整为0.28（原权重重新分配）
+            'capital_flow_weight': 0.20,  # 从0.18调整为0.20（原权重重新分配）
+            'market_weight': 0.19,  # 从0.17调整为0.19（原权重重新分配）
+            'history_weight': 0.11  # 从0.08调整为0.11（原权重重新分配）
+            # 已移除：'sector_rotation_weight': 0.05, 'valuation_weight': 0.02, 'us_sector_weight': 0.05
         }
         
         # 2. 如果使用基于准确率的优化，先优化基础权重
@@ -464,15 +448,13 @@ class WeightOptimizer:
                     # 使用优化后的权重作为基础权重
                     optimal = opt_result['optimal_weights']
                     # 映射因子名到权重名
+                    # 【已优化移除】以下三个因子已从预测模型中移除
                     weight_mapping = {
                         'technical': 'technical_weight',
                         'news': 'news_weight',
                         'capital_flow': 'capital_flow_weight',
                         'market': 'market_weight',
-                        'sector_rotation': 'sector_rotation_weight',
-                        'history': 'history_weight',
-                        'valuation': 'valuation_weight',
-                        'us_sector': 'us_sector_weight'
+                        'history': 'history_weight'
                     }
                     for factor_name, weight_name in weight_mapping.items():
                         if factor_name in optimal:

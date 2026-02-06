@@ -299,19 +299,25 @@ class DatabaseStorage:
             timestamp = datetime.now()
         
         try:
+            # 类型检查：确保factors是字典类型，避免列表类型导致的错误
+            if not isinstance(factors, dict):
+                self.logger.error(f"保存预测因子数据失败: factors参数类型错误，期望dict，实际为{type(factors).__name__}")
+                return
+            
             date_str = timestamp.strftime('%Y-%m-%d')
             timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
             symbol_str = str(symbol).zfill(6)
             
-            # 提取各因子数据
-            technical = factors.get('technical', {})
-            news = factors.get('news', {})
-            capital_flow = factors.get('capital_flow', {})
-            market = factors.get('market', {})
-            sector_rotation = factors.get('sector_rotation', {})
-            history = factors.get('history', {})
-            valuation = factors.get('valuation', {})
-            us_sector = factors.get('us_sector', {})
+            # 提取各因子数据（确保是字典类型，避免列表类型导致的错误）
+            technical = factors.get('technical', {}) if isinstance(factors.get('technical'), dict) else {}
+            news = factors.get('news', {}) if isinstance(factors.get('news'), dict) else {}
+            capital_flow = factors.get('capital_flow', {}) if isinstance(factors.get('capital_flow'), dict) else {}
+            market = factors.get('market', {}) if isinstance(factors.get('market'), dict) else {}
+            history = factors.get('history', {}) if isinstance(factors.get('history'), dict) else {}
+            # 【已优化移除】以下三个因子已从预测模型中移除
+            # sector_rotation = factors.get('sector_rotation', {}) if isinstance(factors.get('sector_rotation'), dict) else {}
+            # valuation = factors.get('valuation', {}) if isinstance(factors.get('valuation'), dict) else {}
+            # us_sector = factors.get('us_sector', {}) if isinstance(factors.get('us_sector'), dict) else {}
             
             sql = """
                 INSERT INTO prediction_factors 
@@ -332,10 +338,10 @@ class DatabaseStorage:
                 news.get('score'), news.get('weight'), news.get('sentiment'),
                 capital_flow.get('score'), capital_flow.get('weight'), capital_flow.get('trend'),
                 market.get('score'), market.get('weight'), market.get('trend'),
-                sector_rotation.get('score'), sector_rotation.get('weight'), sector_rotation.get('trend'),
+                None, None, None,  # 【已优化移除】sector_rotation_score, sector_rotation_weight, sector_rotation_trend
                 history.get('score'), history.get('weight'), history.get('pattern'),
-                valuation.get('score'), valuation.get('weight'), valuation.get('pe_ratio'), valuation.get('pb_ratio'),
-                us_sector.get('score'), us_sector.get('weight'), us_sector.get('sector'),
+                None, None, None, None,  # 【已优化移除】valuation_score, valuation_weight, pe_ratio, pb_ratio
+                None, None, None,  # 【已优化移除】us_sector_score, us_sector_weight, us_sector_name
                 prediction_result.get('final_score'),
                 prediction_result.get('up_probability'),
                 prediction_result.get('down_probability'),

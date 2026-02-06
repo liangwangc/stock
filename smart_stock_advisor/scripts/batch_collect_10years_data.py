@@ -123,13 +123,13 @@ class BatchDataCollector:
         """
         raise NotImplementedError("子类必须实现get_stock_list方法")
     
-    def collect_single_stock(self, symbol: str, years: int = 10, collector=None) -> Dict:
+    def collect_single_stock(self, symbol: str, years: float = 10, collector=None) -> Dict:
         """
         收集单只股票的数据
         
         Args:
             symbol: 股票代码
-            years: 收集多少年的数据
+            years: 收集多少年的数据（可以是小数，例如0.1表示约36天）
             collector: 收集器实例（可选，如果为None则使用self.collector）
         
         Returns:
@@ -137,23 +137,25 @@ class BatchDataCollector:
         """
         raise NotImplementedError("子类必须实现collect_single_stock方法")
     
-    def batch_collect(self, years: int = 10, resume: bool = False) -> Dict:
+    def batch_collect(self, years: float = 10, resume: bool = False, time_range_str: str = None) -> Dict:
         """
         批量收集数据（根据max_workers自动选择单线程或多线程模式）
         
         Args:
-            years: 收集多少年的数据（默认10年）
+            years: 收集多少年的数据（默认10年，可以是小数，例如0.1表示约36天）
             resume: 是否继续之前的进度
+            time_range_str: 时间范围字符串（用于日志显示，例如："30 day(s)"）
         
         Returns:
             收集结果统计
         """
         # 如果max_workers > 1，使用多线程模式
         if self.max_workers > 1:
-            return self.batch_collect_multithread(years=years, resume=resume)
+            return self.batch_collect_multithread(years=years, resume=resume, time_range_str=time_range_str)
         
         # 否则使用单线程模式
-        self.logger.info(f"开始批量收集{self.market.upper()}股数据（近{years}年，单线程模式）...")
+        display_range = time_range_str if time_range_str else f"{years} year(s)"
+        self.logger.info(f"开始批量收集{self.market.upper()}股数据（{display_range}，单线程模式）...")
         
         # 加载进度
         progress = self.load_progress()
@@ -289,13 +291,13 @@ class BatchDataCollector:
         
         return result
     
-    def _scan_database_status(self, symbols: List[str], years: int = 10) -> Dict:
+    def _scan_database_status(self, symbols: List[str], years: float = 10) -> Dict:
         """
         扫描数据库，统计已有数据情况
         
         Args:
             symbols: 股票代码列表
-            years: 数据年份范围
+            years: 数据年份范围（可以是小数，例如0.1表示约36天）
         
         Returns:
             统计信息字典
@@ -396,13 +398,13 @@ class BatchDataCollector:
             from utils.us_stock_collector import USStockCollector
             return USStockCollector()
     
-    def _collect_single_stock_worker(self, symbol: str, years: int, progress: Dict) -> Dict:
+    def _collect_single_stock_worker(self, symbol: str, years: float, progress: Dict) -> Dict:
         """
         单线程工作函数（用于多线程环境）
         
         Args:
             symbol: 股票代码
-            years: 收集多少年的数据
+            years: 收集多少年的数据（可以是小数，例如0.1表示约36天）
             progress: 进度字典（用于更新进度）
         
         Returns:
@@ -506,18 +508,20 @@ class BatchDataCollector:
                     })
             return error_result
     
-    def batch_collect_multithread(self, years: int = 10, resume: bool = False) -> Dict:
+    def batch_collect_multithread(self, years: float = 10, resume: bool = False, time_range_str: str = None) -> Dict:
         """
         批量收集数据（多线程版本）
         
         Args:
-            years: 收集多少年的数据（默认10年）
+            years: 收集多少年的数据（默认10年，可以是小数，例如0.1表示约36天）
             resume: 是否继续之前的进度
+            time_range_str: 时间范围字符串（用于日志显示，例如："30 day(s)"）
         
         Returns:
             收集结果统计
         """
-        self.logger.info(f"开始批量收集{self.market.upper()}股数据（近{years}年，使用{self.max_workers}个线程）...")
+        display_range = time_range_str if time_range_str else f"{years} year(s)"
+        self.logger.info(f"开始批量收集{self.market.upper()}股数据（{display_range}，使用{self.max_workers}个线程）...")
         
         # 加载进度
         progress = self.load_progress()
@@ -709,7 +713,7 @@ class CNStockBatchCollector(BatchDataCollector):
             self.logger.warning("使用示例股票列表进行测试")
             return ['000001', '000002', '600000', '600519', '600036']
     
-    def collect_single_stock(self, symbol: str, years: int = 10, collector=None) -> Dict:
+    def collect_single_stock(self, symbol: str, years: float = 10, collector=None) -> Dict:
         """收集A股单只股票数据"""
         if collector is None:
             collector = self.collector
@@ -717,7 +721,7 @@ class CNStockBatchCollector(BatchDataCollector):
         try:
             result = collector.collect_stock_history_data(
                 symbol=symbol,
-                years=years,
+                years=years,  # 支持小数，例如0.1表示约36天
                 force_refresh=False,  # 不强制刷新，只收集缺失的数据
                 use_batch_mode=True  # 使用批量模式提升效率
             )
@@ -781,15 +785,36 @@ class USStockBatchCollector(BatchDataCollector):
             self.logger.error(f"获取美股列表失败: {str(e)}")
             return ['AAPL', 'MSFT', 'GOOGL']
     
-    def collect_single_stock(self, symbol: str, years: int = 10, collector=None) -> Dict:
+    def collect_single_stock(self, symbol: str, years: float = 10, collector=None) -> Dict:
         """收集美股单只股票数据"""
         if collector is None:
             collector = self.collector
         
         try:
+            # 美股API支持的时间单位：1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+            # 将年数转换为合适的period参数
+            if years >= 10:
+                period = '10y'
+            elif years >= 5:
+                period = '5y'
+            elif years >= 2:
+                period = '2y'
+            elif years >= 1:
+                period = '1y'
+            elif years >= 0.5:  # 6个月
+                period = '6mo'
+            elif years >= 0.25:  # 3个月
+                period = '3mo'
+            elif years >= 1/12:  # 1个月
+                period = '1mo'
+            elif years >= 5/365:  # 5天
+                period = '5d'
+            else:
+                period = '1d'
+            
             result = collector.collect_stock_history(
                 symbol=symbol,
-                period=f'{years}y'  # 例如 '10y' 表示10年
+                period=period
             )
             return {
                 'symbol': symbol,
@@ -816,14 +841,47 @@ def main():
                        help='每批处理的股票数量（默认50）')
     parser.add_argument('--delay', type=float, default=1.0,
                        help='每只股票之间的延迟（秒，默认1.0）')
-    parser.add_argument('--years', type=int, default=10,
-                       help='收集多少年的数据（默认10年）')
+    parser.add_argument('--years', type=float, default=None,
+                       help='收集多少年的数据（例如：10 表示10年，0.1 表示约36天）')
+    parser.add_argument('--time-range', type=float, default=None,
+                       help='收集时间范围数值（与--time-unit配合使用，例如：30 表示30个单位）')
+    parser.add_argument('--time-unit', choices=['year', 'month', 'week', 'day'], default=None,
+                       help='时间单位（year=年, month=月, week=周, day=日）。与--time-range配合使用，例如：--time-range 30 --time-unit day 表示最近30天')
     parser.add_argument('--resume', action='store_true',
                        help='继续之前的进度')
     parser.add_argument('--threads', type=int, default=1,
                        help='最大线程数（默认1，即单线程模式。建议2-5，根据网络和API限制调整）')
     
     args = parser.parse_args()
+    
+    # 解析时间范围参数
+    # 优先级：--time-range + --time-unit > --years
+    if args.time_range is not None and args.time_unit:
+        # 使用新的时间单位参数
+        time_range = args.time_range
+        time_unit = args.time_unit
+        # 转换为年数（用于兼容现有接口）
+        if time_unit == 'year':
+            years = time_range
+        elif time_unit == 'month':
+            years = time_range / 12.0  # 转换为年数
+        elif time_unit == 'week':
+            years = time_range / 52.0  # 转换为年数
+        elif time_unit == 'day':
+            years = time_range / 365.0  # 转换为年数
+        else:
+            years = 10  # 默认值
+        time_range_str = f"{time_range} {time_unit}"
+    elif args.years is not None:
+        # 使用旧的years参数（兼容旧版本）
+        years = args.years
+        time_range_str = f"{years} year(s)"
+    else:
+        # 默认值
+        years = 10
+        time_range_str = "10 year(s)"
+    
+    print(f"时间范围: {time_range_str} (转换为年数: {years:.4f})")
     
     # 创建收集器
     if args.market == 'cn':
@@ -841,7 +899,7 @@ def main():
     
     # 开始收集
     try:
-        result = collector.batch_collect(years=args.years, resume=args.resume)
+        result = collector.batch_collect(years=years, resume=args.resume, time_range_str=time_range_str)
         print(f"\n收集完成！结果已保存到: {result['progress_file']}")
     except KeyboardInterrupt:
         print("\n\n用户中断，进度已保存。使用 --resume 参数继续之前的进度。")
