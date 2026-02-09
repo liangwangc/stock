@@ -750,10 +750,23 @@ elseif ($action === 'calendar_data') {
     }
 }
 
-// [3] 每日详情（修改：如果点击今天，返回学习队列的三种分类；如果点击其他日期，返回该日期的学习情况）
+// [3] 每日详情（点击任意日期均返回三种分类：头天+复习+新单词）
 elseif ($action === 'day_details') {
+    // 参数校验
+    if (!isset($_GET['uid']) || !isset($_GET['date'])) {
+        echo json_encode(["error" => "缺少必要参数", "message" => "需要提供 uid 和 date 参数"]);
+        exit;
+    }
     $uid = (int)$_GET['uid'];
     $date = $_GET['date'];
+    if ($uid <= 0) {
+        echo json_encode(["error" => "参数错误", "message" => "uid 必须为正整数"]);
+        exit;
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || strtotime($date) === false) {
+        echo json_encode(["error" => "参数错误", "message" => "date 格式不正确，需要 YYYY-MM-DD"]);
+        exit;
+    }
     
     // 如果点击的是今天，返回学习队列的三种分类（头天+复习+新单词）
     if ($date === $today) {
@@ -1037,86 +1050,63 @@ elseif ($action === 'day_details') {
             ]);
         }
     } else {
-        // 如果点击的是其他日期，返回该日期的学习情况（添加的单词 + 复习过的单词）
-        $table_exists = false;
+        // 如果点击的是其他日期，也返回三种分类：头天、复习、新单词（与今天格式一致）
+        $yesterday = date('Y-m-d', strtotime("$date -1 day"));
+
+        // 1. 头天（该日期的前一天添加的单词）
+        $yesterday_words = [];
+        $stmt = prepare_check($conn, "SELECT w.*, 'yesterday' as word_category FROM words w WHERE w.user_id = ? AND w.date_added = ? ORDER BY w.id ASC");
+        if ($stmt) {
+            $stmt->bind_param("is", $uid, $yesterday);
+            if ($stmt->execute()) {
+                $yesterday_words = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            }
+        }
+
+        // 2. 复习（该日期复习过的、且 date_added < 前一天的单词）
+        // 注意：需要 word_review_logs 表才能获取历史复习记录；若该表不存在则复习列表为空
+        $review_words = [];
         $check_table = $conn->query("SHOW TABLES LIKE 'word_review_logs'");
         if ($check_table && $check_table->num_rows > 0) {
-            $table_exists = true;
+            $stmt = prepare_check($conn, "
+                SELECT DISTINCT w.*, 'review' as word_category
+                FROM words w
+                INNER JOIN word_review_logs rl ON w.id = rl.word_id AND rl.user_id = ? AND rl.review_date = ?
+                WHERE w.user_id = ? AND w.date_added < ?
+                ORDER BY w.id ASC
+            ");
+            if ($stmt) {
+                $stmt->bind_param("isis", $uid, $date, $uid, $yesterday);
+                if ($stmt->execute()) {
+                    $review_words = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                }
+            }
         }
-        
-        if ($table_exists) {
-            $stmt = prepare_check($conn, "
-                SELECT DISTINCT w.*,
-                       CASE WHEN w.date_added = ? THEN 1 ELSE 0 END as is_new_word,
-                       CASE WHEN EXISTS (
-                           SELECT 1 FROM word_review_logs rl2 
-                           WHERE rl2.word_id = w.id AND rl2.user_id = ? AND rl2.review_date = ?
-                       ) THEN 1 ELSE 0 END as is_reviewed_word
-                FROM words w
-                WHERE w.user_id = ?
-                AND (
-                    (w.date_added = ?)
-                    OR
-                    EXISTS (
-                        SELECT 1 
-                        FROM word_review_logs rl 
-                        WHERE rl.word_id = w.id 
-                        AND rl.user_id = ? 
-                        AND rl.review_date = ?
-                    )
-                )
-                ORDER BY 
-                    CASE WHEN EXISTS (
-                        SELECT 1 FROM word_review_logs rl2 
-                        WHERE rl2.word_id = w.id AND rl2.user_id = ? AND rl2.review_date = ?
-                    ) THEN 0 ELSE 1 END,
-                    w.date_added ASC, w.id ASC
-            ");
-            if (!$stmt) {
-                echo json_encode(["error" => "SQL准备失败: " . $conn->error]);
-                exit;
-            }
-            $stmt->bind_param("sisisisis", $date, $uid, $date, $uid, $date, $uid, $date, $uid, $date);
-        } else {
-            $stmt = prepare_check($conn, "
-                SELECT w.*,
-                       1 as is_new_word,
-                       0 as is_reviewed_word
-                FROM words w
-                WHERE w.user_id = ? AND w.date_added = ? 
-                ORDER BY w.date_added ASC, w.id ASC
-            ");
-            if (!$stmt) {
-                echo json_encode(["error" => "SQL准备失败: " . $conn->error]);
-                exit;
-            }
+
+        // 3. 新单词（该日期添加的单词）
+        $new_words = [];
+        $stmt = prepare_check($conn, "SELECT w.*, 'new' as word_category FROM words w WHERE w.user_id = ? AND w.date_added = ? ORDER BY w.id ASC");
+        if ($stmt) {
             $stmt->bind_param("is", $uid, $date);
-        }
-        
-        if (!$stmt->execute()) {
-            echo json_encode(["error" => "SQL执行失败: " . $stmt->error]);
-            exit;
-        }
-        
-        $words = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        
-        $new_word_count = 0;
-        $review_word_count = 0;
-        foreach ($words as $word) {
-            if (isset($word['is_new_word']) && $word['is_new_word'] == 1) {
-                $new_word_count++;
-            }
-            if (isset($word['is_reviewed_word']) && $word['is_reviewed_word'] == 1) {
-                $review_word_count++;
+            if ($stmt->execute()) {
+                $new_words = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             }
         }
-        
+
+        $yesterday_count = count($yesterday_words);
+        $review_count = count($review_words);
+        $new_word_count = count($new_words);
+        $has_review_logs = ($check_table && $check_table->num_rows > 0);
         echo json_encode([
-            'words' => $words,
+            'yesterday_words' => $yesterday_words,
+            'review_words' => $review_words,
+            'new_words' => $new_words,
             'stats' => [
+                'yesterday_count' => $yesterday_count,
+                'review_count' => $review_count,
                 'new_word_count' => $new_word_count,
-                'review_word_count' => $review_word_count,
-                'total_count' => count($words)
+                'total_count' => $yesterday_count + $review_count + $new_word_count,
+                'has_review_logs' => $has_review_logs  // 若为false表示无word_review_logs表，复习数据可能不完整
             ]
         ]);
     }
@@ -1167,28 +1157,6 @@ elseif ($action === 'get_home_data') {
     $grade = $user_settings['grade'] ?? null;
     $daily_goal = $user_settings['daily_goal'] ?? 5;
     
-    // 注意：单词库导入已改为在点击"开始学习"时手动触发，这里不再自动导入
-    // 如果启用单词库，自动导入今日单词（保留此逻辑用于其他场景）
-    // if ($enable_word_bank == 1 && $grade) {
-    //     importWordBankWords($conn, $uid, $grade, $today, $daily_goal);
-    // }
-    
-    // 注意：get_home_data API不再返回队列，只返回统计信息
-    // 复习单词的查询逻辑已移到prepare_study_queue API中
-    // 这里只保留统计查询（用于显示）
-    
-    // 统计今天需要复习的所有单词数量（用于显示，不限制数量）
-    $stmt = prepare_check($conn, "
-        SELECT COUNT(*) as total_review_count
-        FROM words 
-        WHERE user_id = ? AND status != 'new' AND next_review <= ?
-    ");
-    $stmt->bind_param("is", $uid, $today);
-    $stmt->execute();
-    $total_review_result = $stmt->get_result()->fetch_assoc();
-    $total_review_count = (int)($total_review_result['total_review_count'] ?? 0);
-
-    // 新需求：计算复习单词（40%）+ 昨天新单词（全量）
     // 使用统一的isFirstLogin函数判断是否是第一次登录
     $is_first_login = isFirstLogin($conn, $uid, $today);
     
@@ -1268,10 +1236,6 @@ elseif ($action === 'get_home_data') {
     $stmt->execute();
     $count_future = $stmt->get_result()->fetch_row()[0];
 
-    // 注意：队列现在在prepare_study_queue API中生成（点击"开始学习"时），这里返回空队列
-    // 只返回统计信息，不返回实际队列
-    $final_queue = [];
-
     // D. 计算连续打卡天数
     $streak = calculateCheckInStreak($conn, $uid, $today);
     
@@ -1348,7 +1312,6 @@ elseif ($action === 'get_home_data') {
     $today_stars = $today_learned_count; // 使用实际学习的单词数，而不是队列数量
     
     // 新单词目标数已经在上面计算过了（在B部分）
-    // $new_word_target = max(0, $daily_goal - $total_review_count);
     
     // 统计今天已导入的新单词数量（包括手动录入和单词库）
     $stmt = prepare_check($conn, "
@@ -1364,12 +1327,7 @@ elseif ($action === 'get_home_data') {
     // 新需求：新单词显示为100%的每日目标
     $display_new_count = $new_word_target; // 100%的每日目标
     
-    // 计算今天任务（总任务量）
-    // 使用公共函数计算总任务量
-    $total_task = calculateTotalTask($conn, $uid, $daily_goal, $today);
-    
     echo json_encode([
-        "queue" => $final_queue,
         "stats" => [
             "review_count" => $review_display_count,  // 要复习：复习单词（40%）+ 昨天新单词（全量）
             "new_count"    => $display_new_count,   // 新单词：今天新单词（100%）
@@ -1926,23 +1884,29 @@ elseif ($action === 'get_stats') {
     $stats_30d = $stmt->get_result()->fetch_assoc();
     
     // 计算今天的完成率（更直观）
-    // 统计今天添加的所有单词（包括新学和复习的），因为用户可能学习的是复习单词
-    $stmt = prepare_check($conn, "
-        SELECT 
-            COUNT(*) as today_total_words,
-            COUNT(DISTINCT CASE WHEN status = 'new' THEN id END) as today_new_words
-        FROM words 
-        WHERE user_id = ? AND date_added = ?
-    ");
-    $stmt->bind_param("is", $uid, $today);
-    $stmt->execute();
-    $today_stats = $stmt->get_result()->fetch_assoc();
-    $today_total_words = (int)($today_stats['today_total_words'] ?? 0);
-    $today_new_words = (int)($today_stats['today_new_words'] ?? 0);
-    
-    // 如果今天有学习记录，优先使用总学习数（包括复习），这样更准确反映用户的学习情况
-    // 如果今天只有新学单词，则使用新学单词数
-    $today_studied_words = $today_total_words > 0 ? $today_total_words : $today_new_words;
+    // 统一使用word_review_logs表统计今天实际学习过的单词（包括新学和复习）
+    if ($table_exists) {
+        $stmt = prepare_check($conn, "
+            SELECT COUNT(DISTINCT word_id) as today_studied
+            FROM word_review_logs 
+            WHERE user_id = ? AND review_date = ?
+        ");
+        $stmt->bind_param("is", $uid, $today);
+        $stmt->execute();
+        $today_stats = $stmt->get_result()->fetch_assoc();
+        $today_studied_words = (int)($today_stats['today_studied'] ?? 0);
+    } else {
+        // 回退到旧逻辑（兼容性）
+        $stmt = prepare_check($conn, "
+            SELECT COUNT(*) as today_total_words
+            FROM words 
+            WHERE user_id = ? AND date_added = ?
+        ");
+        $stmt->bind_param("is", $uid, $today);
+        $stmt->execute();
+        $today_stats = $stmt->get_result()->fetch_assoc();
+        $today_studied_words = (int)($today_stats['today_total_words'] ?? 0);
+    }
     
     // 计算复习准确率（记住次数/总复习次数）
     $stmt = prepare_check($conn, "
@@ -2408,19 +2372,42 @@ elseif ($action === 'get_learning_report') {
     $user_condition = $target_user_id > 0 ? "AND user_id = $target_user_id" : "";
     
     // 1. 每日学习统计（按日期分组）
-    $stmt = prepare_check($conn, "
-        SELECT 
-            date_added as date,
-            COUNT(DISTINCT user_id) as user_count,
-            COUNT(*) as word_count,
-            COUNT(DISTINCT CASE WHEN status != 'new' THEN id END) as review_count,
-            COUNT(DISTINCT CASE WHEN status = 'new' THEN id END) as new_count
-        FROM words 
-        WHERE date_added BETWEEN ? AND ?
-        $user_condition
-        GROUP BY date_added
-        ORDER BY date_added ASC
-    ");
+    // 检查word_review_logs表是否存在
+    $check_table = $conn->query("SHOW TABLES LIKE 'word_review_logs'");
+    $table_exists = ($check_table && $check_table->num_rows > 0);
+    
+    if ($table_exists) {
+        // 使用word_review_logs表统计实际学习行为（更准确）
+        $stmt = prepare_check($conn, "
+            SELECT 
+                rl.review_date as date,
+                COUNT(DISTINCT rl.user_id) as user_count,
+                COUNT(DISTINCT rl.word_id) as word_count,
+                COUNT(DISTINCT CASE WHEN w.status != 'new' OR w.date_added != rl.review_date THEN rl.word_id END) as review_count,
+                COUNT(DISTINCT CASE WHEN w.status = 'new' AND w.date_added = rl.review_date THEN rl.word_id END) as new_count
+            FROM word_review_logs rl
+            LEFT JOIN words w ON rl.word_id = w.id
+            WHERE rl.review_date BETWEEN ? AND ?
+            $user_condition
+            GROUP BY rl.review_date
+            ORDER BY rl.review_date ASC
+        ");
+    } else {
+        // 回退到旧逻辑（兼容性）
+        $stmt = prepare_check($conn, "
+            SELECT 
+                date_added as date,
+                COUNT(DISTINCT user_id) as user_count,
+                COUNT(*) as word_count,
+                COUNT(DISTINCT CASE WHEN status != 'new' THEN id END) as review_count,
+                COUNT(DISTINCT CASE WHEN status = 'new' THEN id END) as new_count
+            FROM words 
+            WHERE date_added BETWEEN ? AND ?
+            $user_condition
+            GROUP BY date_added
+            ORDER BY date_added ASC
+        ");
+    }
     $stmt->bind_param("ss", $start_date, $end_date);
     $stmt->execute();
     $daily_stats = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);

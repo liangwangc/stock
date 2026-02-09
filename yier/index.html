@@ -1072,18 +1072,15 @@ const app = {
             const futureBox = document.getElementById('future-box');
             
             // 使用API返回的总任务量（total_pending），已经根据天数计算好了
-            // 如果API返回了total_pending，优先使用；否则计算队列总数
             const reviewCount2 = s.review_count || 0;
             const newCount2 = s.new_count || 0;
-            const queueTotal = s.total_pending || (reviewCount2 + newCount2); // 使用API返回的总任务量
+            const totalTask = s.total_pending || (reviewCount2 + newCount2); // 优先使用API返回的总任务量
             const futureCount = s.future_count || 0;
             // todayLearned 已经在上面声明过了，这里直接使用
             
             // 判断是否真的完成了今日任务：
-            // 1. queueTotal === 0（队列中没有待学习的单词）
-            // 2. todayLearned > 0（今天已经学习过）
-            // 只有两个条件都满足，才显示"今日打卡完成"
-            const isCompleted = queueTotal === 0 && todayLearned > 0;
+            // 已学数 >= 总任务量 且 确实学过（todayLearned > 0）
+            const isCompleted = todayLearned > 0 && todayLearned >= totalTask;
             
             if (isCompleted) {
                 // 今日任务已完成
@@ -1096,7 +1093,7 @@ const app = {
                 }
                 if(futureCount > 0) futureBox.classList.remove('hidden');
                 else futureBox.classList.add('hidden');
-            } else if (queueTotal === 0) {
+            } else if (totalTask === 0) {
                 // 没有待学习的单词，但今天还没学习
                 // 检查是否已启用单词库
                 const enableWordBank = this.user && (this.user.enable_word_bank == 1 || this.user.enable_word_bank === '1' || this.user.enable_word_bank === true);
@@ -1123,9 +1120,7 @@ const app = {
                 futureBox.classList.add('hidden');
             } else {
                 // 有待学习的单词
-                // 使用API返回的总任务量（已经根据天数计算好了）
-                const dailyGoal = s.daily_goal || this.user.daily_goal || 5;
-                const totalTask = s.total_pending || Math.max(queueTotal, dailyGoal); // 优先使用API返回的总任务量
+                // totalTask 已在上方统一声明，这里直接使用
                 
                 // 获取今天已学习的单词数（用于显示进度）
                 const todayLearnedCount = todayLearned || 0;
@@ -2448,10 +2443,8 @@ const app = {
             let html = '';
             let titleText = d;
             
-            // 优先检查响应格式：如果包含yesterday_words字段，说明是今天的格式（不管isToday是否为true）
-            // 这样可以处理server_today过期的情况
+            // 点击任意日期均显示三种分类：头天、复习、新单词
             if (response.yesterday_words !== undefined) {
-            // 今天：显示三种分类
             const yesterdayWords = response.yesterday_words || [];
             const reviewWords = response.review_words || [];
             const newWords = response.new_words || [];
@@ -2521,59 +2514,8 @@ const app = {
             // API返回错误
             html = `<p style="text-align:center;color:#ef4444;padding:20px">${response.error}${response.message ? ': ' + response.message : ''}</p>`;
         } else {
-            // 其他日期：显示该日期的学习情况
-            let list, stats;
-            if (response.words) {
-                list = response.words;
-                stats = response.stats || {};
-            } else if (Array.isArray(response)) {
-                list = response;
-                stats = {
-                    new_word_count: list.filter(w => w.status === 'new').length,
-                    review_word_count: list.filter(w => w.status !== 'new').length,
-                    total_count: list.length
-                };
-            } else {
-                list = [];
-                stats = { new_word_count: 0, review_word_count: 0, total_count: 0 };
-            }
-            
-            const statsText = stats.total_count > 0 
-                ? `新单词：${stats.new_word_count}个，复习单词：${stats.review_word_count}个`
-                : '';
-            
-            html = list.map(w => {
-                const isNewWord = (w.is_new_word === 1) || (w.status === 'new' && !w.is_reviewed_word);
-                const isReviewWord = (w.is_reviewed_word === 1) || (w.status !== 'new');
-                
-                let label = '新词';
-                let bgColor = '#eff6ff';
-                let textColor = '#3b82f6';
-                
-                if (isReviewWord && !isNewWord) {
-                    label = '复习';
-                    bgColor = '#f0fdf4';
-                    textColor = '#16a34a';
-                } else if (isNewWord && isReviewWord) {
-                    label = '新词+复习';
-                    bgColor = '#fef3c7';
-                    textColor = '#d97706';
-                }
-                
-                return `
-                <div class="list-item">
-                    <div>
-                        <div style="font-weight:bold; font-size:1.1rem">${w.word}</div>
-                        <div style="color:#64748b; font-size:0.9rem">${w.meaning || ''}</div>
-                    </div>
-                    <div style="font-size:0.75rem; padding:4px 8px; border-radius:4px; background:${bgColor}; color:${textColor}">
-                        ${label}
-                    </div>
-                </div>
-            `;
-            }).join('') || '<p style="text-align:center;color:#94a3b8;padding:20px">该日无记录</p>';
-            
-            titleText = statsText ? `${d}（${statsText}）` : d;
+            // 兼容：无三种分类时显示无记录
+            html = '<p style="text-align:center;color:#94a3b8;padding:20px">该日无记录</p>';
         }
         
         document.getElementById('sheet-title').innerText = titleText;
