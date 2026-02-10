@@ -333,6 +333,30 @@ class ModelPerformanceEvaluator:
             # 计算胜率
             win_rate = win_count / (win_count + loss_count) if (win_count + loss_count) > 0 else 0.0
             
+            # 计算最大回撤：从 returns 构造净值曲线
+            max_drawdown = 0.0
+            if returns:
+                equity = [1.0]
+                for r in returns:
+                    equity.append(equity[-1] * (1 + r / 100.0))
+                peak = equity[0]
+                for e in equity:
+                    if e > peak:
+                        peak = e
+                    dd = (peak - e) / peak if peak > 0 else 0
+                    if dd > max_drawdown:
+                        max_drawdown = dd
+                max_drawdown = round(max_drawdown * 100, 2)  # 转为百分比
+            
+            # 计算夏普比率（基于交易收益率序列）
+            sharpe_ratio = 0.0
+            if len(returns) >= 2:
+                mean_r = sum(returns) / len(returns)
+                var_r = sum((r - mean_r) ** 2 for r in returns) / len(returns)
+                std_r = var_r ** 0.5
+                if std_r > 1e-10:
+                    sharpe_ratio = round(mean_r / std_r * (len(returns) ** 0.5), 2)  # 年化因子√N
+            
             performance_result = {
                 'success': True,
                 'evaluation_date': end_date.strftime('%Y-%m-%d'),
@@ -346,6 +370,8 @@ class ModelPerformanceEvaluator:
                 'win_rate': round(win_rate, 4),
                 'win_count': win_count,
                 'loss_count': loss_count,
+                'max_drawdown': max_drawdown,
+                'sharpe_ratio': sharpe_ratio,
                 'returns': [round(r, 2) for r in returns[:50]],  # 只返回前50个收益数据
                 'details': {
                     'action_distribution': self._get_action_distribution(results),

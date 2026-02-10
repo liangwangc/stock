@@ -86,6 +86,7 @@ TUSHARE_PASSWORD = None  # Tushare密码
 
 # 日志配置
 LOG_LEVEL = "INFO"
+LOG_FILE = "logs/app.log"  # 项目运行日志文件（增量追加，相对于项目根目录）
 
 # 默认股票代码（如果命令行未指定，将使用此代码）
 DEFAULT_STOCK_SYMBOL = "000592"  # 可以在这里修改默认股票代码

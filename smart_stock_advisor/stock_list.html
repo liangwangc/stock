@@ -549,16 +549,18 @@
             <div class="tab-container" style="margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
                 <button class="tab-button tooltip-container active" id="tabAfterClose" onclick="switchTab('after_close')" style="position: relative;">
                     📈 股票预测列表（收盘-明天）
-                    <span class="tooltip-text" style="width: 300px; white-space: normal; line-height: 1.8;">
-                        该预测定时每日21点进行预测
+                    <span class="tooltip-text" style="width: 320px; white-space: normal; line-height: 1.8;">
+                        <strong>数据来源：</strong>系统每日 21 点自动预测「明日」涨跌。<br>
+                        <strong>预测日期：</strong>选择查看哪一天生成的预测（默认当天）。<br>
+                        <strong>适用：</strong>收盘后查看次日走势参考。
                     </span>
                 </button>
                 <button class="tab-button tooltip-container" id="tabBeforeClose" onclick="switchTab('before_close')" style="position: relative;">
-                    ⏰ 股票预测列表（未收盘-明天？）
-                    <span class="tooltip-text" style="width: 350px; white-space: normal; line-height: 1.8;">
-                        1、建议在早上9点40分进行操作，预测当天未来走势。<br><br>
-                        2、建议在下午14点40进行预测，预测明天大概走势。<br><br>
-                        3、数据显示的预测时间根据1、2点说明自行判断当天走势还是明日走势。
+                    ⏰ 股票预测列表（未收盘-盘前/盘中）
+                    <span class="tooltip-text" style="width: 360px; white-space: normal; line-height: 1.8;">
+                        <strong>适用场景：</strong>交易日尚未收盘时，手动发起预测。<br>
+                        <strong>建议时间：</strong>早 9:40 预测当日走势；下午 14:40 预测明日走势。<br>
+                        <strong>用法：</strong>点击「预测」按钮输入股票代码，结果保存为「未收盘-明天」类型。
                     </span>
                 </button>
                 <button class="tab-button tooltip-container" id="tabReport" onclick="switchTab('report')" style="position: relative;">
@@ -584,9 +586,9 @@
                         </div>
                         <div style="min-width: 150px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测日期</label>
-                            <input type="date" id="targetDateFilter" placeholder="选择预测日期（默认明天）" 
+                            <input type="date" id="targetDateFilter" placeholder="选择预测日期" 
                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
-                                   title="选择要查看的预测日期，留空则显示明天的预测">
+                                   title="查看该日期对应的预测结果，默认当天">
                         </div>
                         <div style="min-width: 150px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">预测类型</label>
@@ -599,8 +601,9 @@
                         </div>
                         <div style="min-width: 150px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">最小置信度</label>
-                            <input type="number" id="confidenceMinFilter" placeholder="0.0-1.0" min="0" max="1" step="0.1"
-                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                            <input type="number" id="confidenceMinFilter" placeholder="例：0.55" min="0" max="1" step="0.1"
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
+                                   title="仅显示置信度≥该值的预测，0.55 即 55%">
                         </div>
                         <div style="display: flex; align-items: flex-end; gap: 10px;">
                             <button onclick="applyFilters('after_close')" style="padding: 8px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">搜索</button>
@@ -619,7 +622,7 @@
             
             <div id="tabContentBeforeClose" class="tab-content" style="display: none;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h1 style="margin: 0;">⏰ 股票预测列表（未收盘-明天）</h1>
+                    <h1 style="margin: 0;">⏰ 股票预测列表（未收盘-盘前/盘中）</h1>
                     <button class="btn btn-primary" id="predictBtn" onclick="showPredictModal()" style="padding: 10px 20px; font-size: 14px;">
                         🔮 预测
                     </button>
@@ -2071,11 +2074,11 @@
                 totalCount: 0
             };
             
-            // 设置预测日期选择器的默认值为明天（留空表示使用默认值）
+            // 设置预测日期选择器的默认值为当天
             const targetDateFilter = document.getElementById('targetDateFilter');
-            if (targetDateFilter) {
-                // 不设置默认值，留空表示使用后端的默认值（明天）
-                // 用户可以选择历史日期来查看历史预测
+            if (targetDateFilter && !targetDateFilter.value) {
+                const today = new Date();
+                targetDateFilter.value = today.toISOString().split('T')[0];
             }
         });
     </script>

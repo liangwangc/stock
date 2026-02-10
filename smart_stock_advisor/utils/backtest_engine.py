@@ -525,8 +525,21 @@ class BacktestEngine:
         else:
             profit_loss_ratio = 0.0
         
-        # 计算夏普比率（简化版，需要收益率序列）
-        sharpe_ratio = 0.0  # TODO: 需要计算收益率的标准差
+        # 计算夏普比率：从 daily_values 构造日收益率序列，Sharpe = (μ/σ) × √252
+        sharpe_ratio = 0.0
+        if daily_values and len(daily_values) >= 2:
+            values = [initial_capital] + [dv.get('total_value', initial_capital) for dv in daily_values]
+            daily_returns = []
+            for i in range(1, len(values)):
+                if values[i - 1] > 0:
+                    r = (values[i] - values[i - 1]) / values[i - 1]
+                    daily_returns.append(r)
+            if daily_returns:
+                mean_r = sum(daily_returns) / len(daily_returns)
+                var_r = sum((r - mean_r) ** 2 for r in daily_returns) / len(daily_returns)
+                std_r = var_r ** 0.5
+                if std_r > 1e-10:
+                    sharpe_ratio = (mean_r - 0) / std_r * (252 ** 0.5)  # 年化，无风险利率取0
         
         return {
             'total_return': round(total_return * 100, 2),

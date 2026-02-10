@@ -7,6 +7,7 @@
 主要特性：
 - 统一日志格式：时间、模块名、日志级别、消息
 - 标准输出：日志输出到标准输出（stdout）
+- 日志文件：同时追加写入项目根目录下的 logs/app.log（增量更新）
 - 日志级别：从配置文件读取（LOG_LEVEL）
 - 单例模式：每个模块名只创建一个logger实例
 
@@ -26,7 +27,29 @@
 """
 import logging
 import sys
-from config import LOG_LEVEL
+import os
+from config import LOG_LEVEL, LOG_FILE
+
+# 项目根目录（utils 的上级）
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _get_file_handler():
+    """创建并返回日志文件 Handler（增量追加模式）"""
+    try:
+        log_path = os.path.join(_project_root, LOG_FILE)
+        log_dir = os.path.dirname(log_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        handler = logging.FileHandler(log_path, mode='a', encoding='utf-8')
+        handler.setLevel(getattr(logging, LOG_LEVEL))
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        ))
+        return handler
+    except Exception as e:
+        sys.stderr.write(f"[Logger] 无法创建日志文件 {LOG_FILE}: {e}\n")
+        return None
 
 def get_logger(name: str) -> logging.Logger:
     """
@@ -107,6 +130,11 @@ def get_logger(name: str) -> logging.Logger:
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
+        
+        # 添加文件 Handler（增量追加到 logs/app.log）
+        file_handler = _get_file_handler()
+        if file_handler:
+            logger.addHandler(file_handler)
     
     return logger
 

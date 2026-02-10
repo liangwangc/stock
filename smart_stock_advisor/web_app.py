@@ -456,6 +456,10 @@ def get_news_storage():
 @app.before_request
 def check_session():
     """在每个请求前检查会话有效性（实现单点登录）"""
+    # 确保定时任务调度器在首次请求时启动（避免无人访问任务页时任务不执行）
+    if SCHEDULED_TASK_MANAGER_AVAILABLE and scheduled_task_manager is None:
+        get_scheduled_task_manager()
+    
     # 排除不需要验证的端点
     excluded_endpoints = ['login', 'static', 'favicon']
     if request.endpoint and any(excluded in request.endpoint for excluded in excluded_endpoints):
@@ -4960,6 +4964,36 @@ def api_get_scheduled_task(task_id):
         return jsonify({'success': False, 'message': str(e)})
 
 
+@app.route('/api/scheduled/tasks/<int:task_id>', methods=['PUT'])
+def api_update_scheduled_task(task_id):
+    """更新定时任务（仅当任务已停止时可修改）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'})
+    
+    try:
+        data = request.get_json() or {}
+        manager = get_scheduled_task_manager()
+        if manager is None:
+            return jsonify({'success': False, 'message': '定时任务管理器不可用'})
+        
+        success = manager.update_task(
+            task_id,
+            task_name=data.get('task_name'),
+            schedule_type=data.get('schedule_type'),
+            schedule_time=data.get('schedule_time'),
+            schedule_weekdays=data.get('schedule_weekdays'),
+            schedule_month_day=data.get('schedule_month_day'),
+            task_config=data.get('task_config')
+        )
+        if success:
+            return jsonify({'success': True, 'message': '任务已更新'})
+        else:
+            return jsonify({'success': False, 'message': '更新失败：任务可能正在运行，请先停止后再修改'})
+    except Exception as e:
+        logger.error(f"更新定时任务失败: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/scheduled/tasks/<int:task_id>', methods=['DELETE'])
 def api_delete_scheduled_task(task_id):
     """删除定时任务"""
@@ -6334,7 +6368,8 @@ def api_model_evaluate():
                 'win_rate': trading_result.get('win_rate', 0),
                 'win_count': trading_result.get('win_count', 0),
                 'loss_count': trading_result.get('loss_count', 0),
-                'max_drawdown': 0  # TODO: 从回测结果中获取
+                'max_drawdown': trading_result.get('max_drawdown', 0),
+                'sharpe_ratio': trading_result.get('sharpe_ratio', 0)
             })
         
         return jsonify({'success': True, 'data': result})

@@ -22,11 +22,24 @@
             margin-bottom: 10px;
         }
         
-        .settings-menu {
-            display: flex;
-            gap: 10px;
+        .settings-menu-wrapper {
             margin-bottom: 30px;
             border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .settings-menu-hint {
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #666;
+            background: #fafafa;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .settings-menu {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px 0;
         }
         
         .menu-item {
@@ -516,7 +529,11 @@
             </button>
         </div>
         
-        <div class="settings-menu">
+        <div class="settings-menu-wrapper">
+            <div class="settings-menu-hint">
+                <strong style="color: #333;">📋 本页模块</strong> — 点击下方按钮切换：任务、新闻、数据、备份、参数、训练、学习、定时任务
+            </div>
+            <div class="settings-menu">
             <button class="menu-item active" onclick="switchPanel('task')">股票分析任务管理</button>
             <button class="menu-item" onclick="switchPanel('news')">新闻抓取</button>
             <button class="menu-item" onclick="switchPanel('stock-data')">股票数据获取</button>
@@ -525,6 +542,8 @@
             <button class="menu-item" onclick="switchPanel('params')">参数设置</button>
             <button class="menu-item" data-panel="model-training" onclick="switchPanel('model-training')">模型训练</button>
             <button class="menu-item" onclick="switchPanel('model-learning')">模型学习</button>
+            <button class="menu-item" onclick="switchPanel('scheduled-tasks')">定时任务管理</button>
+            </div>
         </div>
         
         <div class="settings-content">
@@ -598,9 +617,6 @@
                         <button id="stopAnalysisBtn" class="btn btn-danger" onclick="stopAnalysis()" style="display: none; margin-left: 10px;">
                             ⏹️ 中止任务
                         </button>
-                        <button class="btn btn-primary" onclick="showCreateStockAnalysisTaskModal()" style="margin-left: 10px;">
-                            ⏰ 创建定时任务
-                        </button>
                     </div>
                     
                     <div id="taskStatus" class="task-status" style="display: none;">
@@ -636,27 +652,6 @@
                         <div id="taskHistoryList" style="max-height: 400px; overflow-y: auto;">
                             <p>正在加载任务历史...</p>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- 定时任务管理 -->
-                <div class="form-section" style="margin-top: 40px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                    <h2>定时任务管理</h2>
-                    <div class="help-text" style="margin-bottom: 20px;">
-                        集中管理所有定时任务，包括：股票历史数据更新、股票分析、新闻抓取等。所有任务的运行状态都会在这里统一显示和管理。
-                    </div>
-                    
-                    <div class="task-controls" style="margin-bottom: 20px;">
-                        <button class="btn btn-primary" onclick="showCreateScheduledTaskModal()">
-                            ➕ 创建定时任务
-                        </button>
-                        <button class="btn btn-primary" onclick="refreshScheduledTasks()">
-                            🔄 刷新列表
-                        </button>
-                    </div>
-                    
-                    <div id="scheduledTasksList" style="margin-top: 20px;">
-                        <div class="empty-state">正在加载定时任务列表...</div>
                     </div>
                 </div>
             </div>
@@ -1713,6 +1708,9 @@
             <div id="panel-model-learning" class="content-panel">
                 <div class="form-section">
                     <h2>模型学习与优化</h2>
+                    <div style="margin-bottom: 16px; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; font-size: 13px; color: #555;">
+                        <strong>本页包含：</strong>性能评估（看准确率）→ 参数优化（自动调参）→ 回测验证（模拟交易）→ 定时任务（自动化）。往下滚动查看各区域。
+                    </div>
                     
                     <!-- 使用指南（可折叠） -->
                     <div style="margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
@@ -1771,7 +1769,7 @@
                                     <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一步：性能评估</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
                                         <strong>作用：</strong>了解模型当前的预测效果，是否需要优化。<br>
-                                        <strong>操作：</strong>选择时间段（7/30/90天） → 点击「基础评估」查看方向准确率、收益率等核心指标；点击「综合评估」查看多维度分析（分市场状态、置信度校准等）。<br>
+                                        <strong>操作：</strong>选择时间段（7/30/90天） → 点击「基础评估」查看方向准确率、总收益率、胜率、最大回撤、夏普比率；点击「综合评估」查看多维度分析（分市场状态、置信度校准等）。<br>
                                         <strong>建议频率：</strong>每周至少 1 次，或在发现预测不准时随时执行。<br>
                                         <strong>如何判断：</strong>方向准确率 > 55% 为良好，> 65% 为优秀；低于 50% 说明急需优化参数。
                                     </div>
@@ -1798,7 +1796,7 @@
                                         <strong>作用：</strong>用历史预测数据模拟真实交易，验证当前参数的盈亏表现。<br>
                                         <strong>操作：</strong>选择日期范围（建议 ≥ 14天）→ 设置初始资金 → 点击「执行回测」。<br>
                                         <strong>交易规则：</strong>预测上涨且置信度 ≥ 55% 时买入（单只最多 30% 仓位），预测下跌或盈利 ≥ 8% 止盈、亏损 ≥ 5% 止损时卖出。<br>
-                                        <strong>关注指标：</strong>总收益率（正 = 赚钱）、胜率（> 50% 为好）、最大回撤（越小越安全）。<br>
+                                        <strong>关注指标：</strong>总收益率（正 = 赚钱）、胜率（> 50% 为好）、最大回撤（越小越安全）、夏普比率（> 1 表示风险调整后收益较好）。<br>
                                         <strong>最佳实践：</strong>优化参数前回测一次 → 优化后再回测一次 → 对比确认效果提升。
                                     </div>
                                 </div>
@@ -1852,7 +1850,7 @@
                                         </tr>
                                         <tr>
                                             <td style="padding: 8px; color: #333; font-weight: 500;">手动调参后验证</td>
-                                            <td style="padding: 8px;">在「参数设置」页修改权重 → 回到本页回测 → 对比收益率和胜率变化</td>
+                                            <td style="padding: 8px;">在「参数设置」页修改权重 → 回到本页回测 → 对比收益率、胜率、最大回撤、夏普比率变化</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -1900,6 +1898,10 @@
                                 <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 20px; border-radius: 10px;">
                                     <div style="font-size: 14px; opacity: 0.9;">最大回撤</div>
                                     <div id="metric-drawdown" style="font-size: 32px; font-weight: bold; margin-top: 10px;">-</div>
+                                </div>
+                                <div class="metric-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 20px; border-radius: 10px;">
+                                    <div style="font-size: 14px; opacity: 0.9;">夏普比率</div>
+                                    <div id="metric-sharpe" style="font-size: 32px; font-weight: bold; margin-top: 10px;">-</div>
                                 </div>
                             </div>
                             
@@ -2171,6 +2173,32 @@
                         <div id="modelLearningTasksList" style="min-height: 200px;">
                             <div class="empty-state">正在加载定时学习任务...</div>
                         </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 定时任务管理面板（集中管理全程序所有定时任务） -->
+            <div id="panel-scheduled-tasks" class="content-panel">
+                <div class="form-section">
+                    <h2>⏰ 定时任务管理</h2>
+                    <div class="help-text" style="margin-bottom: 20px;">
+                        集中管理程序所有定时任务，包括：股票历史数据更新、股票分析、新闻抓取、模型评估、数据备份等。所有任务的运行状态统一在此显示和管理。<strong>修改任务需先停止后再操作。</strong>
+                    </div>
+                    
+                    <div class="task-controls" style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="showCreateScheduledTaskModal()">
+                            ➕ 创建定时任务
+                        </button>
+                        <button class="btn btn-primary" onclick="showCreateStockAnalysisTaskModal()" style="margin-left: 10px;">
+                            📊 创建股票分析定时任务
+                        </button>
+                        <button class="btn btn-primary" onclick="refreshScheduledTasks()" style="margin-left: 10px;">
+                            🔄 刷新列表
+                        </button>
+                    </div>
+                    
+                    <div id="scheduledTasksList" style="margin-top: 20px;">
+                        <div class="empty-state">正在加载定时任务列表...</div>
                     </div>
                 </div>
             </div>
@@ -2785,8 +2813,13 @@
             document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
             document.querySelectorAll('.content-panel').forEach(panel => panel.classList.remove('active'));
             
-            event.target.classList.add('active');
-            document.getElementById(`panel-${panelName}`).classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            const panelEl = document.getElementById(`panel-${panelName}`);
+            if (panelEl) {
+                panelEl.classList.add('active');
+            }
             
             // 切换到用户管理面板时，自动刷新用户列表
             if (panelName === 'users') {
@@ -2820,6 +2853,15 @@
             if (panelName === 'stock-data') {
                 setTimeout(() => {
                     refreshStockDataTasks();
+                }, 100);
+            }
+            
+            // 如果切换到定时任务管理面板，加载定时任务列表
+            if (panelName === 'scheduled-tasks') {
+                setTimeout(() => {
+                    if (typeof refreshScheduledTasks === 'function') {
+                        refreshScheduledTasks();
+                    }
                 }, 100);
             }
         }
@@ -4377,6 +4419,9 @@
         
         // ========== 定时任务管理 ==========
         
+        // 当前正在编辑的定时任务（用于修改时复用配置）
+        let currentEditingScheduledTask = null;
+        
         // 刷新定时任务列表
         async function refreshScheduledTasks() {
             try {
@@ -4501,10 +4546,14 @@
                             ${task.last_run_message ? `<div style="margin-top: 5px; color: #333;">${task.last_run_message}</div>` : ''}
                         </div>
                         
-                        <div style="display: flex; gap: 10px;">
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                             ${isActive ? 
                                 `<button class="btn btn-danger" onclick="stopScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">⏹️ 停止</button>` :
                                 `<button class="btn btn-primary" onclick="startScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">▶️ 启动</button>`
+                            }
+                            ${isActive ? 
+                                `<button class="btn" disabled style="padding: 8px 16px; font-size: 12px; opacity: 0.6; cursor: not-allowed;" title="请先停止任务再修改">✏️ 修改</button>` :
+                                `<button class="btn" onclick="showEditScheduledTaskModal(${task.id})" style="padding: 8px 16px; font-size: 12px; background: #ffffff; border: 1px solid #ddd;">✏️ 修改</button>`
                             }
                             <button class="btn btn-danger" onclick="deleteScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">🗑️ 删除</button>
                             <button class="btn" onclick="viewScheduledTaskHistory(${task.id})" style="padding: 8px 16px; font-size: 12px; background: #f0f0f0;">📋 执行历史</button>
@@ -4617,6 +4666,144 @@
                 }
             } catch (error) {
                 alert('删除失败: ' + error.message);
+            }
+        }
+        
+        // 显示编辑定时任务弹窗（仅在已停止状态下可修改）
+        async function showEditScheduledTaskModal(taskId) {
+            try {
+                const response = await fetch(`/api/scheduled/tasks/${taskId}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    alert('加载任务失败: ' + (result.message || '未知错误'));
+                    return;
+                }
+                
+                const task = result.data || {};
+                if (task.is_active == 1) {
+                    alert('任务正在运行，请先在列表中点击“停止”后再修改。');
+                    return;
+                }
+                
+                currentEditingScheduledTask = task;
+                
+                const scheduleTime = task.schedule_time
+                    ? (typeof task.schedule_time === 'string'
+                        ? task.schedule_time.substring(0, 5)
+                        : task.schedule_time)
+                    : '15:05';
+                const weekdays = task.schedule_weekdays || '';
+                
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                        <h2 style="margin: 0 0 20px 0;">修改定时任务</h2>
+                        
+                        <div class="form-group">
+                            <label>任务名称</label>
+                            <input type="text" id="editTaskName" value="${task.task_name || ''}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>任务类型</label>
+                            <input type="text" value="${getTaskTypeName(task.task_type)}" disabled style="width: 100%; padding: 8px; box-sizing: border-box; background: #f5f5f5;">
+                            <div class="help-text">任务类型暂不支持修改，如需变更类型，请删除后重新创建。</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>执行时间（HH:MM）</label>
+                            <input type="time" id="editScheduleTime" value="${scheduleTime}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>执行星期（1-7，逗号分隔，如：1,2,3,4,5）</label>
+                            <input type="text" id="editScheduleWeekdays" value="${weekdays}" placeholder="留空表示每天" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                            <div class="help-text">1=周一, 2=周二, ..., 7=周日。留空表示每天执行。</div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn" id="editScheduledTaskCancel" style="background: #f0f0f0;">取消</button>
+                            <button class="btn btn-primary" id="editScheduledTaskSave">保存修改</button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                const cancelBtn = modal.querySelector('#editScheduledTaskCancel');
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', () => {
+                        modal.remove();
+                        currentEditingScheduledTask = null;
+                    });
+                }
+                
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.remove();
+                        currentEditingScheduledTask = null;
+                    }
+                });
+                
+                const saveBtn = modal.querySelector('#editScheduledTaskSave');
+                if (saveBtn) {
+                    saveBtn.addEventListener('click', () => updateScheduledTask(taskId));
+                }
+            } catch (error) {
+                alert('加载任务失败: ' + error.message);
+            }
+        }
+        
+        // 提交修改定时任务
+        async function updateScheduledTask(taskId) {
+            if (!currentEditingScheduledTask) {
+                alert('任务数据缺失，请刷新页面后重试。');
+                return;
+            }
+            
+            const nameInput = document.getElementById('editTaskName');
+            const timeInput = document.getElementById('editScheduleTime');
+            const weekdaysInput = document.getElementById('editScheduleWeekdays');
+            
+            const taskName = nameInput ? nameInput.value.trim() : '';
+            const scheduleTime = timeInput ? timeInput.value : '';
+            const scheduleWeekdays = weekdaysInput ? (weekdaysInput.value.trim() || null) : null;
+            
+            if (!taskName) {
+                alert('请输入任务名称');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/scheduled/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task_name: taskName,
+                        schedule_type: currentEditingScheduledTask.schedule_type || 'daily',
+                        schedule_time: scheduleTime,
+                        schedule_weekdays: scheduleWeekdays,
+                        task_config: currentEditingScheduledTask.task_config || null
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('任务已更新');
+                    const modals = document.querySelectorAll('div[style*="position: fixed"]');
+                    modals.forEach(m => m.remove());
+                    currentEditingScheduledTask = null;
+                    refreshScheduledTasks();
+                } else {
+                    alert('更新失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('更新失败: ' + error.message);
             }
         }
         
@@ -5172,6 +5359,9 @@
                                 `<button class="btn btn-danger" onclick="stopScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">⏹️ 停止</button>` :
                                 `<button class="btn btn-primary" onclick="startScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">▶️ 启动</button>`
                             }
+                            <button class="btn" onclick="editScheduledTask(${task.id}, ${isActive ? 'true' : 'false'})" style="padding: 8px 16px; font-size: 12px; background: #ffffff; border: 1px solid #ddd;">
+                                ✏️ 编辑
+                            </button>
                             <button class="btn btn-danger" onclick="deleteScheduledTask(${task.id})" style="padding: 8px 16px; font-size: 12px;">🗑️ 删除</button>
                             <button class="btn" onclick="viewScheduledTaskHistory(${task.id})" style="padding: 8px 16px; font-size: 12px; background: #f0f0f0;">📋 执行历史</button>
                         </div>
@@ -5283,6 +5473,126 @@
                 }
             } catch (error) {
                 alert('删除失败: ' + error.message);
+            }
+        }
+        
+        // 编辑定时任务（仅允许已停止任务）
+        async function editScheduledTask(taskId, isActive) {
+            if (isActive) {
+                alert('任务正在运行中，请先停止任务再进行修改。');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/scheduled/tasks/${taskId}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    alert('加载任务信息失败: ' + (result.message || '未知错误'));
+                    return;
+                }
+                
+                const task = result.data || {};
+                const currentName = task.task_name || '';
+                const currentTime = task.schedule_time
+                    ? (typeof task.schedule_time === 'string' ? task.schedule_time.substring(0, 5) : task.schedule_time)
+                    : '15:05';
+                const currentWeekdays = task.schedule_weekdays || '';
+                
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                        <h2 style="margin: 0 0 20px 0;">编辑定时任务</h2>
+                        
+                        <div class="form-group">
+                            <label>任务名称</label>
+                            <input type="text" id="editTaskName" value="${currentName.replace(/"/g, '&quot;')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>任务类型</label>
+                            <input type="text" value="${getTaskTypeName(task.task_type || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; background: #f5f5f5;" disabled>
+                            <div class="help-text">任务类型暂不支持在此处修改，如需调整类型可删除后重新创建。</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>执行时间（HH:MM）</label>
+                            <input type="time" id="editScheduleTime" value="${currentTime}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>执行星期（1-7，逗号分隔，如：1,2,3,4,5）</label>
+                            <input type="text" id="editScheduleWeekdays" value="${currentWeekdays}" placeholder="留空表示每天" style="width: 100%; padding: 8px; box-sizing: border-box;">
+                            <div class="help-text">1=周一, 2=周二, ..., 7=周日。留空表示每天执行。</div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                            <button class="btn" id="cancelEditTaskBtn" style="background: #f0f0f0;">取消</button>
+                            <button class="btn btn-primary" onclick="updateScheduledTask(${taskId})">保存</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                const cancelBtn = modal.querySelector('#cancelEditTaskBtn');
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', () => {
+                        modal.remove();
+                    });
+                }
+                
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+            } catch (error) {
+                alert('加载任务信息失败: ' + error.message);
+            }
+        }
+        
+        // 保存定时任务修改
+        async function updateScheduledTask(taskId) {
+            const taskName = document.getElementById('editTaskName')?.value.trim();
+            const scheduleTime = document.getElementById('editScheduleTime')?.value;
+            const scheduleWeekdaysRaw = document.getElementById('editScheduleWeekdays')?.value.trim();
+            const scheduleWeekdays = scheduleWeekdaysRaw || null;
+            
+            if (!taskName) {
+                alert('请输入任务名称');
+                return;
+            }
+            if (!scheduleTime) {
+                alert('请输入执行时间');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/scheduled/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task_name: taskName,
+                        schedule_type: 'daily',
+                        schedule_time: scheduleTime,
+                        schedule_weekdays: scheduleWeekdays
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    alert('任务已更新');
+                    const modals = document.querySelectorAll('div[style*="position: fixed"]');
+                    modals.forEach(m => m.remove());
+                    refreshScheduledTasks();
+                } else {
+                    alert('更新失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('更新失败: ' + error.message);
             }
         }
         
@@ -6890,8 +7200,12 @@
             const winRate = (data.win_rate * 100 || 0).toFixed(2);
             document.getElementById('metric-winrate').textContent = winRate + '%';
             
-            const drawdown = (data.max_drawdown * 100 || 0).toFixed(2);
+            const drawdown = (data.max_drawdown ?? 0).toFixed(2);
             document.getElementById('metric-drawdown').textContent = drawdown + '%';
+            
+            const sharpe = (data.sharpe_ratio ?? 0).toFixed(2);
+            const sharpeEl = document.getElementById('metric-sharpe');
+            if (sharpeEl) sharpeEl.textContent = sharpe;
             
             // 绘制性能趋势图表
             drawPerformanceChart(data);
@@ -6916,14 +7230,15 @@
             performanceChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: ['准确率', '收益率', '胜率', '回撤'],
+                    labels: ['准确率', '收益率', '胜率', '回撤', '夏普'],
                     datasets: [{
                         label: '性能指标',
                         data: [
                             (data.direction_accuracy * 100).toFixed(2),
                             (data.total_return || 0).toFixed(2),
                             (data.win_rate * 100 || 0).toFixed(2),
-                            (data.max_drawdown * 100 || 0).toFixed(2)
+                            (data.max_drawdown ?? 0).toFixed(2),
+                            (data.sharpe_ratio ?? 0).toFixed(2)
                         ],
                         borderColor: 'rgb(102, 126, 234)',
                         backgroundColor: 'rgba(102, 126, 234, 0.1)',
@@ -9879,6 +10194,7 @@
                     let html = '<div style="display: grid; gap: 15px;">';
                     
                     result.data.forEach(task => {
+                        const isActive = task.is_active == 1;
                         const taskTypeMap = {
                             'model_evaluation': '模型评估',
                             'model_optimization': '参数优化',
@@ -9912,10 +10228,11 @@
                                         </div>
                                     </div>
                                     <div style="display: flex; gap: 5px;">
-                                        ${task.is_active ? 
+                                        ${isActive ? 
                                             `<button class="btn" onclick="stopModelLearningTask(${task.id})" style="background: #f0f0f0; padding: 5px 15px; font-size: 12px;">停止</button>` :
                                             `<button class="btn btn-primary" onclick="startModelLearningTask(${task.id})" style="padding: 5px 15px; font-size: 12px;">启动</button>`
                                         }
+                                        <button class="btn" onclick="editScheduledTask(${task.id}, ${isActive ? 'true' : 'false'})" style="background: #ffffff; border: 1px solid #ddd; padding: 5px 15px; font-size: 12px;">编辑</button>
                                         <button class="btn" onclick="deleteModelLearningTask(${task.id})" style="background: #ff6b6b; color: white; padding: 5px 15px; font-size: 12px;">删除</button>
                                     </div>
                                 </div>

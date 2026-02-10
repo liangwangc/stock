@@ -1667,13 +1667,14 @@ class ScheduledTaskManager:
                 if news_system_path not in sys.path:
                     sys.path.insert(0, news_system_path)
                 
-                # 导入 news-analysis-system-main 的新闻获取函数
+                # 导入 news-analysis-system-main 的新闻获取函数（财联社 + 东方财富个股新闻）
                 from src.data_processing.get_cls_news import fetch_and_store_news
+                from src.data_processing.get_em_stock_news import fetch_and_store_em_stock_news
                 
-                self.logger.info(f"成功导入 news-analysis-system-main 的 fetch_and_store_news 函数")
+                self.logger.info("成功导入 news-analysis-system-main 的 fetch_and_store_news 和 fetch_and_store_em_stock_news 函数")
                 
                 # 调用 news-analysis-system-main 的新闻获取方法
-                # 注意：fetch_and_store_news() 内部已经处理了新闻获取、股票匹配、情感分析和数据库存储
+                # 注意：内部已经处理了新闻获取、股票匹配、情感分析和数据库存储
                 # 重定向 print() 输出到 logger，以便统一管理日志
                 import io
                 from contextlib import redirect_stdout, redirect_stderr
@@ -1696,7 +1697,10 @@ class ScheduledTaskManager:
                         warnings.filterwarnings('ignore', category=FutureWarning)  # 同时抑制 FutureWarning
                         # 重定向 print() 输出到缓冲区
                         with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                            # 先抓取财联社新闻
                             fetch_and_store_news()
+                            # 再抓取东方财富个股新闻
+                            fetch_and_store_em_stock_news()
                     
                     # 将捕获的输出写入日志（在重定向恢复之前）
                     stdout_output = stdout_buffer.getvalue()
@@ -1728,9 +1732,9 @@ class ScheduledTaskManager:
                     except:
                         pass
                 
-                self.logger.info("news-analysis-system-main 新闻获取任务执行完成")
+                self.logger.info("news-analysis-system-main 新闻获取任务执行完成（财联社 + 东方财富个股新闻）")
                 
-                # 由于 fetch_and_store_news() 没有返回值，我们需要查询数据库获取统计信息
+                # 由于新闻抓取函数没有返回值，我们需要查询数据库获取统计信息
                 try:
                     from utils.db_connection import DatabaseConnection as DBConnection
                     from config_db import USE_DATABASE
@@ -1740,7 +1744,8 @@ class ScheduledTaskManager:
                         sql = """
                             SELECT 
                                 COUNT(*) as total_count,
-                                COUNT(CASE WHEN source = '财联社' THEN 1 END) as cls_count
+                                COUNT(CASE WHEN source = '财联社' THEN 1 END) as cls_count,
+                                COUNT(CASE WHEN source = '东方财富个股新闻' THEN 1 END) as em_count
                             FROM news_articles 
                             WHERE fetch_time >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
                         """
@@ -1749,10 +1754,11 @@ class ScheduledTaskManager:
                         if result and len(result) > 0:
                             total_count = result[0].get('total_count', 0)
                             cls_count = result[0].get('cls_count', 0)
+                            em_count = result[0].get('em_count', 0)
                             
                             return {
                                 'success': True,
-                                'message': f"新闻获取完成（通过news-analysis-system-main），最近5分钟新增 {total_count} 条新闻（其中财联社 {cls_count} 条）",
+                                'message': f"新闻获取完成（通过news-analysis-system-main），最近5分钟新增 {total_count} 条新闻（财联社 {cls_count} 条，东方财富个股新闻 {em_count} 条）",
                                 'data': {
                                     'success_count': total_count,
                                     'fail_count': 0,
@@ -2034,6 +2040,63 @@ class ScheduledTaskManager:
         except Exception as e:
             self.logger.error(f"创建定时任务失败: {str(e)}")
             return None
+    
+    def update_task(self, task_id: int, task_name: str = None, schedule_type: str = None,
+                    schedule_time: str = None, schedule_weekdays: str = None,
+                    schedule_month_day: int = None, task_config: Dict = None) -> bool:
+        """更新定时任务（仅当任务已停止时可修改）"""
+        try:
+            task = self.get_task(task_id)
+            if not task:
+                self.logger.error(f"任务 {task_id} 不存在")
+                return False
+            
+            if task.get('is_active') == 1:
+                self.logger.warning(f"任务 {task_id} 正在运行中，需先停止才能修改")
+                return False
+            
+            # 构建更新字段
+            updates = []
+            params = []
+            
+            if task_name is not None:
+                updates.append("task_name = %s")
+                params.append(task_name)
+            if schedule_type is not None:
+                updates.append("schedule_type = %s")
+                params.append(schedule_type)
+            if schedule_time is not None:
+                updates.append("schedule_time = %s")
+                params.append(schedule_time)
+            if schedule_weekdays is not None:
+                updates.append("schedule_weekdays = %s")
+                params.append(schedule_weekdays)
+            if task_config is not None:
+                task_config_json = json.dumps(task_config, ensure_ascii=False)
+                updates.append("task_config = %s")
+                params.append(task_config_json)
+            
+            if schedule_month_day is not None:
+                merged_config = task.get('task_config') or {}
+                if not isinstance(merged_config, dict):
+                    merged_config = {}
+                merged_config['schedule_month_day'] = schedule_month_day
+                task_config_json = json.dumps(merged_config, ensure_ascii=False)
+                updates.append("task_config = %s")
+                params.append(task_config_json)
+            
+            if not updates:
+                self.logger.warning("无有效更新字段")
+                return True
+            
+            params.append(task_id)
+            sql = f"UPDATE scheduled_tasks SET {', '.join(updates)} WHERE id = %s"
+            self.db.execute_update(sql, tuple(params))
+            self.logger.info(f"定时任务已更新: ID {task_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"更新定时任务失败: {str(e)}")
+            return False
     
     def start_task(self, task_id: int, task_source: str = None) -> bool:
         """启动任务（支持多种任务类型）"""

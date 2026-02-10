@@ -14,6 +14,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 from src.data_processing.get_cls_news import fetch_and_store_news
+from src.data_processing.get_em_stock_news import fetch_and_store_em_stock_news
 from src.analysis.main import job as llm_analysis_job
 
 # 配置日志
@@ -33,13 +34,24 @@ logger = logging.getLogger(__name__)
 
 
 def news_fetch_job():
-    """新闻获取任务"""
+    """新闻获取任务（财联社 + 东方财富个股新闻）"""
     try:
         logger.info("=" * 60)
-        logger.info("开始执行新闻获取任务")
+        logger.info("开始执行新闻获取任务（财联社 + 东方财富个股新闻）")
         logger.info("=" * 60)
+        # 财联社新闻
         fetch_and_store_news()
-        logger.info("新闻获取任务完成")
+        logger.info("财联社新闻获取任务完成")
+
+        # 东方财富个股新闻
+        try:
+            fetch_and_store_em_stock_news()
+            logger.info("东方财富个股新闻获取任务完成")
+        except Exception as e:
+            # 东方财富部分失败不影响整体调度运行
+            logger.error(f"东方财富个股新闻获取任务失败: {str(e)}", exc_info=True)
+
+        logger.info("新闻获取任务（财联社 + 东方财富个股新闻）全部执行完成")
     except Exception as e:
         logger.error(f"新闻获取任务失败: {str(e)}", exc_info=True)
 
