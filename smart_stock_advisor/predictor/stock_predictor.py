@@ -263,6 +263,24 @@ class StockPredictor:
                 macd_score = 0.0
                 signals['MACD'] = '中性'
             
+            # 【优化3】MACD信号持续天数加成 - 持续同方向的信号更可靠
+            if macd_score != 0.0:
+                try:
+                    hist_values = macd_data['histogram'].dropna().values
+                    consecutive_days = 1
+                    for i in range(len(hist_values) - 2, max(len(hist_values) - 11, -1), -1):
+                        if (macd_score > 0 and hist_values[i] > 0) or \
+                           (macd_score < 0 and hist_values[i] < 0):
+                            consecutive_days += 1
+                        else:
+                            break
+                    if consecutive_days >= 3:
+                        duration_factor = min(1.4, 1.0 + (consecutive_days - 2) * 0.1)
+                        macd_score *= duration_factor
+                        signals['MACD'] += f'(持续{consecutive_days}天)'
+                except Exception:
+                    pass
+            
             scores.append(macd_score)
             
             # 2. RSI信号（14周期）
@@ -278,6 +296,25 @@ class StockPredictor:
             else:
                 rsi_score = 0.0
                 signals['RSI(14)'] = f'正常({rsi_value:.1f})'
+            
+            # 【优化3】RSI信号持续天数加成 - 持续超卖/超买反转概率更高
+            if rsi_score != 0.0:
+                try:
+                    rsi_series = rsi.dropna().values
+                    consecutive_days = 1
+                    threshold = 30 if rsi_score > 0 else 70
+                    for i in range(len(rsi_series) - 2, max(len(rsi_series) - 11, -1), -1):
+                        if (rsi_score > 0 and rsi_series[i] < threshold) or \
+                           (rsi_score < 0 and rsi_series[i] > threshold):
+                            consecutive_days += 1
+                        else:
+                            break
+                    if consecutive_days >= 3:
+                        duration_factor = min(1.5, 1.0 + (consecutive_days - 2) * 0.15)
+                        rsi_score *= duration_factor
+                        signals['RSI(14)'] += f'(持续{consecutive_days}天)'
+                except Exception:
+                    pass
             
             scores.append(rsi_score)
             
@@ -1218,6 +1255,44 @@ class StockPredictor:
             else:
                 # 如果所有新闻都有LLM分析结果，按原始顺序排序
                 sentiment_results = [r for r in sentiment_results]
+            
+            # 【优化4】新闻时效性加权 - 越新的新闻影响力越大
+            # 根据新闻发布时间对置信度施加衰减，使聚合结果更反映当前状态
+            try:
+                from datetime import datetime, timedelta
+                now = datetime.now()
+                for sr in sentiment_results:
+                    news_item = sr.get('news', {})
+                    pub_time = news_item.get('publish_time') or news_item.get('created_at') or news_item.get('pub_date')
+                    if pub_time and 'sentiment' in sr:
+                        try:
+                            if isinstance(pub_time, str):
+                                # 尝试多种时间格式
+                                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']:
+                                    try:
+                                        pub_dt = datetime.strptime(pub_time[:19], fmt)
+                                        break
+                                    except ValueError:
+                                        continue
+                                else:
+                                    continue
+                            else:
+                                pub_dt = pub_time
+                            hours_ago = (now - pub_dt).total_seconds() / 3600
+                            # 时间衰减：24h内=1.0，24-48h=0.6，48-72h=0.35，72h+=0.2
+                            if hours_ago <= 24:
+                                time_weight = 1.0
+                            elif hours_ago <= 48:
+                                time_weight = 0.6
+                            elif hours_ago <= 72:
+                                time_weight = 0.35
+                            else:
+                                time_weight = 0.2
+                            sr['sentiment']['confidence'] = sr['sentiment'].get('confidence', 0.5) * time_weight
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             
             # 聚合情感分析结果
             aggregated = self.sentiment_analyzer.get_aggregated_sentiment(sentiment_results)
@@ -3021,9 +3096,9 @@ class StockPredictor:
             historical_accuracy: 历史准确率（可选）
         
         Returns:
-            动态放大系数（范围：2.0-5.0）
+            动态放大系数（范围：1.5-3.5）
         """
-        base_coefficient = 3.0  # 基础系数
+        base_coefficient = 2.5  # 【优化5】基础系数从3.0降至2.5，减少假高概率信号
         
         # 1. 根据市场状态调整
         market_state_name = market_state.get('state', 'sideways') if market_state else 'sideways'
@@ -3064,8 +3139,8 @@ class StockPredictor:
         # 综合调整
         dynamic_coefficient = base_coefficient * market_multiplier * volatility_multiplier * accuracy_multiplier
         
-        # 限制范围：2.0-5.0
-        dynamic_coefficient = max(2.0, min(5.0, dynamic_coefficient))
+        # 【优化5】限制范围收窄：1.5-3.5（原2.0-5.0），让概率分布更合理
+        dynamic_coefficient = max(1.5, min(3.5, dynamic_coefficient))
         
         self.logger.debug(
             f"Sigmoid系数计算: 基础={base_coefficient:.2f}, 市场={market_multiplier:.2f}, "
@@ -3091,7 +3166,8 @@ class StockPredictor:
         """
         calibrated = raw_probability
         
-        # 1. 根据历史准确率校准（如果可用）
+        # 1. 【优化2】根据历史准确率双向校准
+        # 高准确率时适当放大概率差异（增强信号），低准确率时更大力度压缩
         try:
             from utils.confidence_calculator import get_confidence_calculator
             confidence_calculator = get_confidence_calculator()
@@ -3099,15 +3175,35 @@ class StockPredictor:
             
             if historical_stats and 'accuracy' in historical_stats:
                 hist_accuracy = historical_stats['accuracy']
-                # 如果历史准确率低，说明原始概率可能偏高，需要降低
-                if hist_accuracy < 0.6:
-                    # 校准因子：历史准确率越低，降低越多
-                    calibration_factor = 0.8 + (hist_accuracy / 0.6) * 0.2
-                    calibrated = raw_probability * calibration_factor
+                
+                if hist_accuracy >= 0.70:
+                    # 高准确率(≥70%)：放大概率偏离0.5的幅度，增强预测信号
+                    amplify_factor = 1.0 + (hist_accuracy - 0.70) * 0.5  # 70%→1.0, 80%→1.05, 90%→1.10
+                    deviation = calibrated - 0.5
+                    calibrated = 0.5 + deviation * amplify_factor
                     self.logger.debug(
-                        f"概率校准: 原始={raw_probability:.3f}, 历史准确率={hist_accuracy:.3f}, "
-                        f"校准因子={calibration_factor:.3f}, 校准后={calibrated:.3f}"
+                        f"概率校准(高准确率放大): 原始={raw_probability:.3f}, 准确率={hist_accuracy:.3f}, "
+                        f"放大因子={amplify_factor:.3f}, 校准后={calibrated:.3f}"
                     )
+                elif hist_accuracy < 0.50:
+                    # 低准确率(<50%)：大力度压缩，概率向0.5收敛
+                    calibration_factor = 0.6 + hist_accuracy * 0.4  # 50%→0.8, 40%→0.76, 30%→0.72
+                    deviation = calibrated - 0.5
+                    calibrated = 0.5 + deviation * calibration_factor
+                    self.logger.debug(
+                        f"概率校准(低准确率压缩): 原始={raw_probability:.3f}, 准确率={hist_accuracy:.3f}, "
+                        f"压缩因子={calibration_factor:.3f}, 校准后={calibrated:.3f}"
+                    )
+                elif hist_accuracy < 0.60:
+                    # 较低准确率(50%-60%)：适度压缩
+                    calibration_factor = 0.8 + (hist_accuracy - 0.50) * 2.0  # 50%→0.8, 60%→1.0
+                    deviation = calibrated - 0.5
+                    calibrated = 0.5 + deviation * calibration_factor
+                    self.logger.debug(
+                        f"概率校准(适度压缩): 原始={raw_probability:.3f}, 准确率={hist_accuracy:.3f}, "
+                        f"压缩因子={calibration_factor:.3f}, 校准后={calibrated:.3f}"
+                    )
+                # 60%-70%：不调整，属于正常范围
         except:
             pass
         
@@ -4441,19 +4537,38 @@ class StockPredictor:
             adjusted_valuation_weight = 0.0  # 默认值
             adjusted_us_sector_weight = 0.0  # 默认值
         
-        # 使用动态调整后的权重计算最终得分（包含ML模型）
-        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
+        # 【优化1】因子得分标准化 - 放大偏小的因子，使权重真正代表影响占比
+        # 不同因子的实际得分分布范围不一致（技术指标偏大，新闻/市场偏小）
+        _score_amplifiers = {
+            'technical': 1.0,      # 技术指标得分范围已较大(多指标求和)
+            'news': 2.0,           # 新闻得分(加权平均)通常在±0.1~0.3
+            'capital_flow': 1.5,   # 资金流向得分通常在±0.1~0.4
+            'market': 1.8,         # 市场得分通常在±0.1~0.3
+            'history': 2.0,        # 历史得分通常在±0.1~0.3
+            'ml': 1.0,             # ML模型得分已校准
+        }
+        technical_score_norm = max(-1.0, min(1.0, technical_score * _score_amplifiers['technical']))
+        news_score_norm = max(-1.0, min(1.0, news_score * _score_amplifiers['news']))
+        capital_flow_score_norm = max(-1.0, min(1.0, capital_flow_score * _score_amplifiers['capital_flow']))
+        market_score_norm = max(-1.0, min(1.0, market_score * _score_amplifiers['market']))
+        history_score_norm = max(-1.0, min(1.0, history_score * _score_amplifiers['history']))
+        ml_score_norm = max(-1.0, min(1.0, ml_score * _score_amplifiers['ml']))
+        
+        self.logger.debug(
+            f"因子得分标准化: 技术 {technical_score:.3f}->{technical_score_norm:.3f}, "
+            f"新闻 {news_score:.3f}->{news_score_norm:.3f}, "
+            f"资金 {capital_flow_score:.3f}->{capital_flow_score_norm:.3f}, "
+            f"市场 {market_score:.3f}->{market_score_norm:.3f}"
+        )
+        
+        # 使用标准化后的得分计算最终得分
         final_score = (
-            technical_score * adjusted_technical_weight +
-            news_score * adjusted_news_weight +
-            capital_flow_score * adjusted_capital_flow_weight +
-            market_score * adjusted_market_weight +
-            history_score * adjusted_history_weight +
-            ml_score * ml_weight  # 添加ML模型得分
-            # 【已注释】以下三个因子已移除
-            # sector_rotation_score * adjusted_sector_rotation_weight +
-            # valuation_score * adjusted_valuation_weight +
-            # us_sector_score * adjusted_us_sector_weight +
+            technical_score_norm * adjusted_technical_weight +
+            news_score_norm * adjusted_news_weight +
+            capital_flow_score_norm * adjusted_capital_flow_weight +
+            market_score_norm * adjusted_market_weight +
+            history_score_norm * adjusted_history_weight +
+            ml_score_norm * ml_weight
         )
         
         # 转换为涨跌概率
@@ -5661,19 +5776,38 @@ class StockPredictor:
             adjusted_valuation_weight = 0.0  # 默认值
             adjusted_us_sector_weight = 0.0  # 默认值
         
-        # 使用动态调整后的权重计算最终得分（包含ML模型）
-        # 【优化】已移除三个因子，只计算保留的5个因子 + ML模型
+        # 【优化1】因子得分标准化 - 放大偏小的因子，使权重真正代表影响占比
+        # 不同因子的实际得分分布范围不一致（技术指标偏大，新闻/市场偏小）
+        _score_amplifiers = {
+            'technical': 1.0,      # 技术指标得分范围已较大(多指标求和)
+            'news': 2.0,           # 新闻得分(加权平均)通常在±0.1~0.3
+            'capital_flow': 1.5,   # 资金流向得分通常在±0.1~0.4
+            'market': 1.8,         # 市场得分通常在±0.1~0.3
+            'history': 2.0,        # 历史得分通常在±0.1~0.3
+            'ml': 1.0,             # ML模型得分已校准
+        }
+        technical_score_norm = max(-1.0, min(1.0, technical_score * _score_amplifiers['technical']))
+        news_score_norm = max(-1.0, min(1.0, news_score * _score_amplifiers['news']))
+        capital_flow_score_norm = max(-1.0, min(1.0, capital_flow_score * _score_amplifiers['capital_flow']))
+        market_score_norm = max(-1.0, min(1.0, market_score * _score_amplifiers['market']))
+        history_score_norm = max(-1.0, min(1.0, history_score * _score_amplifiers['history']))
+        ml_score_norm = max(-1.0, min(1.0, ml_score * _score_amplifiers['ml']))
+        
+        self.logger.debug(
+            f"因子得分标准化: 技术 {technical_score:.3f}->{technical_score_norm:.3f}, "
+            f"新闻 {news_score:.3f}->{news_score_norm:.3f}, "
+            f"资金 {capital_flow_score:.3f}->{capital_flow_score_norm:.3f}, "
+            f"市场 {market_score:.3f}->{market_score_norm:.3f}"
+        )
+        
+        # 使用标准化后的得分计算最终得分
         final_score = (
-            technical_score * adjusted_technical_weight +
-            news_score * adjusted_news_weight +
-            capital_flow_score * adjusted_capital_flow_weight +
-            market_score * adjusted_market_weight +
-            history_score * adjusted_history_weight +
-            ml_score * ml_weight  # 添加ML模型得分
-            # 【已注释】以下三个因子已移除
-            # sector_rotation_score * adjusted_sector_rotation_weight +
-            # valuation_score * adjusted_valuation_weight +
-            # us_sector_score * adjusted_us_sector_weight +
+            technical_score_norm * adjusted_technical_weight +
+            news_score_norm * adjusted_news_weight +
+            capital_flow_score_norm * adjusted_capital_flow_weight +
+            market_score_norm * adjusted_market_weight +
+            history_score_norm * adjusted_history_weight +
+            ml_score_norm * ml_weight
         )
         
         # 转换为涨跌概率
@@ -6273,12 +6407,12 @@ class StockPredictor:
         if optimized_weights and not is_new_stock_or_insufficient_data:
             adjusted_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
             adjusted_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
-            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18))
-            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.17))
-            adjusted_sector_rotation_weight = optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.05))
-            adjusted_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.08))
-            adjusted_valuation_weight = optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.02))
-            adjusted_us_sector_weight = optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.05))
+            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.13))
+            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.11))
+            adjusted_sector_rotation_weight = optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.0))
+            adjusted_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.05))
+            adjusted_valuation_weight = optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.0))
+            adjusted_us_sector_weight = optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.0))
         else:
             technical_multiplier = weight_multipliers.get('technical_weight_multiplier', 1.0)
             news_multiplier = weight_multipliers.get('news_weight_multiplier', 1.0) * news_weight_multiplier
@@ -6287,12 +6421,12 @@ class StockPredictor:
             
             adjusted_technical_weight = self.config.get('technical_weight', 0.20) * technical_multiplier
             adjusted_news_weight = self.config['news_weight'] * news_multiplier
-            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier
-            adjusted_market_weight = self.config.get('market_weight', 0.17) * market_multiplier
-            adjusted_sector_rotation_weight = self.config.get('sector_rotation_weight', 0.05)
-            adjusted_history_weight = self.config.get('history_weight', 0.08)
-            adjusted_valuation_weight = self.config.get('valuation_weight', 0.02)
-            adjusted_us_sector_weight = self.config.get('us_sector_weight', 0.05)
+            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.13) * capital_flow_multiplier
+            adjusted_market_weight = self.config.get('market_weight', 0.11) * market_multiplier
+            adjusted_sector_rotation_weight = self.config.get('sector_rotation_weight', 0.0)
+            adjusted_history_weight = self.config.get('history_weight', 0.05)
+            adjusted_valuation_weight = self.config.get('valuation_weight', 0.0)
+            adjusted_us_sector_weight = self.config.get('us_sector_weight', 0.0)
         
         # 尝试获取ML模型预测结果
         ml_prediction_result = None
@@ -6313,7 +6447,7 @@ class StockPredictor:
                 
                 # 获取动态权重（优化：传递配置管理器，支持热更新）
                 performance_monitor = MLModelPerformanceMonitor(config_manager=self._config_manager)
-                ml_weight = performance_monitor.get_optimal_weight(ml_model_id, ml_model_type) if ml_model_id else 0.15
+                ml_weight = performance_monitor.get_optimal_weight(ml_model_id, ml_model_type) if ml_model_id else 0.35
                 
                 ml_prediction_result = {
                     'ml_score': ml_score,
