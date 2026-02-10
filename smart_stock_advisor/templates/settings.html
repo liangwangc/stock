@@ -940,8 +940,126 @@
                         </div>
                     </div>
                     
-                    <div class="help-text" style="margin-bottom: 20px; padding: 12px 15px; background: #f0f4ff; border-radius: 6px; font-size: 13px; color: #555;">
-                        架构：传统因子 65% + ML模型 35% = 100%。修改后点击「保存并激活」即可热更新生效。
+                    <!-- 使用指南（可折叠） -->
+                    <div style="margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+                        <div onclick="toggleParamsGuide()" style="cursor: pointer; padding: 14px 18px; background: linear-gradient(135deg, #FF9800 0%, #F44336 100%); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="color: white; font-weight: 600; font-size: 15px;">📖 参数设置使用指南 — 点击展开 / 收起</div>
+                            <span id="paramsGuideIcon" style="color: white; font-size: 18px; transition: transform 0.3s;">▼</span>
+                        </div>
+                        <div id="paramsGuideContent" style="display: none; padding: 0;">
+                            
+                            <!-- 概览 -->
+                            <div style="padding: 16px 18px; background: #fffaf0; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 功能概览</div>
+                                <div style="font-size: 13px; color: #555; line-height: 1.7;">
+                                    本页面用于配置预测系统的所有核心参数。架构为 <strong>传统因子 65% + ML 模型 35% = 100%</strong>。<br>
+                                    修改参数后点击「保存并激活」即可 <strong>热更新生效</strong>，无需重启服务。支持多配置管理和版本切换。
+                                </div>
+                            </div>
+                            
+                            <!-- 页面区域说明 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">📋 四大配置区域</div>
+                                
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #667eea;">
+                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一区：预测权重配置（最重要）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>包含：</strong>5 个传统因子权重（技术 20% + 新闻 16% + 资金 13% + 市场 11% + 历史 5%）、ML 模型参数、通用预测参数。<br>
+                                        <strong>操作：</strong>拖动滑块或直接输入数值调整权重。传统因子合计必须等于 0.65，可点击「一键平衡」自动调整。<br>
+                                        <strong>建议：</strong>一般不需要手动调，使用「模型学习 → 参数优化」自动优化后会反映到这里。如需手动微调，每次只改一个因子，然后去「模型学习」回测对比效果。
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 14px; padding: 12px; background: #fff8f0; border-radius: 8px; border-left: 4px solid #FF9800;">
+                                    <div style="font-weight: 600; color: #e65100; margin-bottom: 6px; font-size: 13px;">📈 第二区：技术指标参数（可折叠）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>包含：</strong>MA 均线、RSI、MACD、KDJ、CCI 等技术指标的周期参数，以及 X2 指标的阈值和得分。<br>
+                                        <strong>建议：</strong>默认值经过验证适合大多数 A 股场景。除非你对技术分析非常熟悉，否则 <strong>保持默认值即可</strong>。<br>
+                                        <strong>进阶：</strong>如果发现短线信号过于频繁，可适当增大均线周期；如果信号太少，可减小周期。
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0fff4; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                                    <div style="font-weight: 600; color: #2e7d32; margin-bottom: 6px; font-size: 13px;">⚡ 第三区：系统性能与缓存（可折叠）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>包含：</strong>分析线程数、缓存时长等性能参数。<br>
+                                        <strong>建议：</strong>性能参数保持默认即可。仅在遇到 <strong>系统卡顿</strong>（减小线程数）或 <strong>数据不更新</strong>（减小缓存时间）时调整。
+                                    </div>
+                                </div>
+                                
+                                <div style="padding: 12px; background: #fff0f3; border-radius: 8px; border-left: 4px solid #e91e63;">
+                                    <div style="font-weight: 600; color: #c2185b; margin-bottom: 6px; font-size: 13px;">💹 第四区：实时交易策略配置（可折叠）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>包含：</strong>买卖信号阈值、止盈止损比例、仓位管理、风险控制等。<br>
+                                        <strong>作用：</strong>这些参数影响系统给出的交易建议（买入/卖出信号强度、持仓建议等），也会影响回测结果。<br>
+                                        <strong>建议：</strong>保守型用户可提高买入阈值（如 0.7）、降低止损比例（如 3%）；激进型可降低买入阈值、提高止盈比例。
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 操作流程 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">🔄 推荐操作流程</div>
+                                <div style="display: flex; gap: 0; flex-wrap: wrap;">
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 12px 6px;">
+                                        <div style="width: 36px; height: 36px; background: #FF9800; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">1</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 12px;">加载当前配置</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">点击「加载当前配置」<br>查看在用参数</div>
+                                    </div>
+                                    <div style="flex: 0 0 20px; display: flex; align-items: center; justify-content: center; color: #FF9800; font-size: 18px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 12px 6px;">
+                                        <div style="width: 36px; height: 36px; background: #F44336; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">2</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 12px;">修改参数</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">手动调整 或<br>从模型学习结果加载</div>
+                                    </div>
+                                    <div style="flex: 0 0 20px; display: flex; align-items: center; justify-content: center; color: #FF9800; font-size: 18px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 12px 6px;">
+                                        <div style="width: 36px; height: 36px; background: #9C27B0; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">3</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 12px;">验证配置</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">点击「验证配置」<br>确保参数合理</div>
+                                    </div>
+                                    <div style="flex: 0 0 20px; display: flex; align-items: center; justify-content: center; color: #FF9800; font-size: 18px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 12px 6px;">
+                                        <div style="width: 36px; height: 36px; background: #4CAF50; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">4</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 12px;">保存并激活</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">保存后立即生效<br>无需重启服务</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 顶部按钮说明 -->
+                            <div style="padding: 16px 18px;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 10px; font-size: 14px;">💡 顶部按钮说明</div>
+                                <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                        <tr style="background: #f5f5f5;">
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; width: 30%;">按钮</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">功能说明</th>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">📥 加载当前配置</td>
+                                            <td style="padding: 8px;">从服务器读取正在使用的配置，填充到下方表单中</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">📋 配置管理</td>
+                                            <td style="padding: 8px;">管理多个配置版本（新建、切换、删除），适合对比不同参数方案</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">🤖 从模型学习结果加载</td>
+                                            <td style="padding: 8px;">将「模型学习」页面的优化结果一键导入到参数表单，实现优化闭环</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">✓ 验证配置</td>
+                                            <td style="padding: 8px;">检查当前参数是否合理（权重是否等于 0.65、数值是否在合法范围内等）</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">⚖️ 一键平衡</td>
+                                            <td style="padding: 8px;">自动按比例调整 5 个传统因子权重，使其精确合计等于 0.65</td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- 配置选择 -->
@@ -1326,13 +1444,118 @@
             <div id="panel-model-training" class="content-panel">
                 <div class="form-section">
                     <h2>模型训练</h2>
-                    <div class="help-text" style="margin-bottom: 20px;">
-                        <p>功能说明：</p>
-                        <ul style="margin: 10px 0; padding-left: 20px; color: #666; font-size: 13px;">
-                            <li>历史数据训练：使用历史股票数据训练基础模型</li>
-                            <li>预测数据训练：基于实际预测效果微调模型</li>
-                            <li>模型管理：查看和管理已训练的模型</li>
-                        </ul>
+                    
+                    <!-- 使用指南（可折叠） -->
+                    <div style="margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+                        <div onclick="toggleTrainingGuide()" style="cursor: pointer; padding: 14px 18px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="color: white; font-weight: 600; font-size: 15px;">📖 模型训练使用指南 — 点击展开 / 收起</div>
+                            <span id="trainingGuideIcon" style="color: white; font-size: 18px; transition: transform 0.3s;">▼</span>
+                        </div>
+                        <div id="trainingGuideContent" style="display: none; padding: 0;">
+                            
+                            <!-- 概览 -->
+                            <div style="padding: 16px 18px; background: #f8fff8; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 功能概览</div>
+                                <div style="font-size: 13px; color: #555; line-height: 1.7;">
+                                    模型训练是让 ML 模型「学习」历史数据规律的过程。训练好的模型会在每次预测时自动使用，占预测权重的 <strong>35%</strong>。<br>
+                                    本页提供两种训练方式和模型管理功能，建议按顺序操作。
+                                </div>
+                            </div>
+                            
+                            <!-- 推荐流程 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">🔄 推荐使用流程</div>
+                                <div style="display: flex; gap: 0; flex-wrap: wrap;">
+                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #43e97b; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">1</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">历史数据训练</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用大量历史数据<br>建立基础模型</div>
+                                    </div>
+                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #43e97b; font-size: 20px;">→</div>
+                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #38f9d7; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">2</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">预测数据微调</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用实际预测结果<br>持续微调模型</div>
+                                    </div>
+                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #43e97b; font-size: 20px;">→</div>
+                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #2196F3; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">3</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">模型管理</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">查看模型状态<br>管理历史版本</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 各功能详细说明 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">📋 各功能详细说明</div>
+                                
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0fff4; border-radius: 8px; border-left: 4px solid #43e97b;">
+                                    <div style="font-weight: 600; color: #2e7d32; margin-bottom: 6px; font-size: 13px;">📊 历史数据训练（基础模型）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>使用历史股票行情数据训练 ML 模型，让模型学习价格走势的基本规律。这是所有训练的基础。<br>
+                                        <strong>操作步骤：</strong><br>
+                                        &nbsp;&nbsp;① 设置训练集日期范围（建议 1-2 年的数据，如 2023-01-01 ~ 2024-12-31）<br>
+                                        &nbsp;&nbsp;② 设置验证集日期范围（用于测试训练效果，如 2025-01-01 ~ 2025-12-31）<br>
+                                        &nbsp;&nbsp;③ 选择模型类型（建议保持默认：XGBoost 分类器 + LightGBM 分类器）<br>
+                                        &nbsp;&nbsp;④ 点击「开始训练」→ 等待进度条完成<br>
+                                        <strong>使用时机：</strong>首次部署系统时必须执行；之后每 1-3 个月可重新训练一次（用更新的数据）。<br>
+                                        <strong>耗时：</strong>取决于数据量，通常 5-30 分钟。训练期间请勿关闭页面。
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0ffff; border-radius: 8px; border-left: 4px solid #38f9d7;">
+                                    <div style="font-weight: 600; color: #00838f; margin-bottom: 6px; font-size: 13px;">🎯 预测数据训练（微调模型）</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>用系统实际的预测记录及其真实结果来微调模型，让模型从「自己的错误」中学习，持续提升准确率。<br>
+                                        <strong>前提条件：</strong>需要至少 <strong>1000 条</strong>有实际结果的预测记录（系统运行一段时间后自动积累）。<br>
+                                        <strong>操作步骤：</strong><br>
+                                        &nbsp;&nbsp;① 设置日期范围和最少样本数<br>
+                                        &nbsp;&nbsp;② 先点击「检查数据可用性」确认数据是否充足<br>
+                                        &nbsp;&nbsp;③ 数据充足后会出现「开始微调训练」按钮，点击执行<br>
+                                        <strong>使用时机：</strong>系统积累了足够预测数据后，每月执行 1-2 次效果最佳。<br>
+                                        <strong>注意：</strong>微调是在基础模型上改进，必须先完成历史数据训练。
+                                    </div>
+                                </div>
+                                
+                                <div style="padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                    <div style="font-weight: 600; color: #1565C0; margin-bottom: 6px; font-size: 13px;">📋 已训练模型列表</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>查看所有已训练的模型版本，包括训练时间、模型类型、准确率等信息。可用于对比不同版本的表现。<br>
+                                        <strong>操作：</strong>点击「刷新」加载最新模型列表。系统会自动使用最新训练的模型进行预测。
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 常见问题 -->
+                            <div style="padding: 16px 18px;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 10px; font-size: 14px;">💡 常见问题</div>
+                                <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                        <tr style="background: #f5f5f5;">
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; width: 35%;">问题</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">解答</th>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">没训练过模型能用系统吗？</td>
+                                            <td style="padding: 8px;">可以。未训练时系统仅用传统因子（65%部分）预测，ML 部分使用默认值。训练后预测更准。</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">分类器和回归器有什么区别？</td>
+                                            <td style="padding: 8px;">分类器预测涨/跌方向（推荐），回归器预测具体涨跌幅。一般勾选分类器即可。</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">训练数据越多越好吗？</td>
+                                            <td style="padding: 8px;">不一定。太早的数据市场规律可能已变化，建议用最近 1-2 年的数据做训练集。</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">训练和「模型学习」有什么关系？</td>
+                                            <td style="padding: 8px;">训练 = 建立/更新 ML 模型本身；模型学习 = 评估效果 + 优化参数权重 + 回测验证。两者配合使用效果最佳。</td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- 模型训练区域 -->
@@ -6553,6 +6776,30 @@
         function toggleGuidePanel() {
             const content = document.getElementById('guidePanelContent');
             const icon = document.getElementById('guideToggleIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                if (icon) icon.style.transform = 'rotate(180deg)';
+            } else {
+                content.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        }
+        
+        function toggleTrainingGuide() {
+            const content = document.getElementById('trainingGuideContent');
+            const icon = document.getElementById('trainingGuideIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                if (icon) icon.style.transform = 'rotate(180deg)';
+            } else {
+                content.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        }
+        
+        function toggleParamsGuide() {
+            const content = document.getElementById('paramsGuideContent');
+            const icon = document.getElementById('paramsGuideIcon');
             if (content.style.display === 'none') {
                 content.style.display = 'block';
                 if (icon) icon.style.transform = 'rotate(180deg)';
