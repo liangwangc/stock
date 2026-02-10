@@ -2066,21 +2066,41 @@ class PredictionVisualizer:
                     if actual_price is None or actual_change_pct is None:
                         continue
                     
-                    # 计算 prediction_hit
+                    # 计算 prediction_hit（优先用预测涨跌幅方向 vs 实际涨跌幅方向判断）
                     try:
                         change_val = float(actual_change_pct)
                     except Exception:
                         change_val = None
+                    try:
+                        pred_change_val = float(predicted_change_pct) if predicted_change_pct is not None else None
+                    except Exception:
+                        pred_change_val = None
                     
                     hit = '未知'
+                    SIDEWAYS_THRESHOLD_PCT = 1.5  # 有预测涨跌幅时的震荡阈值
+                    SIDEWAYS_THRESHOLD_LABEL = 1.0  # 无预测涨跌幅时的震荡阈值（标签判断）
+                    
                     if change_val is not None:
-                        if prediction == '上涨':
-                            hit = '命中' if change_val > 0 else '未命中'
-                        elif prediction == '下跌':
-                            hit = '命中' if change_val < 0 else '未命中'
-                        elif prediction == '震荡':
-                            # 震荡区间阈值可按需调整，这里使用 ±0.5%
-                            hit = '命中' if -0.5 <= change_val <= 0.5 else '未命中'
+                        if pred_change_val is not None:
+                            # 优先用预测涨跌幅方向 vs 实际涨跌幅方向判断
+                            pred_dir = '涨' if pred_change_val > SIDEWAYS_THRESHOLD_PCT else ('跌' if pred_change_val < -SIDEWAYS_THRESHOLD_PCT else '震')
+                            actual_dir = '涨' if change_val > SIDEWAYS_THRESHOLD_PCT else ('跌' if change_val < -SIDEWAYS_THRESHOLD_PCT else '震')
+                            if pred_dir == actual_dir:
+                                hit = '命中'
+                            elif pred_dir == '震' and actual_dir == '震':
+                                # 震荡区间内偏差 ≤ 1.5% 视为命中
+                                abs_dev = abs(pred_change_val - change_val)
+                                hit = '命中' if abs_dev <= SIDEWAYS_THRESHOLD_PCT else '未命中'
+                            else:
+                                hit = '未命中'
+                        else:
+                            # 若无预测涨跌幅，则退回标签判断，震荡阈值放宽到 ±1.0%
+                            if prediction == '上涨':
+                                hit = '命中' if change_val > 0 else '未命中'
+                            elif prediction == '下跌':
+                                hit = '命中' if change_val < 0 else '未命中'
+                            elif prediction == '震荡':
+                                hit = '命中' if -SIDEWAYS_THRESHOLD_LABEL <= change_val <= SIDEWAYS_THRESHOLD_LABEL else '未命中'
                     
                     # 计算偏差值（如果预测值存在）
                     deviation_pct = None

@@ -42,6 +42,17 @@ except ImportError:
     DATA_STORAGE_AVAILABLE = False
     DataStorage = None
 
+try:
+    spec_risk = importlib.util.spec_from_file_location("risk_manager", 
+        os.path.join(project_root, "utils", "risk_manager.py"))
+    risk_manager_module = importlib.util.module_from_spec(spec_risk)
+    spec_risk.loader.exec_module(risk_manager_module)
+    RiskManager = risk_manager_module.RiskManager
+    RISK_MANAGER_AVAILABLE = True
+except Exception:
+    RISK_MANAGER_AVAILABLE = False
+    RiskManager = None
+
 spec = importlib.util.spec_from_file_location("config", 
     os.path.join(project_root, "config.py"))
 config_module = importlib.util.module_from_spec(spec)
@@ -2202,21 +2213,65 @@ class StockPredictor:
                 'concepts': []
             }
     
-    def calculate_trading_suggestions(self, data: pd.DataFrame, prediction_result: Dict) -> Dict:
-        """
-        计算交易建议（买入价、卖出价、竞价建议）
-        结合市场整体行情，给出更激进的交易建议
-        
-        Returns:
-            {
-                'buy_price': 建议买入价,
-                'sell_price': 建议卖出价,
-                'auction_entry': 是否建议竞价进入,
-                'auction_price': 竞价价格,
-                'stop_loss': 止损价,
-                'take_profit': 止盈价
+    def find_support_resistance(self, data: pd.DataFrame) -> Dict:
+        """计算支撑位和压力位（综合近期高低点、均线、局部极值）"""
+        try:
+            cp = data['close'].iloc[-1]
+            r10h, r10l = data['high'].tail(10).max(), data['low'].tail(10).min()
+            r20h, r20l = data['high'].tail(20).max(), data['low'].tail(20).min()
+            r30h, r30l = data['high'].tail(30).max(), data['low'].tail(30).min()
+            ma5, ma10, ma20 = data['close'].tail(5).mean(), data['close'].tail(10).mean(), data['close'].tail(20).mean()
+            ma60 = data['close'].tail(60).mean() if len(data) >= 60 else ma20
+            lookback = min(30, len(data))
+            ha, la = data['high'].tail(lookback).values, data['low'].tail(lookback).values
+            lh, ll = [], []
+            for i in range(1, len(ha) - 1):
+                if ha[i] > ha[i-1] and ha[i] > ha[i+1]: lh.append(ha[i])
+                if la[i] < la[i-1] and la[i] < la[i+1]: ll.append(la[i])
+            all_s = [r10l, r20l, r30l, ma5, ma10, ma20, ma60]
+            all_r = [r10h, r20h, r30h, ma5, ma10, ma20, ma60]
+            sc = sorted(set([round(s, 2) for s in all_s + ll if s < cp]), reverse=True)
+            rc = sorted(set([round(r, 2) for r in all_r + lh if r > cp]))
+            return {
+                'support_1': sc[0] if sc else round(cp*0.95, 2), 'support_2': sc[1] if len(sc)>1 else round(cp*0.90, 2),
+                'resistance_1': rc[0] if rc else round(cp*1.05, 2), 'resistance_2': rc[1] if len(rc)>1 else round(cp*1.10, 2),
+                'method': f"综合{lookback}日高低点+均线+局部极值"
             }
-        """
+        except Exception as e:
+            self.logger.error(f"计算支撑压力位失败: {str(e)}")
+            c = data['close'].iloc[-1] if len(data) > 0 else 10.0
+            return {'support_1': round(c*0.97,2), 'support_2': round(c*0.93,2), 'resistance_1': round(c*1.03,2), 'resistance_2': round(c*1.07,2), 'method': '默认估算'}
+    
+    def estimate_holding_period(self, data: pd.DataFrame, prediction_result: Dict) -> Dict:
+        """估算建议持仓天数"""
+        try:
+            pred = prediction_result.get('prediction', '震荡')
+            conf = prediction_result.get('confidence', 0.5)
+            up_p = prediction_result.get('up_probability', 0.5)
+            dn_p = prediction_result.get('down_probability', 0.5)
+            dv = data['close'].pct_change().tail(20).dropna().std() if len(data) >= 20 else 0.02
+            if dv is None or (isinstance(dv, float) and dv != dv): dv = 0.02
+            ma5, ma10, ma20 = data['close'].tail(5).mean(), data['close'].tail(10).mean(), data['close'].tail(20).mean()
+            ts = 2 if ma5>ma10>ma20 else (1 if ma5>ma10 else (-2 if ma5<ma10<ma20 else (-1 if ma5<ma10 else 0)))
+            if pred == '上涨': bd = 7 if (conf>0.7 and ts>=1) else (2 if conf<0.5 else 5)
+            elif pred == '下跌': bd = 0 if dn_p>0.7 else 1
+            else: bd = 3
+            va = -1 if dv>0.03 else (1 if dv<0.015 else 0)
+            od = max(0, bd + va)
+            rs = []
+            if pred == '上涨': rs.append(f"预测上涨（{up_p*100:.0f}%）")
+            elif pred == '下跌': rs.append(f"预测下跌（{dn_p*100:.0f}%）")
+            else: rs.append("预测震荡")
+            rs.append(f"置信度{conf*100:.0f}%"); rs.append(f"日波动率{dv*100:.1f}%")
+            if ts>=2: rs.append("均线多头排列")
+            elif ts<=-2: rs.append("均线空头排列")
+            return {'min_days': max(0, od-2), 'max_days': od+3, 'optimal_days': od, 'reason': '，'.join(rs)}
+        except Exception as e:
+            self.logger.error(f"估算持仓天数失败: {str(e)}")
+            return {'min_days': 1, 'max_days': 5, 'optimal_days': 3, 'reason': '默认估算'}
+    
+    def calculate_trading_suggestions(self, data: pd.DataFrame, prediction_result: Dict, symbol: str = None) -> Dict:
+        """计算完整交易计划（增强版：动态止损止盈+支撑压力位+持仓天数+风险收益比+操作建议）"""
         try:
             current_price = data['close'].iloc[-1]
             prediction = prediction_result['prediction']
@@ -2224,170 +2279,109 @@ class StockPredictor:
             down_prob = prediction_result['down_probability']
             confidence = prediction_result['confidence']
             market_overall = prediction_result.get('market_overall', {})
-            
-            # 获取市场整体行情
-            market_bullish = False
-            market_up_prob = 0.5
+            market_bullish, market_up_prob = False, 0.5
             if market_overall.get('success', False):
-                market_pred = market_overall.get('overall_prediction', '震荡')
+                mp = market_overall.get('overall_prediction', '震荡')
                 market_up_prob = market_overall.get('overall_up_probability', 0.5)
-                market_bullish = (market_pred == '上涨' or market_up_prob > 0.55)
-            
-            # 计算最近波动幅度
+                market_bullish = (mp == '上涨' or market_up_prob > 0.55)
             recent_high = data['high'].tail(10).max()
             recent_low = data['low'].tail(10).min()
             volatility = (recent_high - recent_low) / current_price
-            
-            # 计算技术指标强度（用于判断激进程度）
-            ma5 = data['close'].tail(5).mean()
-            ma10 = data['close'].tail(10).mean()
-            ma20 = data['close'].tail(20).mean()
-            tech_strength = 0
-            if ma5 > ma10 > ma20:
-                tech_strength = 1  # 强势
-            elif ma5 < ma10 < ma20:
-                tech_strength = -1  # 弱势
-            
-            suggestions = {}
-            
-            # 买入价建议（更激进）
-            # 结合市场行情和技术面，给出更积极的买入价
+            ma5, ma10, ma20 = data['close'].tail(5).mean(), data['close'].tail(10).mean(), data['close'].tail(20).mean()
+            tech_strength = 1 if ma5>ma10>ma20 else (-1 if ma5<ma10<ma20 else 0)
+            sr = self.find_support_resistance(data)
+            dsl = None
+            if RISK_MANAGER_AVAILABLE and symbol:
+                try:
+                    dsl = RiskManager().calculate_dynamic_stop_loss_take_profit(symbol=symbol, current_price=current_price, stock_data=data, base_stop_loss_pct=-5.0, base_take_profit_pct=8.0, volatility_period=20)
+                except Exception as e:
+                    self.logger.warning(f"RiskManager计算失败: {e}")
+            # 买入价
             if prediction == '上涨' and up_prob > 0.5:
-                # 看涨，结合市场情况调整
-                base_multiplier = 0.3
-                if market_bullish:
-                    base_multiplier += 0.2  # 市场看涨，更激进
-                if tech_strength > 0:
-                    base_multiplier += 0.1  # 技术面强势，更激进
-                if up_prob > 0.7:
-                    base_multiplier += 0.2  # 预测很强，更激进
-                
-                buy_price = current_price * (1 + volatility * base_multiplier)
-                # 确保不超过当前价的5%
-                buy_price = min(buy_price, current_price * 1.05)
+                bm = 0.3 + (0.2 if market_bullish else 0) + (0.1 if tech_strength>0 else 0) + (0.2 if up_prob>0.7 else 0)
+                buy_price = min(current_price*(1+volatility*bm), current_price*1.05)
             elif prediction == '下跌' and down_prob > 0.55:
-                # 看跌，但结合市场情况，如果市场整体看涨，可以稍微激进
-                if market_bullish and market_up_prob > 0.6:
-                    # 市场整体看涨，即使个股看跌，也可以考虑在较低位置买入
-                    buy_price = current_price * (1 - volatility * 0.3)
-                else:
-                    buy_price = current_price * (1 - volatility * 0.5)
+                buy_price = current_price*(1 - volatility*(0.3 if market_bullish and market_up_prob>0.6 else 0.5))
             else:
-                # 震荡，结合市场情况
-                if market_bullish:
-                    # 市场看涨，可以稍微激进
-                    buy_price = recent_low * 1.03
-                else:
-                    buy_price = recent_low * 1.02
-            
-            suggestions['buy_price'] = round(buy_price, 2)
-            
-            # 卖出价建议（更激进，设置更高的目标）
+                buy_price = recent_low*(1.03 if market_bullish else 1.02)
+            buy_price = round(buy_price, 2)
+            # 卖出价
             if prediction == '上涨' and up_prob > 0.5:
-                # 看涨，结合市场情况设置更高的卖出价
-                base_multiplier = 1.5
-                if market_bullish:
-                    base_multiplier += 0.5  # 市场看涨，目标更高
-                if tech_strength > 0:
-                    base_multiplier += 0.3  # 技术面强势，目标更高
-                if up_prob > 0.7:
-                    base_multiplier += 0.5  # 预测很强，目标更高
-                
-                sell_price = current_price * (1 + volatility * base_multiplier)
+                bm = 1.5 + (0.5 if market_bullish else 0) + (0.3 if tech_strength>0 else 0) + (0.5 if up_prob>0.7 else 0)
+                sell_price = current_price*(1+volatility*bm)
             elif prediction == '下跌' and down_prob > 0.55:
-                # 看跌，但如果市场整体看涨，可以设置稍高的卖出价
-                if market_bullish and market_up_prob > 0.6:
-                    sell_price = current_price * (1 - volatility * 0.1)
-                else:
-                    sell_price = current_price * (1 - volatility * 0.3)
+                sell_price = current_price*(1 - volatility*(0.1 if market_bullish and market_up_prob>0.6 else 0.3))
             else:
-                # 震荡，结合市场情况
-                if market_bullish:
-                    sell_price = recent_high * 1.02  # 市场看涨，可以稍微激进
-                else:
-                    sell_price = recent_high * 0.98
-            
-            suggestions['sell_price'] = round(sell_price, 2)
-            
-            # 竞价进入建议（改进逻辑，给出明确的竞价建议）
-            # 综合考虑：个股预测、市场整体、置信度、技术面
-            auction_entry = False
-            auction_price = None
-            auction_reason = ""
-            
-            # 情况1：强烈看涨（个股+市场都看涨）
-            if prediction == '上涨' and up_prob > 0.6 and market_bullish and market_up_prob > 0.55:
-                auction_entry = True
-                if up_prob > 0.75 and market_up_prob > 0.6:
-                    auction_price = round(current_price * 1.03, 2)  # 当前价+3%，激进
-                    auction_reason = "强烈看涨（个股+市场双重利好）"
-                elif up_prob > 0.65:
-                    auction_price = round(current_price * 1.02, 2)  # 当前价+2%
-                    auction_reason = "看涨（个股+市场利好）"
-                else:
-                    auction_price = round(current_price * 1.01, 2)  # 当前价+1%
-                    auction_reason = "看涨（个股+市场利好）"
-            
-            # 情况2：个股强烈看涨，但市场一般
-            elif prediction == '上涨' and up_prob > 0.7 and confidence > 0.65:
-                auction_entry = True
-                if up_prob > 0.8:
-                    auction_price = round(current_price * 1.025, 2)  # 当前价+2.5%
-                    auction_reason = "个股强烈看涨"
-                else:
-                    auction_price = round(current_price * 1.015, 2)  # 当前价+1.5%
-                    auction_reason = "个股看涨"
-            
-            # 情况3：市场强烈看涨，个股中性或略涨
-            elif market_bullish and market_up_prob > 0.65 and up_prob > 0.5:
-                auction_entry = True
-                auction_price = round(current_price * 1.01, 2)  # 当前价+1%
-                auction_reason = "市场整体看涨"
-            
-            # 情况4：技术面强势，即使预测中性也可以考虑
-            elif tech_strength > 0 and up_prob > 0.52 and confidence > 0.55:
-                auction_entry = True
-                auction_price = round(current_price * 1.005, 2)  # 当前价+0.5%
-                auction_reason = "技术面强势"
-            
-            # 情况5：看跌，但市场强烈看涨，可以考虑低吸
-            elif prediction == '下跌' and market_bullish and market_up_prob > 0.7:
-                auction_entry = True
-                auction_price = round(current_price * 0.98, 2)  # 当前价-2%，低吸
-                auction_reason = "市场强烈看涨，低吸机会"
-            
-            # 如果以上都不满足，给出不竞价的明确理由
-            if not auction_entry:
-                if prediction == '下跌' and down_prob > 0.6:
-                    auction_reason = "看跌，不建议竞价"
-                elif confidence < 0.5:
-                    auction_reason = "置信度较低，不建议竞价"
-                elif not market_bullish and up_prob < 0.55:
-                    auction_reason = "市场与个股均不乐观，不建议竞价"
-                else:
-                    auction_reason = "震荡行情，建议观察后决定"
-            
-            suggestions['auction_entry'] = auction_entry
-            suggestions['auction_price'] = auction_price
-            suggestions['auction_reason'] = auction_reason
-            
-            # 止损价（建议买入价的-5%）
-            suggestions['stop_loss'] = round(buy_price * 0.95, 2)
-            
-            # 止盈价（建议买入价的+12%或卖出价，更激进）
-            suggestions['take_profit'] = round(min(buy_price * 1.12, sell_price), 2)
-            
-            return suggestions
-            
+                sell_price = recent_high*(1.02 if market_bullish else 0.98)
+            sell_price = round(sell_price, 2)
+            # 止损止盈
+            if dsl and dsl.get('stop_loss_price'):
+                stop_loss, take_profit = round(dsl['stop_loss_price'],2), round(dsl['take_profit_price'],2)
+                sl_pct, tp_pct = dsl.get('stop_loss_pct',-5.0), dsl.get('take_profit_pct',8.0)
+                sl_method, sl_vol, sl_exp = '动态（基于波动率调整）', dsl.get('volatility'), dsl.get('explanation','')
+            else:
+                stop_loss, take_profit = sr['support_1'], max(sr['resistance_1'], sell_price)
+                sl_pct, tp_pct = round((stop_loss/current_price-1)*100,2), round((take_profit/current_price-1)*100,2)
+                sl_method, sl_vol, sl_exp = '基于支撑压力位', None, f'止损参考支撑位{sr["support_1"]}'
+            if prediction != '下跌':
+                stop_loss = min(stop_loss, round(current_price*0.98,2))
+                take_profit = max(take_profit, round(current_price*1.03,2))
+            risk = abs(current_price-stop_loss) if stop_loss else current_price*0.05
+            reward = abs(take_profit-current_price) if take_profit else current_price*0.08
+            rr = round(reward/risk, 2) if risk > 0 else 0.0
+            hp = self.estimate_holding_period(data, prediction_result)
+            # 竞价建议
+            ae, ap, ar = False, None, ""
+            if prediction=='上涨' and up_prob>0.6 and market_bullish and market_up_prob>0.55:
+                ae = True
+                if up_prob>0.75 and market_up_prob>0.6: ap, ar = round(current_price*1.03,2), "强烈看涨（双重利好）"
+                elif up_prob>0.65: ap, ar = round(current_price*1.02,2), "看涨（个股+市场利好）"
+                else: ap, ar = round(current_price*1.01,2), "看涨"
+            elif prediction=='上涨' and up_prob>0.7 and confidence>0.65:
+                ae = True
+                ap, ar = (round(current_price*1.025,2), "个股强烈看涨") if up_prob>0.8 else (round(current_price*1.015,2), "个股看涨")
+            elif market_bullish and market_up_prob>0.65 and up_prob>0.5:
+                ae, ap, ar = True, round(current_price*1.01,2), "市场整体看涨"
+            elif tech_strength>0 and up_prob>0.52 and confidence>0.55:
+                ae, ap, ar = True, round(current_price*1.005,2), "技术面强势"
+            elif prediction=='下跌' and market_bullish and market_up_prob>0.7:
+                ae, ap, ar = True, round(current_price*0.98,2), "市场强烈看涨，低吸机会"
+            if not ae:
+                if prediction=='下跌' and down_prob>0.6: ar = "看跌，不建议竞价"
+                elif confidence<0.5: ar = "置信度较低，不建议竞价"
+                elif not market_bullish and up_prob<0.55: ar = "市场与个股均不乐观"
+                else: ar = "震荡行情，建议观察"
+            # 操作建议
+            if prediction=='上涨' and up_prob>0.6 and confidence>0.55:
+                action = '建议买入'
+                rd = '优秀' if rr>=2 else ('良好' if rr>=1.5 else '一般，注意风险')
+                action_detail = f'预测上涨概率{up_prob*100:.0f}%，置信度{confidence*100:.0f}%，风险收益比{rr}:1（{rd}）'
+            elif prediction=='下跌' and down_prob>0.6:
+                action, action_detail = '建议观望/卖出', f'预测下跌概率{down_prob*100:.0f}%，建议等待企稳'
+            elif prediction=='上涨' and confidence<0.5:
+                action, action_detail = '谨慎买入', f'预测上涨但置信度仅{confidence*100:.0f}%，建议轻仓'
+            else:
+                action, action_detail = '建议观望', f'震荡行情，置信度{confidence*100:.0f}%，等待信号'
+            return {
+                'buy_price': buy_price, 'sell_price': sell_price,
+                'auction_entry': ae, 'auction_price': ap, 'auction_reason': ar,
+                'stop_loss': stop_loss, 'take_profit': take_profit,
+                'stop_loss_pct': sl_pct, 'take_profit_pct': tp_pct,
+                'sl_tp_method': sl_method, 'sl_tp_explanation': sl_exp, 'sl_tp_volatility': sl_vol,
+                'support_1': sr['support_1'], 'support_2': sr['support_2'],
+                'resistance_1': sr['resistance_1'], 'resistance_2': sr['resistance_2'], 'sr_method': sr['method'],
+                'holding_period': hp, 'risk_reward_ratio': rr,
+                'action': action, 'action_detail': action_detail,
+            }
         except Exception as e:
             self.logger.error(f"计算交易建议失败: {str(e)}")
             return {
-                'buy_price': None,
-                'sell_price': None,
-                'auction_entry': False,
-                'auction_price': None,
-                'stop_loss': None,
-                'take_profit': None
+                'buy_price': None, 'sell_price': None, 'auction_entry': False, 'auction_price': None, 'auction_reason': '',
+                'stop_loss': None, 'take_profit': None, 'stop_loss_pct': None, 'take_profit_pct': None,
+                'sl_tp_method': '', 'sl_tp_explanation': '', 'sl_tp_volatility': None,
+                'support_1': None, 'support_2': None, 'resistance_1': None, 'resistance_2': None, 'sr_method': '',
+                'holding_period': {'min_days':1,'max_days':5,'optimal_days':3,'reason':'计算异常'},
+                'risk_reward_ratio': 0.0, 'action': '暂无建议', 'action_detail': '交易计划计算异常',
             }
     
     def predict_market_overall(self, use_api: bool = True) -> Dict:
@@ -2448,10 +2442,10 @@ class StockPredictor:
                 up_prob = 1 / (1 + np.exp(-index_score * 3))
                 down_prob = 1 - up_prob
                 
-                # 确定预测方向
-                if up_prob > 0.6:
+                # 确定预测方向（阈值0.55）
+                if up_prob > 0.55:
                     prediction = '上涨'
-                elif down_prob > 0.6:
+                elif down_prob > 0.55:
                     prediction = '下跌'
                 else:
                     prediction = '震荡'
@@ -2498,10 +2492,10 @@ class StockPredictor:
             overall_up_prob = 1 / (1 + np.exp(-overall_score * 3))
             overall_down_prob = 1 - overall_up_prob
             
-            # 确定整体预测方向
-            if overall_up_prob > 0.6:
+            # 确定整体预测方向（阈值0.55）
+            if overall_up_prob > 0.55:
                 overall_prediction = '上涨'
-            elif overall_down_prob > 0.6:
+            elif overall_down_prob > 0.55:
                 overall_prediction = '下跌'
             else:
                 overall_prediction = '震荡'
@@ -4405,7 +4399,7 @@ class StockPredictor:
                 elif ml_model_type:
                     ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
                 else:
-                    ml_weight = 0.15  # 默认权重15%
+                    ml_weight = 0.35  # 默认权重35%（ML模型为主导因子）
                 
                 self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
                                f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
@@ -4647,10 +4641,10 @@ class StockPredictor:
             up_probability = 0.5 + (up_probability - 0.5) * (confidence / min_confidence_threshold)
             down_probability = 1 - up_probability
         
-        # 确定预测方向
-        if up_probability > 0.6:
+        # 确定预测方向（阈值0.55）
+        if up_probability > 0.55:
             prediction = '上涨'
-        elif down_probability > 0.6:
+        elif down_probability > 0.55:
             prediction = '下跌'
         else:
             prediction = '震荡'
@@ -4766,17 +4760,21 @@ class StockPredictor:
 
         summary_text = " ".join(summary_parts)
         
-        # 7. 计算交易建议
-        self.logger.info("\n步骤7: 计算交易建议...")
+        # 7. 计算完整交易计划（增强版：动态止损止盈+支撑压力位+持仓天数）
+        self.logger.info("\n步骤7: 计算完整交易计划...")
         trading_suggestions = self.calculate_trading_suggestions(data, {
             'prediction': prediction,
             'up_probability': up_probability,
             'down_probability': down_probability,
             'confidence': confidence,
             'market_overall': market_overall
-        })
-        self.logger.info(f"买入建议价: {trading_suggestions['buy_price']}元")
-        self.logger.info(f"卖出建议价: {trading_suggestions['sell_price']}元")
+        }, symbol=symbol)
+        self.logger.info(f"操作建议: {trading_suggestions.get('action', '暂无')} - {trading_suggestions.get('action_detail', '')}")
+        self.logger.info(f"买入建议价: {trading_suggestions['buy_price']}元 | 卖出建议价: {trading_suggestions['sell_price']}元")
+        self.logger.info(f"止损价: {trading_suggestions.get('stop_loss')}元（{trading_suggestions.get('stop_loss_pct', '')}%）| 止盈价: {trading_suggestions.get('take_profit')}元（{trading_suggestions.get('take_profit_pct', '')}%）")
+        self.logger.info(f"支撑位: {trading_suggestions.get('support_1')} / {trading_suggestions.get('support_2')} | 压力位: {trading_suggestions.get('resistance_1')} / {trading_suggestions.get('resistance_2')}")
+        holding = trading_suggestions.get('holding_period', {})
+        self.logger.info(f"建议持仓: {holding.get('optimal_days', '?')}天（{holding.get('min_days', '?')}-{holding.get('max_days', '?')}天）| 风险收益比: {trading_suggestions.get('risk_reward_ratio', 0)}:1")
         auction_reason = trading_suggestions.get('auction_reason', '')
         if trading_suggestions['auction_entry']:
             self.logger.info(f"建议竞价进入，竞价价格: {trading_suggestions['auction_price']}元，理由: {auction_reason}")
@@ -5621,7 +5619,7 @@ class StockPredictor:
                 elif ml_model_type:
                     ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
                 else:
-                    ml_weight = 0.15  # 默认权重15%
+                    ml_weight = 0.35  # 默认权重35%（ML模型为主导因子）
                 
                 self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
                                f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
@@ -5842,10 +5840,10 @@ class StockPredictor:
             up_probability = 0.5 + (up_probability - 0.5) * (confidence / min_confidence_threshold)
             down_probability = 1 - up_probability
         
-        # 确定预测方向
-        if up_probability > 0.6:
+        # 确定预测方向（阈值0.55）
+        if up_probability > 0.55:
             prediction = '上涨'
-        elif down_probability > 0.6:
+        elif down_probability > 0.55:
             prediction = '下跌'
         else:
             prediction = '震荡'
@@ -6390,10 +6388,10 @@ class StockPredictor:
         )
         down_probability = 1 - up_probability
         
-        # 确定预测方向
-        if up_probability > 0.6:
+        # 确定预测方向（阈值0.55）
+        if up_probability > 0.55:
             prediction = '上涨'
-        elif down_probability > 0.6:
+        elif down_probability > 0.55:
             prediction = '下跌'
         else:
             prediction = '震荡'

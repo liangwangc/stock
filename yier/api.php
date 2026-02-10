@@ -140,12 +140,12 @@ function calculateTotalTask($conn, $uid, $daily_goal, $today) {
     $distinct_days = count($dates);
     
     if ($distinct_days == 2) {
-        return $daily_goal * 2; // 第2天
+        return (int) round($daily_goal * 2); // 第2天，取整避免浮点长小数
     } elseif ($distinct_days >= 3) {
-        return $daily_goal * 2.4; // 第3天及以后
+        return (int) round($daily_goal * 2.4); // 第3天及以后，取整避免浮点长小数
     }
     
-    return $daily_goal; // 默认
+    return (int) $daily_goal; // 默认
 }
 
 // 辅助函数：获取连续打卡的日期列表（使用getLearningDates函数）
@@ -918,7 +918,7 @@ elseif ($action === 'day_details') {
                         throw new Exception("查询新单词失败: " . $conn->error);
                     }
                     $params = array_merge([$uid, $today, $uid], $exclude_ids, [$new_word_target]);
-                    $types = 'isis' . str_repeat('i', count($exclude_ids)) . 'i';
+                    $types = 'isi' . str_repeat('i', count($exclude_ids)) . 'i';
                     $stmt->bind_param($types, ...$params);
                 } else {
                     // 如果没有需要排除的单词，直接查询今天学习过的单词
@@ -933,7 +933,7 @@ elseif ($action === 'day_details') {
                     if (!$stmt) {
                         throw new Exception("查询新单词失败: " . $conn->error);
                     }
-                    $stmt->bind_param("isis", $uid, $today, $uid, $new_word_target);
+                    $stmt->bind_param("isii", $uid, $today, $uid, $new_word_target);
                 }
                 
                 if (!$stmt->execute()) {
@@ -1335,7 +1335,7 @@ elseif ($action === 'get_home_data') {
             "review_count_target" => $review_count_target,  // 复习单词（40%）
             "yesterday_review_count" => $yesterday_review_count,  // 昨天新单词（全量）
             "future_count" => $count_future,           
-            "total_pending"=> $total_task,         // 今天任务：根据天数显示不同的总任务量
+            "total_pending"=> (int) round($total_task),         // 今天任务（取整，避免前端显示长小数）
             "backlog_remaining" => max(0, $count_current_pool - count($list_new)),
             "manual_count" => $manual_count,
             "word_bank_count" => count($list_word_bank),
@@ -1895,8 +1895,11 @@ elseif ($action === 'get_stats') {
         $stmt->execute();
         $today_stats = $stmt->get_result()->fetch_assoc();
         $today_studied_words = (int)($today_stats['today_studied'] ?? 0);
+        // 这里无法准确区分新词与复习词，先用总学习数作为 today_total_words，today_new_words 置0
+        $today_total_words = $today_studied_words;
+        $today_new_words = 0;
     } else {
-        // 回退到旧逻辑（兼容性）
+        // 回退到旧逻辑（兼容性），按words表统计今天新增单词数
         $stmt = prepare_check($conn, "
             SELECT COUNT(*) as today_total_words
             FROM words 
@@ -1905,7 +1908,9 @@ elseif ($action === 'get_stats') {
         $stmt->bind_param("is", $uid, $today);
         $stmt->execute();
         $today_stats = $stmt->get_result()->fetch_assoc();
-        $today_studied_words = (int)($today_stats['today_total_words'] ?? 0);
+        $today_total_words = (int)($today_stats['today_total_words'] ?? 0);
+        $today_studied_words = $today_total_words;
+        $today_new_words = $today_total_words;
     }
     
     // 计算复习准确率（记住次数/总复习次数）
@@ -2368,8 +2373,9 @@ elseif ($action === 'get_learning_report') {
         exit(json_encode(["error" => "无权限操作"]));
     }
     
-    // 构建查询条件
-    $user_condition = $target_user_id > 0 ? "AND user_id = $target_user_id" : "";
+    // 构建查询条件（word_review_logs用rl前缀，words单表不用前缀）
+    $user_condition_rl = $target_user_id > 0 ? "AND rl.user_id = $target_user_id" : "";
+    $user_condition_w = $target_user_id > 0 ? "AND user_id = $target_user_id" : "";
     
     // 1. 每日学习统计（按日期分组）
     // 检查word_review_logs表是否存在
@@ -2388,7 +2394,7 @@ elseif ($action === 'get_learning_report') {
             FROM word_review_logs rl
             LEFT JOIN words w ON rl.word_id = w.id
             WHERE rl.review_date BETWEEN ? AND ?
-            $user_condition
+            $user_condition_rl
             GROUP BY rl.review_date
             ORDER BY rl.review_date ASC
         ");
@@ -2403,7 +2409,7 @@ elseif ($action === 'get_learning_report') {
                 COUNT(DISTINCT CASE WHEN status = 'new' THEN id END) as new_count
             FROM words 
             WHERE date_added BETWEEN ? AND ?
-            $user_condition
+            $user_condition_w
             GROUP BY date_added
             ORDER BY date_added ASC
         ");

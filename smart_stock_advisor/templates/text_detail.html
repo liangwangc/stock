@@ -559,70 +559,101 @@
             stockContent.innerHTML = html;
         }
         
-        // 渲染交易建议
+        // 渲染交易建议（增强版：操作建议卡片、买卖价双色、止损止盈、支撑压力、持仓天数、风险收益比）
         function renderTradingSection(data) {
             const tradingContent = document.getElementById('tradingContent');
-            const tradingSuggestions = data.trading_suggestions || {};
+            const ts = data.trading_suggestions || {};
             let html = '';
             
-            if (tradingSuggestions.buy_price) {
+            // 顶部操作建议卡片
+            if (ts.action || ts.action_detail) {
                 html += `
-                    <div class="trading-item">
+                    <div class="trading-item" style="background: linear-gradient(135deg,#e8f5e9 0%,#f1f8e9 100%);border-radius:8px;padding:12px;margin-bottom:12px;">
+                        <div style="font-weight:600;color:#2e7d32;font-size:15px;">${ts.action || '暂无建议'}</div>
+                        ${ts.action_detail ? `<div style="font-size:12px;color:#555;margin-top:6px;">${ts.action_detail}</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            // 买卖价双色卡片
+            if (ts.buy_price != null) {
+                html += `
+                    <div class="trading-item" style="background:#e3f2fd;border-radius:8px;padding:10px;margin-bottom:8px;">
                         <span class="label">买入建议价:</span>
-                        <span class="value"> ${tradingSuggestions.buy_price.toFixed(2)}元</span>
+                        <span class="value" style="color:#1565c0;font-weight:600;">${Number(ts.buy_price).toFixed(2)}元</span>
                     </div>
                 `;
             }
-            
-            if (tradingSuggestions.sell_price) {
+            if (ts.sell_price != null) {
                 html += `
-                    <div class="trading-item">
+                    <div class="trading-item" style="background:#fff3e0;border-radius:8px;padding:10px;margin-bottom:8px;">
                         <span class="label">卖出建议价:</span>
-                        <span class="value"> ${tradingSuggestions.sell_price.toFixed(2)}元</span>
+                        <span class="value" style="color:#e65100;font-weight:600;">${Number(ts.sell_price).toFixed(2)}元</span>
                     </div>
                 `;
             }
             
-            if (tradingSuggestions.auction_entry && tradingSuggestions.auction_price) {
-                html += `
-                    <div class="trading-item">
-                        <span class="label">竞价进入:</span>
-                        <span class="value"> 建议，价格: ${tradingSuggestions.auction_price.toFixed(2)}元</span>
-                    </div>
-                `;
-                if (tradingSuggestions.auction_reason) {
+            // 止损/止盈卡片（含百分比、计算方式说明）
+            if (ts.stop_loss != null || ts.take_profit != null) {
+                html += `<div style="margin-top:12px;margin-bottom:8px;font-weight:600;color:#333;">止损 / 止盈</div>`;
+                if (ts.stop_loss != null) {
                     html += `
-                        <div class="trading-item" style="font-size: 12px; color: #555; font-style: italic;">
-                            <span class="label">理由:</span>
-                            <span>${tradingSuggestions.auction_reason}</span>
+                        <div class="trading-item">
+                            <span class="label">止损价:</span>
+                            <span class="value" style="color:#c62828;">${Number(ts.stop_loss).toFixed(2)}元 ${ts.stop_loss_pct != null ? '(' + ts.stop_loss_pct + '%)' : ''}</span>
                         </div>
                     `;
                 }
-            } else if (tradingSuggestions.auction_reason) {
+                if (ts.take_profit != null) {
+                    html += `
+                        <div class="trading-item">
+                            <span class="label">止盈价:</span>
+                            <span class="value" style="color:#2e7d32;">${Number(ts.take_profit).toFixed(2)}元 ${ts.take_profit_pct != null ? '(' + ts.take_profit_pct + '%)' : ''}</span>
+                        </div>
+                    `;
+                }
+                if (ts.sl_tp_method) {
+                    html += `<div class="trading-item" style="font-size:11px;color:#666;">${ts.sl_tp_method}${ts.sl_tp_explanation ? '：' + ts.sl_tp_explanation : ''}</div>`;
+                }
+            }
+            
+            // 支撑位/压力位
+            if (ts.support_1 != null || ts.resistance_1 != null) {
+                html += `<div style="margin-top:12px;margin-bottom:8px;font-weight:600;color:#333;">支撑位 / 压力位</div>`;
+                if (ts.support_1 != null) {
+                    html += `<div class="trading-item"><span class="label">支撑位:</span><span>${Number(ts.support_1).toFixed(2)} / ${ts.support_2 != null ? Number(ts.support_2).toFixed(2) : '-'}元</span></div>`;
+                }
+                if (ts.resistance_1 != null) {
+                    html += `<div class="trading-item"><span class="label">压力位:</span><span>${Number(ts.resistance_1).toFixed(2)} / ${ts.resistance_2 != null ? Number(ts.resistance_2).toFixed(2) : '-'}元</span></div>`;
+                }
+            }
+            
+            // 持仓天数 + 风险收益比（优秀/良好/偏低）
+            const hp = ts.holding_period || {};
+            const rr = ts.risk_reward_ratio;
+            if (hp.optimal_days != null || rr != null) {
+                html += `<div style="margin-top:12px;margin-bottom:8px;font-weight:600;color:#333;">持仓与风险</div>`;
+                if (hp.optimal_days != null) {
+                    html += `<div class="trading-item"><span class="label">建议持仓:</span><span>${hp.optimal_days}天（${hp.min_days || '-'}～${hp.max_days || '-'}天）${hp.reason ? '，' + hp.reason : ''}</span></div>`;
+                }
+                if (rr != null && rr > 0) {
+                    const rrLabel = rr >= 2 ? '优秀' : (rr >= 1.5 ? '良好' : '偏低');
+                    const rrColor = rr >= 2 ? '#2e7d32' : (rr >= 1.5 ? '#f9a825' : '#c62828');
+                    html += `<div class="trading-item"><span class="label">风险收益比:</span><span style="color:${rrColor};font-weight:600;">${rr}:1（${rrLabel}）</span></div>`;
+                }
+            }
+            
+            // 竞价建议
+            if (ts.auction_entry && ts.auction_price != null) {
                 html += `
-                    <div class="trading-item">
-                        <span class="label">竞价建议:</span>
-                        <span class="value">${tradingSuggestions.auction_reason}</span>
+                    <div class="trading-item" style="background:#e8f5e9;border-radius:8px;padding:10px;margin-top:12px;">
+                        <span class="label">竞价进入:</span>
+                        <span class="value" style="color:#2e7d32;">建议，价格 ${Number(ts.auction_price).toFixed(2)}元</span>
                     </div>
                 `;
             }
-            
-            if (tradingSuggestions.stop_loss) {
-                html += `
-                    <div class="trading-item">
-                        <span class="label">止损价:</span>
-                        <span class="value"> ${tradingSuggestions.stop_loss.toFixed(2)}元</span>
-                    </div>
-                `;
-            }
-            
-            if (tradingSuggestions.take_profit) {
-                html += `
-                    <div class="trading-item">
-                        <span class="label">止盈价:</span>
-                        <span class="value"> ${tradingSuggestions.take_profit.toFixed(2)}元</span>
-                    </div>
-                `;
+            if (ts.auction_reason) {
+                html += `<div class="trading-item" style="font-size:12px;color:#555;font-style:italic;"><span class="label">竞价说明:</span><span>${ts.auction_reason}</span></div>`;
             }
             
             if (!html) {

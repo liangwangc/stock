@@ -984,8 +984,9 @@ const app = {
                 if (this.queue && this.queue.length > 0) {
                     statTotalEl.innerText = this.queue.length;
                 } else {
-                    // 显示API返回的总任务量（total_pending）
-                    statTotalEl.innerText = s.total_pending || dailyGoal;
+                    // 显示API返回的总任务量（取整，避免浮点长小数如 7.199999999999999）
+                    const totalPending = Number(s.total_pending) || Number(dailyGoal);
+                    statTotalEl.innerText = Math.round(totalPending);
                 }
             }
             
@@ -1003,30 +1004,30 @@ const app = {
             });
             
             const statFutureEl = document.getElementById('stat-future');
-            if (statFutureEl) statFutureEl.innerText = s.future_count || 0;
+            if (statFutureEl) statFutureEl.innerText = Math.round(Number(s.future_count) || 0);
             
-            // 显示待学池总量和今日进度
-            const poolTotal = (s.backlog_remaining || 0) + (s.new_count || 0);
+            // 显示待学池总量和今日进度（取整显示）
+            const poolTotal = Math.round(Number(s.backlog_remaining || 0) + Number(s.new_count || 0));
             const statPoolTotalEl = document.getElementById('stat-pool-total');
             if (statPoolTotalEl) statPoolTotalEl.textContent = poolTotal;
             
-            // 显示今日实际学习的单词数（包括新学和复习）
+            // 显示今日实际学习的单词数（包括新学和复习），目标取整显示
             const todayLearned = s.today_learned_count || 0;
             const statNewProgressEl = document.getElementById('stat-new-progress');
-            if (statNewProgressEl) statNewProgressEl.textContent = `${todayLearned}/${dailyGoal}`;
+            if (statNewProgressEl) statNewProgressEl.textContent = `${todayLearned}/${Math.round(Number(dailyGoal))}`;
             
             // 显示连续打卡天数
             const streakDays = s.streak_days || 0;
             const streakDaysEl = document.getElementById('streak-days');
             if (streakDaysEl) streakDaysEl.textContent = streakDays;
             
-            // 显示今日获得的星星（使用实际学习的单词数）
-            const todayStars = todayLearned || s.today_stars || 0;
+            // 显示今日获得的星星（取整显示）
+            const todayStars = Math.round(Number(todayLearned || s.today_stars || 0));
             const todayStarsEl = document.getElementById('today-stars');
             if (todayStarsEl) todayStarsEl.textContent = todayStars;
             
-            // 显示进度条（基于今天实际学习的单词数）
-            const progressPercent = s.progress_percent || 0;
+            // 显示进度条（基于今天实际学习的单词数），百分比取整显示
+            const progressPercent = Math.round(Number(s.progress_percent) || 0);
             const progressTextEl = document.getElementById('progress-text');
             if (progressTextEl) progressTextEl.textContent = `${progressPercent}%`;
             const progressBarEl = document.getElementById('progress-bar');
@@ -1071,10 +1072,11 @@ const app = {
             const dictationBtn = document.getElementById('dictation-btn');
             const futureBox = document.getElementById('future-box');
             
-            // 使用API返回的总任务量（total_pending），已经根据天数计算好了
+            // 使用API返回的总任务量（total_pending），取整避免浮点长小数
             const reviewCount2 = s.review_count || 0;
             const newCount2 = s.new_count || 0;
-            const totalTask = s.total_pending || (reviewCount2 + newCount2); // 优先使用API返回的总任务量
+            const totalTaskRaw = s.total_pending ?? (reviewCount2 + newCount2);
+            const totalTask = Math.round(Number(totalTaskRaw));
             const futureCount = s.future_count || 0;
             // todayLearned 已经在上面声明过了，这里直接使用
             
@@ -1132,14 +1134,14 @@ const app = {
                 // 因为听写是基于今天要学习的单词，而不是已经学习过的单词
                 const dictationTotal = totalTask;
                 
-                // 显示进度格式：家长听写(5/10)，自动听写(1/10)
+                // 显示进度格式：家长听写(5/10)，自动听写(1/10)，数字取整显示
                 btn.style.opacity = "1";
                 btn.innerText = `家长听写 (${todayLearnedCount}/${totalTask})`;
                 btn.style.cursor = "pointer";
                 if (dictationBtn) {
                     dictationBtn.style.opacity = "1";
                     // 听写总数和开始学习一样，都是总任务数
-                    dictationBtn.innerText = `🎧 自动听写 (${todayDictationCount}/${dictationTotal})`;
+                    dictationBtn.innerText = `🎧 自动听写 (${todayDictationCount}/${Math.round(Number(dictationTotal))})`;
                     dictationBtn.style.cursor = "pointer";
                 }
                 futureBox.classList.add('hidden');
@@ -2178,28 +2180,28 @@ const app = {
         
         // 更新效率指标
         if (data.efficiency) {
-            document.getElementById('efficiency-avg-daily').textContent = data.efficiency.avg_daily_words || 0;
+            document.getElementById('efficiency-avg-daily').textContent = Math.round(Number(data.efficiency.avg_daily_words) || 0);
             
-            // 学习完成率（优先显示今天的）
-            const completionRate = data.efficiency.completion_rate || 0;
+            // 学习完成率（取整显示，避免长小数）
+            const completionRate = Math.round(Number(data.efficiency.completion_rate) || 0);
             document.getElementById('efficiency-completion').textContent = completionRate + '%';
             
-            // 显示今日完成情况（优先显示总学习数，包括新学和复习）
-            const todayStudied = data.efficiency.today_studied_words || data.efficiency.today_total_words || data.efficiency.today_new_words || 0;
-            const todayGoal = data.efficiency.today_goal || 0;
+            // 显示今日完成情况（数字取整，避免长小数）
+            const todayStudied = Math.round(Number(data.efficiency.today_studied_words || data.efficiency.today_total_words || data.efficiency.today_new_words || 0));
+            const todayGoal = Math.round(Number(data.efficiency.today_goal || 0));
             const completionDetail = document.getElementById('completion-detail');
             if (completionDetail) {
                 completionDetail.textContent = `今日: ${todayStudied}/${todayGoal}`;
             }
             
-            document.getElementById('efficiency-accuracy').textContent = (data.efficiency.review_accuracy || 0) + '%';
+            document.getElementById('efficiency-accuracy').textContent = Math.round(Number(data.efficiency.review_accuracy) || 0) + '%';
             
-            // 掌握速度
-            const masterySpeed = data.efficiency.mastery_speed || 0;
+            // 掌握速度（取整显示）
+            const masterySpeed = Math.round(Number(data.efficiency.mastery_speed) || 0);
             document.getElementById('efficiency-mastery').textContent = masterySpeed;
             
-            // 显示已掌握单词总数
-            const totalMastered = data.efficiency.total_mastered_words || 0;
+            // 显示已掌握单词总数（取整显示）
+            const totalMastered = Math.round(Number(data.efficiency.total_mastered_words) || 0);
             const masteryDetail = document.getElementById('mastery-detail');
             if (masteryDetail) {
                 masteryDetail.textContent = `已掌握: ${totalMastered}个`;

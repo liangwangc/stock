@@ -964,14 +964,15 @@
                             📊 预测因子权重配置
                         </h3>
                         <div class="help-text" style="margin-bottom: 15px;">
-                            权重总和：<span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 16px;">0.00</span> / 1.00
+                            传统因子权重：<span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 16px;">0.00</span> / 0.65
+                            <span style="color: #888; margin-left: 8px;">（+ ML模型 0.35 = 1.00）</span>
                             <button class="btn" onclick="balanceWeights()" style="margin-left: 15px; padding: 6px 12px; font-size: 12px; background: #f0f0f0;">⚖️ 一键平衡</button>
                         </div>
                         
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
                             <!-- 核心因素 -->
                             <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
-                                <h4 style="margin: 0 0 10px 0; color: #856404;">核心因素（约60%）</h4>
+                                <h4 style="margin: 0 0 10px 0; color: #856404;">核心因素（技术20% + 新闻16% + 资金13% + 市场11%）</h4>
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label style="font-size: 13px;">新闻情感权重</label>
                                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -1052,7 +1053,7 @@
                             
                             <!-- 辅助因素 -->
                             <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #155724;">
-                                <h4 style="margin: 0 0 10px 0; color: #155724;">辅助因素（约11%）</h4>
+                                <h4 style="margin: 0 0 10px 0; color: #155724;">辅助因素（历史5%）</h4>
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label style="font-size: 13px;">历史模式权重</label>
                                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -1123,21 +1124,21 @@
                                     <label style="font-size: 13px;">ML模型默认权重</label>
                                     <input type="number" id="ml_default_weight" min="0" max="1" step="0.01" 
                                            style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.15（当无法获取性能数据时使用）</div>
+                                    <div class="help-text">默认：0.35（ML模型为主导因子，占总权重35%）</div>
                                 </div>
                                 
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label style="font-size: 13px;">ML模型最小权重</label>
                                     <input type="number" id="ml_min_weight" min="0" max="1" step="0.01" 
                                            style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.0（性能差时使用）</div>
+                                    <div class="help-text">默认：0.10（性能差时降低至此值）</div>
                                 </div>
                                 
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label style="font-size: 13px;">ML模型最大权重</label>
                                     <input type="number" id="ml_max_weight" min="0" max="1" step="0.01" 
                                            style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.25（性能好时使用）</div>
+                                    <div class="help-text">默认：0.50（性能好时提升至此值）</div>
                                 </div>
                                 
                                 <div class="form-group" style="margin-bottom: 12px;">
@@ -3299,16 +3300,16 @@
         // 加载默认配置（从config.py）
         function loadDefaultConfig() {
             // 默认值来自config.py
-            setWeightValue('news_weight', 0.25);
-            setWeightValue('capital_flow_weight', 0.20);  // 从0.18调整为0.20（原权重重新分配）
-            setWeightValue('market_weight', 0.19);  // 从0.17调整为0.19（原权重重新分配）
-            setWeightValue('technical_weight', 0.22);  // 从0.20调整为0.22（原权重重新分配）
+            // 传统因子权重（合计65%，与config.py PREDICTION_CONFIG一致）
+            setWeightValue('technical_weight', 0.20);   // 技术指标
+            setWeightValue('news_weight', 0.16);        // 新闻情感
+            setWeightValue('capital_flow_weight', 0.13); // 资金流向
+            setWeightValue('market_weight', 0.11);      // 市场情绪
+            setWeightValue('history_weight', 0.05);     // 历史模式
             // 【已优化移除】以下三个因子已从预测模型中移除
             // setWeightValue('sector_rotation_weight', 0.05);
             // setWeightValue('us_sector_weight', 0.05);
             // setWeightValue('valuation_weight', 0.02);
-            setWeightValue('history_weight', 0.11);  // 从0.08调整为0.11（原权重重新分配）
-            setWeightValue('news_weight', 0.28);  // 从0.25调整为0.28（原权重重新分配）
             document.getElementById('min_confidence').value = 0.5;
             document.getElementById('lookback_days').value = 60;
             
@@ -3336,10 +3337,10 @@
             document.getElementById('x2_high_score').value = -0.05;
             document.getElementById('x2_low_score').value = 0.05;
             
-            // ML模型动态权重参数默认值
-            document.getElementById('ml_default_weight').value = 0.15;
-            document.getElementById('ml_min_weight').value = 0.0;
-            document.getElementById('ml_max_weight').value = 0.25;
+            // ML模型动态权重参数默认值（ML占35%，与config.py一致）
+            document.getElementById('ml_default_weight').value = 0.35;
+            document.getElementById('ml_min_weight').value = 0.10;
+            document.getElementById('ml_max_weight').value = 0.50;
             document.getElementById('ml_high_accuracy_threshold').value = 0.60;
             document.getElementById('ml_medium_accuracy_threshold').value = 0.50;
             
@@ -3397,10 +3398,10 @@
                 document.getElementById('min_confidence').value = pred.min_confidence || 0.5;
                 document.getElementById('lookback_days').value = pred.lookback_days || 60;
                 
-                // 加载ML模型动态权重参数
-                document.getElementById('ml_default_weight').value = pred.ml_default_weight || 0.15;
-                document.getElementById('ml_min_weight').value = pred.ml_min_weight || 0.0;
-                document.getElementById('ml_max_weight').value = pred.ml_max_weight || 0.25;
+                // 加载ML模型动态权重参数（ML占35%，与config.py一致）
+                document.getElementById('ml_default_weight').value = pred.ml_default_weight || 0.35;
+                document.getElementById('ml_min_weight').value = pred.ml_min_weight || 0.10;
+                document.getElementById('ml_max_weight').value = pred.ml_max_weight || 0.50;
                 document.getElementById('ml_high_accuracy_threshold').value = pred.ml_high_accuracy_threshold || 0.60;
                 document.getElementById('ml_medium_accuracy_threshold').value = pred.ml_medium_accuracy_threshold || 0.50;
                 
@@ -3504,9 +3505,8 @@
             updateWeightSum();
         }
         
-        // 更新权重总和
+        // 更新权重总和（传统因子合计应为0.65，ML模型占0.35，总计1.00）
         function updateWeightSum() {
-            // 【已优化】移除三个已优化的因子：sector_rotation_weight, us_sector_weight, valuation_weight
             const weights = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
                 'technical_weight', 'history_weight'
@@ -3524,8 +3524,8 @@
             const sumElement = document.getElementById('weightSum');
             if (sumElement) {
                 sumElement.textContent = sum.toFixed(2);
-                // 如果总和接近1.0，显示绿色，否则显示红色
-                if (Math.abs(sum - 1.0) <= 0.01) {
+                // 传统因子合计应为0.65（+ ML 0.35 = 1.00）
+                if (Math.abs(sum - 0.65) <= 0.01) {
                     sumElement.style.color = '#4caf50';
                 } else {
                     sumElement.style.color = '#f44336';
@@ -3533,9 +3533,8 @@
             }
         }
         
-        // 一键平衡权重
+        // 一键平衡权重（传统因子合计0.65，ML模型占0.35）
         function balanceWeights() {
-            // 【已优化】移除三个已优化的因子：sector_rotation_weight, us_sector_weight, valuation_weight
             const weights = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
                 'technical_weight', 'history_weight'
@@ -3558,14 +3557,14 @@
                 return;
             }
             
-            // 按比例调整，使总和为1
+            // 按比例调整，使传统因子总和为0.65（ML占0.35）
             weights.forEach(key => {
-                const adjustedValue = currentValues[key] / sum;
+                const adjustedValue = (currentValues[key] / sum) * 0.65;
                 setWeightValue(key, adjustedValue);
             });
             
             updateWeightSum();
-            alert('权重已平衡为总和1.0');
+            alert('传统因子权重已平衡为总和0.65（+ ML 0.35 = 1.00）');
         }
         
         // 获取当前表单配置值
@@ -3593,10 +3592,10 @@
             values.prediction.min_confidence = parseFloat(document.getElementById('min_confidence').value) || 0.5;
             values.prediction.lookback_days = parseInt(document.getElementById('lookback_days').value) || 60;
             
-            // 获取ML模型动态权重参数
-            values.prediction.ml_default_weight = parseFloat(document.getElementById('ml_default_weight').value) || 0.15;
-            values.prediction.ml_min_weight = parseFloat(document.getElementById('ml_min_weight').value) || 0.0;
-            values.prediction.ml_max_weight = parseFloat(document.getElementById('ml_max_weight').value) || 0.25;
+            // 获取ML模型动态权重参数（ML占35%，与config.py一致）
+            values.prediction.ml_default_weight = parseFloat(document.getElementById('ml_default_weight').value) || 0.35;
+            values.prediction.ml_min_weight = parseFloat(document.getElementById('ml_min_weight').value) || 0.10;
+            values.prediction.ml_max_weight = parseFloat(document.getElementById('ml_max_weight').value) || 0.50;
             values.prediction.ml_high_accuracy_threshold = parseFloat(document.getElementById('ml_high_accuracy_threshold').value) || 0.60;
             values.prediction.ml_medium_accuracy_threshold = parseFloat(document.getElementById('ml_medium_accuracy_threshold').value) || 0.50;
             

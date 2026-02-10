@@ -217,15 +217,13 @@ class WeightOptimizer:
             for factor_name, score in accuracy_scores.items():
                 optimal_weights[factor_name] = score / total_accuracy_score
         else:
-            # 如果所有因子准确率都很低，使用默认权重
-            # 【已优化】移除三个已优化的因子，重新分配权重
+            # 如果所有因子准确率都很低，使用默认权重（对应config.py中的65%传统因子体系）
             default_weights = {
-                'technical': 0.22,  # 从0.20调整为0.22（原权重重新分配）
-                'news': 0.28,  # 从0.25调整为0.28（原权重重新分配）
-                'capital_flow': 0.20,  # 从0.18调整为0.20（原权重重新分配）
-                'market': 0.19,  # 从0.17调整为0.19（原权重重新分配）
-                'history': 0.11  # 从0.08调整为0.11（原权重重新分配）
-                # 已移除：'sector_rotation': 0.05, 'valuation': 0.02, 'us_sector': 0.05
+                'technical': 0.20,
+                'news': 0.16,
+                'capital_flow': 0.13,
+                'market': 0.11,
+                'history': 0.05,
             }
             return default_weights
         
@@ -244,15 +242,14 @@ class WeightOptimizer:
         """
         suggestions = []
         
-        # 当前默认权重
+        # 当前默认权重（65%传统因子体系，与config.py一致）
         current_weights = {
             'technical': 0.20,
-            'news': 0.25,
-            'capital_flow': 0.18,
-            'market': 0.17,
-            'sector_rotation': 0.05,
-            'history': 0.11  # 从0.08调整为0.11（原权重重新分配）
-            # 【已优化移除】以下三个因子已从预测模型中移除：'sector_rotation': 0.05, 'valuation': 0.02, 'us_sector': 0.05
+            'news': 0.16,
+            'capital_flow': 0.13,
+            'market': 0.11,
+            'history': 0.05,
+            # 【已优化移除】sector_rotation、valuation、us_sector 已从预测模型中移除
         }
         
         for factor_name, optimal_weight in optimal_weights.items():
@@ -429,15 +426,14 @@ class WeightOptimizer:
         Returns:
             优化后的权重配置
         """
-        # 1. 获取基础权重（默认权重或配置中的权重）
+        # 1. 获取基础权重（65%传统因子体系，与config.py一致）
         base_weights = {
-            # 【已优化】移除三个已优化的因子，重新分配权重
-            'technical_weight': 0.22,  # 从0.20调整为0.22（原权重重新分配）
-            'news_weight': 0.28,  # 从0.25调整为0.28（原权重重新分配）
-            'capital_flow_weight': 0.20,  # 从0.18调整为0.20（原权重重新分配）
-            'market_weight': 0.19,  # 从0.17调整为0.19（原权重重新分配）
-            'history_weight': 0.11  # 从0.08调整为0.11（原权重重新分配）
-            # 已移除：'sector_rotation_weight': 0.05, 'valuation_weight': 0.02, 'us_sector_weight': 0.05
+            'technical_weight': 0.20,
+            'news_weight': 0.16,
+            'capital_flow_weight': 0.13,
+            'market_weight': 0.11,
+            'history_weight': 0.05,
+            # 已移除：sector_rotation, valuation, us_sector
         }
         
         # 2. 如果使用基于准确率的优化，先优化基础权重

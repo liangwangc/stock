@@ -16,26 +16,37 @@ NEWS_SOURCES = [
 ]
 
 # 预测模型配置
+# 架构：ML模型主导（35%） + 传统因子辅助（65%） = 100%
 PREDICTION_CONFIG = {
-    # 核心因素（60%）
-    "news_weight": 0.25,          # 新闻情感权重（包含政策新闻）
-    "capital_flow_weight": 0.18,  # 资金流向权重（新增：北向资金、融资融券、主力资金）
-    "market_weight": 0.17,        # 市场情绪权重（改进：包含大盘指数影响）
+    # 传统因子权重（合计65%）
+    "technical_weight": 0.20,      # 技术指标权重（MACD、RSI、KDJ、MA、CCI、X2）
+    "news_weight": 0.16,           # 新闻情感权重（包含政策新闻）
+    "capital_flow_weight": 0.13,   # 资金流向权重（北向资金、融资融券、主力资金）
+    "market_weight": 0.11,         # 市场情绪权重（大盘指数影响）
+    "history_weight": 0.05,        # 历史模式权重（历史相似模式识别）
     
-    # 技术分析（25%）
-    "technical_weight": 0.20,     # 技术指标权重（降低）
-    "sector_rotation_weight": 0.05, # 板块轮动权重（新增）
+    # 已移除的因子（保留配置兼容性）
+    "sector_rotation_weight": 0.0, # 板块轮动（已移除）
+    "us_sector_weight": 0.0,       # 美股板块（已移除）
+    "valuation_weight": 0.0,       # 估值指标（已移除）
     
-    # 辅助因素（15%）
-    "history_weight": 0.08,       # 历史模式权重（略降）
-    "us_sector_weight": 0.05,     # 美股板块权重（降低）
-    "valuation_weight": 0.02,     # 估值指标权重（降低）
+    # ML模型配置（默认占35%，根据模型性能动态调整）
+    "ml_default_weight": 0.35,     # ML模型默认权重（77%准确率，主导因子）
+    "ml_min_weight": 0.10,         # ML模型最小权重（性能差时降低）
+    "ml_max_weight": 0.50,         # ML模型最大权重上限（性能好时提升）
+    "ml_high_accuracy_threshold": 0.60,   # 高准确率阈值
+    "ml_medium_accuracy_threshold": 0.50, # 中等准确率阈值
+    
+    # 异常检测参数
+    "st_stock_confidence_reduction": 0.20,        # ST股票置信度降低比例
+    "limit_up_down_confidence_reduction": 0.10,   # 涨跌停置信度降低比例
+    "suspended_stock_action": "skip_prediction",  # 停牌股票处理方式
     
     # 其他配置
-    "min_confidence": 0.5,        # 最小置信度
-    "lookback_days": 60           # 回看天数
+    "min_confidence": 0.5,         # 最小置信度
+    "lookback_days": 60,           # 回看天数
     
-    # 权重总和：100%
+    # 传统因子65% + ML模型35% = 100%
 }
 
 # 技术指标参数
