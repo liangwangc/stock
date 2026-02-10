@@ -3877,6 +3877,72 @@ def api_get_text_detail():
             except Exception as e:
                 logger.debug(f"从API获取实时数据失败: {str(e)}")
         
+        # 实时计算交易建议（如果trading_suggestions为空）
+        if not trading_suggestions and prediction.get('prediction'):
+            try:
+                from utils.stock_history_storage import StockHistoryStorage
+                import pandas as pd
+                hs = StockHistoryStorage()
+                end_d = datetime.now().strftime('%Y-%m-%d')
+                start_d = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
+                hist_rows = hs.get_stock_history_data(symbol=symbol, start_date=start_d, end_date=end_d, limit=30)
+                if hist_rows and len(hist_rows) >= 5:
+                    kl = []
+                    for r in hist_rows:
+                        kl.append({
+                            'open': float(r.get('open', 0) or 0),
+                            'close': float(r.get('close', 0) or 0),
+                            'high': float(r.get('high', 0) or 0),
+                            'low': float(r.get('low', 0) or 0),
+                            'volume': float(r.get('volume', 0) or 0),
+                        })
+                    df = pd.DataFrame(kl)
+                    for col in ['open', 'close', 'high', 'low', 'volume']:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    from predictor.stock_predictor import StockPredictor
+                    sp = StockPredictor()
+                    trading_suggestions = sp.calculate_trading_suggestions(df, {
+                        'prediction': prediction.get('prediction', '震荡'),
+                        'up_probability': float(prediction.get('up_probability', 0) or 0),
+                        'down_probability': float(prediction.get('down_probability', 0) or 0),
+                        'confidence': float(prediction.get('confidence', 0) or 0),
+                        'market_overall': market_overall
+                    }, symbol=symbol)
+            except Exception as e:
+                logger.debug(f"实时计算交易建议失败: {str(e)}")
+        
+        # 实时计算交易建议（如果为空则用K线数据重新计算）
+        if not trading_suggestions:
+            try:
+                from utils.stock_history_storage import StockHistoryStorage
+                import pandas as pd
+                hs = StockHistoryStorage()
+                end_d = datetime.now().strftime('%Y-%m-%d')
+                start_d = (datetime.now() - timedelta(days=40)).strftime('%Y-%m-%d')
+                rows = hs.get_stock_history_data(symbol=symbol, start_date=start_d, end_date=end_d, limit=30)
+                if rows and len(rows) >= 5:
+                    df = pd.DataFrame([{
+                        'open': float(r.get('open', 0) or 0),
+                        'close': float(r.get('close', 0) or 0),
+                        'high': float(r.get('high', 0) or 0),
+                        'low': float(r.get('low', 0) or 0),
+                        'volume': float(r.get('volume', 0) or 0),
+                    } for r in rows])
+                    for col in ['open', 'close', 'high', 'low', 'volume']:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    from predictor.stock_predictor import StockPredictor
+                    sp = StockPredictor()
+                    trading_suggestions = sp.calculate_trading_suggestions(df, {
+                        'prediction': prediction.get('prediction', '震荡'),
+                        'up_probability': float(prediction.get('up_probability', 0) or 0),
+                        'down_probability': float(prediction.get('down_probability', 0) or 0),
+                        'confidence': float(prediction.get('confidence', 0) or 0),
+                        'market_overall': market_overall
+                    }, symbol=symbol)
+            except Exception as e:
+                logger.debug(f"实时计算交易建议失败: {str(e)}")
+        
         # 构建返回数据
         result_data = {
             'symbol': prediction.get('symbol', symbol),
