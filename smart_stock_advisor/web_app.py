@@ -3908,6 +3908,95 @@ def api_get_text_detail():
         return jsonify({'success': False, 'message': str(e)})
 
 
+@app.route('/api/trading_advice/<symbol>', methods=['GET'])
+def api_get_trading_advice(symbol):
+    """获取交易建议（含近30日K线数据 + 实时计算交易建议）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    try:
+        symbol = str(symbol).zfill(6)
+        days = int(request.args.get('days', 30))
+        
+        # 1. 获取近N日K线数据
+        kline_data = []
+        try:
+            from utils.stock_history_storage import StockHistoryStorage
+            hs = StockHistoryStorage()
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=days + 10)).strftime('%Y-%m-%d')
+            rows = hs.get_stock_history_data(symbol=symbol, start_date=start_date, end_date=end_date, limit=days)
+            if rows:
+                for r in rows:
+                    td = r.get('trade_date')
+                    if td:
+                        td = td.strftime('%Y-%m-%d') if hasattr(td, 'strftime') else str(td)
+                    kline_data.append({
+                        'date': td,
+                        'open': float(r.get('open', 0) or 0),
+                        'close': float(r.get('close', 0) or 0),
+                        'high': float(r.get('high', 0) or 0),
+                        'low': float(r.get('low', 0) or 0),
+                        'volume': float(r.get('volume', 0) or 0),
+                    })
+                kline_data.sort(key=lambda x: x['date'])
+        except Exception as e:
+            logger.warning(f"获取K线数据失败: {e}")
+        
+        # 2. 获取最新预测数据
+        prediction_data = {}
+        if StockPredictionDB:
+            db = StockPredictionDB()
+            preds = db.get_predictions(symbol=symbol, limit=1)
+            if preds:
+                p = preds[0]
+                prediction_data = {
+                    'prediction': p.get('prediction', ''),
+                    'up_probability': float(p.get('up_probability', 0) or 0),
+                    'down_probability': float(p.get('down_probability', 0) or 0),
+                    'confidence': float(p.get('confidence', 0) or 0),
+                    'current_price': float(p.get('current_price', 0) or 0),
+                    'predicted_close_price': float(p.get('predicted_close_price', 0) or 0) if p.get('predicted_close_price') else None,
+                    'predicted_change_pct': float(p.get('predicted_change_pct', 0) or 0) if p.get('predicted_change_pct') is not None else None,
+                    'name': p.get('name', ''),
+                    'prediction_date': str(p.get('prediction_date', '')),
+                    'target_date': str(p.get('target_date', '')),
+                }
+        
+        # 3. 实时计算交易建议（如果有K线数据）
+        trading_suggestions = {}
+        if kline_data and prediction_data.get('prediction'):
+            try:
+                import pandas as pd
+                df = pd.DataFrame(kline_data)
+                for col in ['open', 'close', 'high', 'low', 'volume']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                if len(df) >= 5:
+                    from predictor.stock_predictor import StockPredictor
+                    sp = StockPredictor()
+                    trading_suggestions = sp.calculate_trading_suggestions(df, {
+                        'prediction': prediction_data['prediction'],
+                        'up_probability': prediction_data['up_probability'],
+                        'down_probability': prediction_data['down_probability'],
+                        'confidence': prediction_data['confidence'],
+                        'market_overall': {}
+                    }, symbol=symbol)
+            except Exception as e:
+                logger.warning(f"计算交易建议失败: {e}")
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'kline': kline_data,
+                'prediction': prediction_data,
+                'trading_suggestions': trading_suggestions,
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取交易建议失败: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/predictions/report', methods=['GET'])
 def api_get_predictions_report():
     """获取预测分析报告数据（按日期）"""
