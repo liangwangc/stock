@@ -96,6 +96,41 @@
             background-color: #e2e3e5;
             color: #383d41;
         }
+
+        /* 预测类型 / 风格标签 */
+        .prediction-type-badge,
+        .risk-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+
+        .badge-after-close {
+            background: rgba(76, 175, 80, 0.08);
+            color: #2e7d32;
+        }
+
+        .badge-before-close {
+            background: rgba(33, 150, 243, 0.08);
+            color: #1565c0;
+        }
+
+        .risk-conservative {
+            background: rgba(158, 158, 158, 0.08);
+            color: #616161;
+        }
+
+        .risk-neutral {
+            background: rgba(255, 193, 7, 0.06);
+            color: #b28704;
+        }
+
+        .risk-aggressive {
+            background: rgba(244, 67, 54, 0.08);
+            color: #c62828;
+        }
         .stock-probability {
             width: 150px;
             text-align: right;
@@ -572,7 +607,15 @@
             </div>
             
             <div id="tabContentAfterClose" class="tab-content active">
-                <h1>📈 股票预测列表（收盘-明日）</h1>
+                <h1 style="display: flex; align-items: center; gap: 12px;">
+                    <span>📈 股票预测列表（收盘-明日）</span>
+                    <button class="btn" onclick="showPredictionDoc()" style="padding: 6px 10px; font-size: 12px; border-radius: 4px; background: #f0f0f0; border: 1px solid #ddd; cursor: pointer;">
+                        📖 预测说明
+                    </button>
+                    <button class="btn" onclick="showPredictionStats()" style="padding: 6px 10px; font-size: 12px; border-radius: 4px; background: #f0f0f0; border: 1px solid #ddd; cursor: pointer;">
+                        📊 预测效果
+                    </button>
+                </h1>
                 
                 <!-- 搜索条件区域 -->
                 <div class="search-filters" style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
@@ -1298,6 +1341,189 @@
                 }
             });
         }
+
+        // 显示预测说明文档
+        function showPredictionDoc() {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%;' +
+                                  'background: rgba(0,0,0,0.5); z-index: 10000; display: flex;' +
+                                  'align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 24px 28px; border-radius: 10px; max-width: 780px; width: 92%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h2 style="margin: 0; font-size: 18px; color: #2c3e50;">📖 股票预测逻辑与可信度说明</h2>
+                        <button onclick="this.closest('div[style*=&quot;max-height: 90vh&quot;]').parentNode.remove()" style="border:none;background:none;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                    </div>
+                    <div style="font-size: 13px; color: #444; line-height: 1.7;">
+                        <p style="margin: 0 0 8px 0;"><strong>1）预测数据来源</strong></p>
+                        <ul style="margin: 0 0 10px 18px; padding: 0;">
+                            <li>收盘-明日：使用 <strong>当日收盘后的完整数据</strong>（历史K线、新闻情感、资金流向、大盘情绪等），在后台定时任务中统一跑完。</li>
+                            <li>未收盘-明天：在交易时段内，使用 <strong>当前盘中数据 + 历史数据</strong> 实时计算，结果会保存为“未收盘-明天”类型。</li>
+                        </ul>
+
+                        <p style="margin: 0 0 8px 0;"><strong>2）预测架构</strong></p>
+                        <ul style="margin: 0 0 10px 18px; padding: 0;">
+                            <li>整体框架：<strong>传统因子 65% + ML 模型 35%</strong>。</li>
+                            <li>传统因子：技术指标、新闻舆情、资金流向、市场情绪、历史模式等。</li>
+                            <li>ML 模型：基于历史数据训练的回归/分类模型，给出上涨概率和预期涨跌幅。</li>
+                        </ul>
+
+                        <p style="margin: 0 0 8px 0;"><strong>3）预测涨跌幅是怎么来的？</strong></p>
+                        <ul style="margin: 0 0 10px 18px; padding: 0;">
+                            <li>先根据各因子和模型输出，计算 <strong>上涨概率 / 下跌概率 / 置信度</strong>。</li>
+                            <li>再结合：
+                                <ul style="margin: 4px 0 0 18px; padding: 0;">
+                                    <li>股票所属板块的 <strong>最大涨跌幅限制</strong>（主板约±10%，创业/科创约±20%，ST约±5%）；</li>
+                                    <li>最近一段时间的 <strong>历史波动率</strong>；</li>
+                                    <li>长期趋势（上涨/下跌趋势强弱）；</li>
+                                    <li>支撑位 / 阻力位（技术价位）；</li>
+                                </ul>
+                                通过平滑函数计算出一个“<strong>明日大概涨跌幅</strong>”。
+                            </li>
+                            <li>最终会强制限制在 <strong>不超过日常涨跌停幅度的 90%</strong>，避免出现明显不合理的极端预测。</li>
+                        </ul>
+
+                        <p style="margin: 0 0 8px 0;"><strong>4）为什么有“保守 / 中性 / 偏激进”标签？</strong></p>
+                        <ul style="margin: 0 0 10px 18px; padding: 0;">
+                            <li>系统会根据 <strong>预测涨幅大小 + 置信度</strong> 给出一个风格提示：
+                                <ul style="margin: 4px 0 0 18px; padding: 0;">
+                                    <li><strong>保守型</strong>：涨幅较小或置信度偏低，更适合作为参考信号。</li>
+                                    <li><strong>中性</strong>：常规预测，幅度和置信度均处于中等水平。</li>
+                                    <li><strong>偏激进</strong>：涨幅较大且置信度较高，更适合进攻型操作，但需注意回撤风险。</li>
+                                </ul>
+                            </li>
+                            <li>该提示不会放大到很夸张的程度，只会在 <strong>安全范围内小幅调整</strong> 预测涨跌幅（大致在±10%以内微调），让高波动强势股略偏激进、低波动/不确定股票略偏保守。</li>
+                        </ul>
+
+                        <p style="margin: 0 0 8px 0;"><strong>5）置信度如何理解？</strong></p>
+                        <ul style="margin: 0 0 10px 18px; padding: 0;">
+                            <li>置信度综合考虑：
+                                <ul style="margin: 4px 0 0 18px; padding: 0;">
+                                    <li>各因子信号的一致性；</li>
+                                    <li>历史预测的命中率和偏差；</li>
+                                    <li>当日数据质量（是否缺失、是否临近涨跌停等）；</li>
+                                    <li>当前市场环境（极端恐慌/极端贪婪时会降低置信度）。</li>
+                                </ul>
+                            </li>
+                            <li><strong>0.5 左右</strong> 属于正常水平；明显高于 0.7 时，说明模型对当前结论较有把握；明显低于 0.4 时，说明不确定性较大，应更保守使用。</li>
+                        </ul>
+
+                        <p style="margin: 0 0 8px 0;"><strong>6）使用建议与风险提示</strong></p>
+                        <ul style="margin: 0 0 0 18px; padding: 0;">
+                            <li>本系统面向的是 “<strong>辅助决策</strong>”，而不是自动交易信号。</li>
+                            <li>建议将预测结果与：
+                                <ul style="margin: 4px 0 0 18px; padding: 0;">
+                                    <li>基本面研究；</li>
+                                    <li>行业/板块逻辑；</li>
+                                    <li>个人风险承受能力；</li>
+                                </ul>
+                                结合使用。
+                            </li>
+                            <li>任何模型都有失效的时候，尤其在 <strong>黑天鹅、极端行情</strong> 中，请务必控制仓位与止损。</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // 点击灰色背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        // 显示预测效果统计
+        function showPredictionStats() {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%;'
+                + 'background: rgba(0,0,0,0.5); z-index: 10000; display: flex;'
+                + 'align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 20px 24px; border-radius: 10px; max-width: 860px; width: 96%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h2 style="margin: 0; font-size: 17px; color: #2c3e50;">📊 预测效果分析（最近90天）</h2>
+                        <button onclick="this.closest('div[style*=&quot;max-height: 90vh&quot;]').parentNode.remove()" style="border:none;background:none;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                    </div>
+                    <div id="predictionStatsContent" style="font-size: 13px; color: #444; line-height: 1.6;">
+                        <div style="padding: 16px; text-align: center; color: #666;">正在加载预测效果数据...</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            const content = modal.querySelector('#predictionStatsContent');
+
+            fetch('/api/predictions/style-stats?days=90')
+                .then(resp => resp.json())
+                .then(result => {
+                    if (!result.success) {
+                        content.innerHTML = '<div style="padding: 16px; color: #c62828;">加载失败：' + (result.message || '未知错误') + '</div>';
+                        return;
+                    }
+                    const data = result.data || {};
+                    const days = data.days || 90;
+                    const rows = data.by_style || [];
+                    if (!rows.length) {
+                        content.innerHTML = '<div style="padding: 16px; color: #666;">最近 ' + days + ' 天内没有足够的带实际涨跌幅的数据，暂时无法统计预测效果。</div>';
+                        return;
+                    }
+
+                    const transType = (t) => t === 'before_close' ? '未收盘-明天' : '收盘-明日';
+                    const transStyle = (s) => s === 'conservative' ? '保守' : (s === 'aggressive' ? '偏激进' : '中性');
+
+                    let html = '';
+                    html += '<p style="margin: 0 0 8px 0; color:#555;">说明：以下统计基于最近 <strong>' + days + '</strong> 天中，已有真实涨跌结果的预测记录，按“预测类型 + 风格（保守/中性/偏激进）”分组。</p>';
+                    html += '<div style="overflow-x:auto; margin-top:8px;">';
+                    html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+                    html += '<thead><tr style="background:#f5f5f5;">'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:left;">预测类型</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:left;">风格</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:right;">样本数</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:right;">方向命中率</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:right;">平均预测涨幅</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:right;">平均实际涨幅</th>'
+                        + '<th style="padding:6px 8px; border-bottom:1px solid #ddd; text-align:right;">平均绝对偏差</th>'
+                        + '</tr></thead><tbody>';
+
+                    rows.forEach(r => {
+                        const n = r.count || 0;
+                        const hit = (r.direction_hit_rate || 0) * 100;
+                        const meanPred = r.mean_pred_change_pct || 0;
+                        const meanAct = r.mean_actual_change_pct || 0;
+                        const mae = r.mean_abs_error || 0;
+
+                        let hitColor = '#555';
+                        if (hit >= 60) hitColor = '#2e7d32';
+                        else if (hit < 50) hitColor = '#c62828';
+
+                        html += '<tr>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0;">' + transType(r.prediction_type) + '</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0;">' + transStyle(r.style) + '</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0; text-align:right;">' + n + '</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0; text-align:right; color:' + hitColor + ';">' + hit.toFixed(1) + '%</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0; text-align:right;">' + meanPred.toFixed(2) + '%</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0; text-align:right;">' + meanAct.toFixed(2) + '%</td>'
+                            + '<td style="padding:5px 8px; border-bottom:1px solid #f0f0f0; text-align:right;">' + mae.toFixed(2) + '%</td>'
+                            + '</tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                    content.innerHTML = html;
+                })
+                .catch(err => {
+                    content.innerHTML = '<div style="padding: 16px; color:#c62828;">请求失败：' + err.message + '</div>';
+                });
+
+            // 点击背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
         
         // 开始预测
         async function startPredict() {
@@ -1499,6 +1725,27 @@
             const png_file = String(record.png_file || '').trim();
             const full_report_html = String(record.full_report_html || '').trim();
             const summary = String(record.summary || '暂无文字报告').trim();
+            const prediction_type = String(record.prediction_type || 'after_close').trim();
+            
+            // 预测类型文案（收盘-明日 / 未收盘-明天）
+            let predictionTypeLabel = '收盘-明日预测';
+            let predictionTypeDesc = '基于当日收盘后的完整数据，对下一个交易日的走势进行预测。';
+            if (prediction_type === 'before_close') {
+                predictionTypeLabel = '未收盘-明天预测';
+                predictionTypeDesc = '在交易时段内，基于当前盘中数据对明天走势进行即时预测，可能更灵敏但不如收盘后数据完整。';
+            }
+            
+            // 基于预测涨幅 + 置信度，给出“保守 / 中性 / 偏激进”提示
+            let riskLabel = '中性预测';
+            let riskClass = 'risk-neutral';
+            let absChange = predicted_change_pct !== null && predicted_change_pct !== undefined ? Math.abs(predicted_change_pct) : 0;
+            if (absChange < 2 || confidence < 0.4) {
+                riskLabel = '保守型预测';
+                riskClass = 'risk-conservative';
+            } else if (absChange > 5 && confidence > 0.7) {
+                riskLabel = '偏激进预测';
+                riskClass = 'risk-aggressive';
+            }
             
             // 预测样式
             let pred_class = 'prediction-neutral';
@@ -1527,8 +1774,8 @@
             // 按钮生成 - 历史预测按钮指向新的HTML页面
             const history_url = '/history?symbol=' + encodeURIComponent(symbol) + '&name=' + encodeURIComponent(name);
             const history_btn = '<a href="' + history_url + '" target="_blank" class="btn-report btn-history">历史预测</a>';
-            // 按钮生成 - 实时策略按钮弹出设置窗口
-            const monitor_btn = '<button class="btn-report btn-monitor" onclick="openRealtimeStrategyModal(\'' + symbol + '\', \'' + name + '\', ' + current_price.toFixed(2) + '); event.stopPropagation(); return false;">实时策略</button>';
+            // 按钮生成 - 实时策略按钮（暂时禁用点击）
+            const monitor_btn = '<button class="btn-report btn-monitor" disabled title="实时策略功能暂未开放，敬请期待">实时策略</button>';
             
             return (
                 '<div class="stock-item-wrapper" data-symbol="' + symbol + '">' +
@@ -1551,6 +1798,14 @@
                                 ' | ' +
                                 '<span class="inline-tooltip">置信度: ' + (confidence * 100).toFixed(1) + '%' +
                                 '<span class="tooltip-text">置信度表示预测的可靠程度。综合考虑了：<br>• 各因子得分的一致性<br>• 历史预测准确率<br>• 数据质量和时效性<br>• 市场状态<br>置信度越高，预测越可靠。</span></span>' +
+                            '</div>' +
+                            '<div style="font-size: 11px; margin-top: 2px;">' +
+                                '<span class="prediction-type-badge inline-tooltip ' + (prediction_type === "before_close" ? 'badge-before-close' : 'badge-after-close') + '">' + predictionTypeLabel +
+                                    '<span class="tooltip-text">' + predictionTypeDesc + '</span>' +
+                                '</span>' +
+                                '<span class="risk-badge ' + riskClass + ' inline-tooltip" style="margin-left: 6px;">' + riskLabel +
+                                    '<span class="tooltip-text">基于预测涨幅大小与置信度给出的风格提示：<br>• 保守型：涨幅较小或置信度偏低，更适合作为参考信号<br>• 中性：常规预测，幅度和置信度均中等<br>• 偏激进：涨幅较大且置信度较高，更适合积极交易者，但需注意回撤风险</span>' +
+                                '</span>' +
                             '</div>' +
                         '</div>' +
                         '<div class="stock-price">' +

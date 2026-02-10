@@ -3567,14 +3567,76 @@ class StockPredictor:
         # 6. 计算概率差异
         probability_diff = up_probability - down_probability
         
-        # 7. 使用调整后的系数计算涨跌幅（考虑所有调整因子）
-        predicted_change_pct = (
+        # 7. 使用调整后的系数计算基础涨跌幅（考虑所有调整因子）
+        base_predicted_change_pct = (
             np.tanh(probability_diff * volatility_coefficient) * 
             max_change_pct * 
             confidence * 
             trend_adjustment *
             support_resistance_adjustment
         )
+        
+        # 7.1 计算激进度评分（0-100）和轻微调整系数（0.9-1.1）
+        aggressiveness_score = 50.0
+        
+        # 波动率相对市场平均的倍数（约 2% 为基准）
+        try:
+            base_vol = 0.02
+            vol_ratio = 0.0
+            if 'change_pct' in data.columns and len(data) >= 20:
+                last_changes = data['change_pct'].tail(20).values / 100.0
+                vol = float(np.std(last_changes)) if len(last_changes) > 0 else 0.0
+                if vol > 0:
+                    vol_ratio = vol / base_vol
+            # 高波动：最多 +20 分，低波动：最多 -15 分
+            if vol_ratio > 1.0:
+                aggressiveness_score += min((vol_ratio - 1.0) * 15.0, 20.0)
+            elif vol_ratio < 1.0 and vol_ratio > 0:
+                aggressiveness_score -= min((1.0 - vol_ratio) * 15.0, 15.0)
+        except Exception:
+            pass
+        
+        # 长期趋势：明显上涨则略偏激进，明显下跌则略偏保守
+        try:
+            if trend_adjustment > 1.05:
+                aggressiveness_score += min((trend_adjustment - 1.0) * 20.0, 10.0)
+            elif trend_adjustment < 0.95:
+                aggressiveness_score -= min((1.0 - trend_adjustment) * 20.0, 10.0)
+        except Exception:
+            pass
+        
+        # 置信度：高置信度略偏激进，低置信度略偏保守
+        try:
+            if confidence > 0.7:
+                aggressiveness_score += (confidence - 0.7) * 40.0  # 最高 +12 分
+            elif confidence < 0.4:
+                aggressiveness_score -= (0.4 - confidence) * 40.0  # 最高 -16 分
+        except Exception:
+            pass
+        
+        # 涨跌停等异常因子：即使 can_predict=True，也适当保守
+        try:
+            anomalies = anomaly_info.get('anomalies', []) or []
+            if 'limit_up' in anomalies or 'limit_down' in anomalies:
+                aggressiveness_score -= 10.0
+        except Exception:
+            pass
+        
+        # 将评分限制在 0-100
+        aggressiveness_score = max(0.0, min(100.0, aggressiveness_score))
+        
+        # 根据评分映射到轻微调整系数 A（0.9-1.1）
+        if aggressiveness_score <= 35:
+            adjust_factor = 0.9
+        elif aggressiveness_score >= 65:
+            adjust_factor = 1.1
+        else:
+            # 在 35-65 之间线性插值 0.9-1.1
+            ratio = (aggressiveness_score - 35.0) / 30.0  # 0~1
+            adjust_factor = 0.9 + ratio * (1.1 - 0.9)
+        
+        # 应用轻微调整后的预测涨跌幅
+        predicted_change_pct = base_predicted_change_pct * adjust_factor
         
         # 8. 过滤极端预测值（超过最大涨跌幅的90%）
         max_allowed_change = max_change_pct * 0.9
@@ -3599,7 +3661,10 @@ class StockPredictor:
             'max_change_pct': float(max_change_pct),
             'volatility_coefficient': float(volatility_coefficient),
             'trend_adjustment': float(trend_adjustment),
-            'support_resistance_adjustment': float(support_resistance_adjustment)
+            'support_resistance_adjustment': float(support_resistance_adjustment),
+            'aggressiveness_score': float(aggressiveness_score),
+            'aggressiveness_adjust_factor': float(adjust_factor),
+            'base_predicted_change_pct': float(base_predicted_change_pct),
         }
     
     def _calculate_support_resistance_adjustment(self, data: pd.DataFrame, 

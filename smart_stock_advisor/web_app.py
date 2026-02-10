@@ -3978,6 +3978,24 @@ def api_get_text_detail():
         return jsonify({'success': False, 'message': str(e)})
 
 
+def _sanitize_for_json(obj):
+    """
+    递归清洗数据中的 NaN / Inf，避免返回给前端的 JSON 不合法。
+    - 非有限浮点数统一转换为 None
+    """
+    import math
+    from collections.abc import Mapping, Sequence
+
+    if isinstance(obj, Mapping):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [ _sanitize_for_json(v) for v in obj ]
+    if isinstance(obj, float):
+        if not math.isfinite(obj):  # NaN, inf, -inf
+            return None
+    return obj
+
+
 @app.route('/api/trading_advice/<symbol>', methods=['GET'])
 def api_get_trading_advice(symbol):
     """获取交易建议（含近30日K线数据 + 实时计算交易建议）"""
@@ -4054,16 +4072,135 @@ def api_get_trading_advice(symbol):
             except Exception as e:
                 logger.warning(f"计算交易建议失败: {e}")
         
-        return jsonify({
+        # 在返回前统一清洗数据，避免 NaN / Inf 导致前端 JSON.parse 失败
+        response_data = {
             'success': True,
             'data': {
                 'kline': kline_data,
                 'prediction': prediction_data,
                 'trading_suggestions': trading_suggestions,
             }
-        })
+        }
+        return jsonify(_sanitize_for_json(response_data))
     except Exception as e:
         logger.error(f"获取交易建议失败: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/predictions/style-stats', methods=['GET'])
+def api_get_prediction_style_stats():
+    """按风格/类型统计近期预测效果（用于主页预测效果说明）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    
+    try:
+        try:
+            days = int(request.args.get('days', 90))
+        except Exception:
+            days = 90
+        
+        if StockPredictionDB is None:
+            return jsonify({'success': False, 'message': '数据库模块未加载'})
+        
+        db = StockPredictionDB()
+        since_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        # 拉取最近一段时间的预测记录（限制数量避免过大）
+        records = db.get_predictions(
+            symbol=None,
+            limit=20000,
+            order_by='prediction_time DESC'
+        ) or []
+        
+        def parse_date_safe(d):
+            if not d:
+                return None
+            if isinstance(d, datetime):
+                return d.date()
+            try:
+                s = str(d).split(' ')[0]
+                return datetime.strptime(s, '%Y-%m-%d').date()
+            except Exception:
+                return None
+        
+        since = datetime.strptime(since_date, '%Y-%m-%d').date()
+        
+        samples = []
+        for r in records:
+            target_date = parse_date_safe(r.get('target_date'))
+            if target_date and target_date < since:
+                # 太久远的数据忽略
+                continue
+            
+            pred = r.get('predicted_change_pct')
+            act = r.get('actual_change_pct')
+            conf = r.get('confidence')
+            if pred is None or act is None:
+                continue
+            try:
+                pred = float(pred)
+                act = float(act)
+                conf = float(conf or 0.0)
+            except Exception:
+                continue
+            
+            ptype = r.get('prediction_type') or 'after_close'
+            samples.append((ptype, pred, act, conf))
+        
+        def classify_style(pred, conf):
+            abs_change = abs(pred)
+            if abs_change < 2 or conf < 0.4:
+                return 'conservative'
+            elif abs_change > 5 and conf > 0.7:
+                return 'aggressive'
+            else:
+                return 'neutral'
+        
+        stats_by_style = {}
+        for ptype, pred, act, conf in samples:
+            style = classify_style(pred, conf)
+            key = (ptype, style)
+            d = stats_by_style.setdefault(key, {
+                'prediction_type': ptype,
+                'style': style,
+                'count': 0,
+                'direction_hits': 0,
+                'sum_pred': 0.0,
+                'sum_act': 0.0,
+                'sum_abs_error': 0.0,
+            })
+            d['count'] += 1
+            if pred * act > 0:
+                d['direction_hits'] += 1
+            d['sum_pred'] += pred
+            d['sum_act'] += act
+            d['sum_abs_error'] += abs(pred - act)
+        
+        by_style = []
+        for (_ptype, _style), d in stats_by_style.items():
+            n = d['count']
+            if n <= 0:
+                continue
+            by_style.append({
+                'prediction_type': d['prediction_type'],
+                'style': d['style'],
+                'count': n,
+                'direction_hit_rate': d['direction_hits'] / n,
+                'mean_pred_change_pct': d['sum_pred'] / n,
+                'mean_actual_change_pct': d['sum_act'] / n,
+                'mean_abs_error': d['sum_abs_error'] / n,
+            })
+        
+        response_data = {
+            'success': True,
+            'data': {
+                'days': days,
+                'by_style': by_style,
+            }
+        }
+        return jsonify(_sanitize_for_json(response_data))
+    except Exception as e:
+        logger.error(f"获取预测风格统计失败: {str(e)}")
         return jsonify({'success': False, 'message': str(e)})
 
 
