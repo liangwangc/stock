@@ -1490,13 +1490,151 @@
             <div id="panel-model-learning" class="content-panel">
                 <div class="form-section">
                     <h2>模型学习与优化</h2>
-                    <div class="help-text" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px;">
-                        <p style="margin: 0 0 8px 0; font-weight: 600; color: #333;">架构：ML模型 35% + 传统因子 65% = 100%</p>
-                        <ul style="margin: 0; padding-left: 20px; color: #555; font-size: 13px; line-height: 1.8;">
-                            <li><strong>性能评估</strong>：评估预测准确率、收益率、因子贡献度（含综合评估）</li>
-                            <li><strong>参数/权重优化</strong>：标准优化 / 在线学习 / 自适应优化三种模式</li>
-                            <li><strong>定时任务</strong>：自动定期评估和优化，持续改进模型</li>
-                        </ul>
+                    
+                    <!-- 使用指南（可折叠） -->
+                    <div style="margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+                        <div onclick="toggleGuidePanel()" style="cursor: pointer; padding: 14px 18px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; justify-content: space-between; align-items: center;">
+                            <div style="color: white; font-weight: 600; font-size: 15px;">📖 功能使用指南 — 点击展开 / 收起</div>
+                            <span id="guideToggleIcon" style="color: white; font-size: 18px; transition: transform 0.3s;">▼</span>
+                        </div>
+                        <div id="guidePanelContent" style="display: none; padding: 0;">
+                            
+                            <!-- 架构概览 -->
+                            <div style="padding: 16px 18px; background: #f8f9ff; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 预测架构</div>
+                                <div style="font-size: 13px; color: #555; line-height: 1.7;">
+                                    本系统采用 <strong>ML 模型（35%）+ 传统因子（65%）</strong> 的混合预测架构。<br>
+                                    传统因子包括：技术分析 20% + 新闻舆情 16% + 资金流向 13% + 市场环境 11% + 历史规律 5%。<br>
+                                    本页面的功能用于 <strong>评估预测效果、优化参数权重、验证优化结果</strong>，让系统越用越准。
+                                </div>
+                            </div>
+                            
+                            <!-- 推荐使用流程 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">🔄 推荐使用流程（4 步闭环）</div>
+                                <div style="display: flex; gap: 0; flex-wrap: wrap;">
+                                    <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px; position: relative;">
+                                        <div style="width: 36px; height: 36px; background: #667eea; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">1</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">性能评估</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">先了解当前模型<br>预测得准不准</div>
+                                    </div>
+                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
+                                    <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #764ba2; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">2</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">参数优化</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">让系统自动寻找<br>更优的参数权重</div>
+                                    </div>
+                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
+                                    <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #e91e63; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">3</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">回测验证</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用历史数据模拟交易<br>验证优化效果</div>
+                                    </div>
+                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
+                                    <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
+                                        <div style="width: 36px; height: 36px; background: #4CAF50; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">4</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">定时自动化</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">设定定时任务<br>让系统自动持续优化</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 各功能详细说明 -->
+                            <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">📋 各功能详细说明</div>
+                                
+                                <!-- 功能1：性能评估 -->
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #667eea;">
+                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一步：性能评估</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>了解模型当前的预测效果，是否需要优化。<br>
+                                        <strong>操作：</strong>选择时间段（7/30/90天） → 点击「基础评估」查看方向准确率、收益率等核心指标；点击「综合评估」查看多维度分析（分市场状态、置信度校准等）。<br>
+                                        <strong>建议频率：</strong>每周至少 1 次，或在发现预测不准时随时执行。<br>
+                                        <strong>如何判断：</strong>方向准确率 > 55% 为良好，> 65% 为优秀；低于 50% 说明急需优化参数。
+                                    </div>
+                                </div>
+                                
+                                <!-- 功能2：参数/权重优化 -->
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f5f0ff; border-radius: 8px; border-left: 4px solid #764ba2;">
+                                    <div style="font-weight: 600; color: #764ba2; margin-bottom: 6px; font-size: 13px;">⚙️ 第二步：参数 / 权重优化</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>根据历史数据自动搜索更优的预测参数和因子权重。<br>
+                                        <strong>三种模式：</strong><br>
+                                        &nbsp;&nbsp;• <strong>标准优化</strong>：基于历史准确率全面调优，适合定期（每周/月）使用。<br>
+                                        &nbsp;&nbsp;• <strong>在线学习</strong>：使用最新数据实时微调，适合每日收盘后使用。<br>
+                                        &nbsp;&nbsp;• <strong>自适应优化</strong>：根据市场状态（牛市/震荡/熊市）动态调整策略，适合市场风格变化时使用。<br>
+                                        <strong>操作：</strong>选择优化模式 → 点击「执行优化」→ 查看优化结果和建议权重。<br>
+                                        <strong>注意：</strong>优化后的参数会自动保存，可在「优化历史」中查看历次记录。
+                                    </div>
+                                </div>
+                                
+                                <!-- 功能3：回测验证 -->
+                                <div style="margin-bottom: 14px; padding: 12px; background: #fff0f3; border-radius: 8px; border-left: 4px solid #e91e63;">
+                                    <div style="font-weight: 600; color: #e91e63; margin-bottom: 6px; font-size: 13px;">🔬 第三步：回测验证</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>用历史预测数据模拟真实交易，验证当前参数的盈亏表现。<br>
+                                        <strong>操作：</strong>选择日期范围（建议 ≥ 14天）→ 设置初始资金 → 点击「执行回测」。<br>
+                                        <strong>交易规则：</strong>预测上涨且置信度 ≥ 55% 时买入（单只最多 30% 仓位），预测下跌或盈利 ≥ 8% 止盈、亏损 ≥ 5% 止损时卖出。<br>
+                                        <strong>关注指标：</strong>总收益率（正 = 赚钱）、胜率（> 50% 为好）、最大回撤（越小越安全）。<br>
+                                        <strong>最佳实践：</strong>优化参数前回测一次 → 优化后再回测一次 → 对比确认效果提升。
+                                    </div>
+                                </div>
+                                
+                                <!-- 功能4：定时任务 -->
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f0faf0; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                                    <div style="font-weight: 600; color: #4CAF50; margin-bottom: 6px; font-size: 13px;">⏰ 第四步：定时自动化任务</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>设置定期自动执行评估/优化/回测，无需手动操作。<br>
+                                        <strong>推荐配置：</strong><br>
+                                        &nbsp;&nbsp;• <strong>模型评估</strong>：每日收盘后（15:30）自动运行，持续监控准确率。<br>
+                                        &nbsp;&nbsp;• <strong>参数优化</strong>：每周末（周六 20:00）自动优化，避免交易日干扰。<br>
+                                        &nbsp;&nbsp;• <strong>回测分析</strong>：每月末（22:00）深度回测，全面检视模型表现。<br>
+                                        <strong>操作：</strong>选择任务类型 → 设置执行时间（Cron 表达式）→ 添加任务。
+                                    </div>
+                                </div>
+                                
+                                <!-- 功能5：优化历史 -->
+                                <div style="padding: 12px; background: #fff8f0; border-radius: 8px; border-left: 4px solid #FF9800;">
+                                    <div style="font-weight: 600; color: #FF9800; margin-bottom: 6px; font-size: 13px;">📋 优化历史</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>查看所有历次优化记录，包括时间、参数变化、优化效果。可用于追溯和对比不同版本参数的表现。
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 使用场景建议 -->
+                            <div style="padding: 16px 18px;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 10px; font-size: 14px;">💡 常见使用场景</div>
+                                <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                        <tr style="background: #f5f5f5;">
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; width: 30%;">场景</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">建议操作</th>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">刚开始使用系统</td>
+                                            <td style="padding: 8px;">先运行几天积累预测数据 → 性能评估了解基准 → 设置定时任务自动优化</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">发现预测不准</td>
+                                            <td style="padding: 8px;">性能评估（找到哪个指标差）→ 参数优化（标准模式）→ 回测验证效果</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">市场风格突变</td>
+                                            <td style="padding: 8px;">自适应优化（自动识别市场状态）→ 回测对比调整前后</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">日常维护</td>
+                                            <td style="padding: 8px;">设好定时任务即可，系统自动评估 + 优化 + 记录，异常会告警</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">手动调参后验证</td>
+                                            <td style="padding: 8px;">在「参数设置」页修改权重 → 回到本页回测 → 对比收益率和胜率变化</td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- 性能评估区域（合并了综合评估） -->
@@ -6408,6 +6546,19 @@
             } else {
                 section.style.display = 'none';
                 if (arrow) arrow.textContent = '▼';
+            }
+        }
+        
+        // ========== 使用指南面板切换 ==========
+        function toggleGuidePanel() {
+            const content = document.getElementById('guidePanelContent');
+            const icon = document.getElementById('guideToggleIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                if (icon) icon.style.transform = 'rotate(180deg)';
+            } else {
+                content.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
             }
         }
         
