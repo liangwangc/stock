@@ -940,13 +940,8 @@
                         </div>
                     </div>
                     
-                    <div class="help-text" style="margin-bottom: 20px;">
-                        <p>配置说明：</p>
-                        <ul style="margin: 10px 0; padding-left: 20px; color: #666; font-size: 13px;">
-                            <li>预测权重总和必须为100%（允许±0.01误差）</li>
-                            <li>修改配置后需要点击"保存配置"并"激活配置"才能生效</li>
-                            <li>配置会立即生效，无需重启服务（热更新）</li>
-                        </ul>
+                    <div class="help-text" style="margin-bottom: 20px; padding: 12px 15px; background: #f0f4ff; border-radius: 6px; font-size: 13px; color: #555;">
+                        架构：传统因子 65% + ML模型 35% = 100%。修改后点击「保存并激活」即可热更新生效。
                     </div>
                     
                     <!-- 配置选择 -->
@@ -958,444 +953,178 @@
                         </div>
                     </div>
                     
-                    <!-- 预测权重配置 -->
-                    <div class="form-section" style="margin-bottom: 30px;">
+                    <!-- ============ 第一区：预测权重配置 ============ -->
+                    <div class="form-section" style="margin-bottom: 25px;">
                         <h3 style="font-size: 18px; color: #333; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e0e0e0;">
-                            📊 预测因子权重配置
+                            📊 预测权重配置
                         </h3>
-                        <div class="help-text" style="margin-bottom: 15px;">
-                            传统因子权重：<span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 16px;">0.00</span> / 0.65
-                            <span style="color: #888; margin-left: 8px;">（+ ML模型 0.35 = 1.00）</span>
-                            <button class="btn" onclick="balanceWeights()" style="margin-left: 15px; padding: 6px 12px; font-size: 12px; background: #f0f0f0;">⚖️ 一键平衡</button>
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px; padding: 12px 15px; background: linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); border-radius: 8px;">
+                            <div style="font-size: 14px;">
+                                传统因子 <span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 18px;">0.65</span> / 0.65
+                                <span style="color: #888; margin: 0 6px;">+</span>
+                                ML模型 <span style="font-weight: bold; color: #0066cc; font-size: 18px;">0.35</span>
+                                <span style="color: #888; margin: 0 6px;">=</span>
+                                <span style="font-weight: bold; color: #333; font-size: 18px;">1.00</span>
+                            </div>
+                            <button class="btn" onclick="balanceWeights()" style="padding: 6px 14px; font-size: 12px; background: white; border: 1px solid #ddd;">⚖️ 一键平衡</button>
                         </div>
                         
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                            <!-- 核心因素 -->
-                            <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
-                                <h4 style="margin: 0 0 10px 0; color: #856404;">核心因素（技术20% + 新闻16% + 资金13% + 市场11%）</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">新闻情感权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="news_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'news_weight')">
-                                        <input type="number" id="news_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'news_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
-                                    </div>
-                                    <div class="help-text">包含政策新闻、市场新闻的情感分析</div>
-                                </div>
+                        <!-- 传统因子权重（5个，清晰列表） -->
+                        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 18px; margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 12px 0; color: #555; font-size: 14px;">传统因子权重（合计 65%）</h4>
+                            
+                            <div style="display: grid; grid-template-columns: 110px 1fr 80px; gap: 8px; align-items: center;">
+                                <span style="font-size: 13px; color: #333;">技术指标 20%</span>
+                                <input type="range" id="technical_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'technical_weight')">
+                                <input type="number" id="technical_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'technical_weight')">
                                 
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">资金流向权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="capital_flow_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'capital_flow_weight')">
-                                        <input type="number" id="capital_flow_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'capital_flow_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
-                                    </div>
-                                    <div class="help-text">北向资金、融资融券、主力资金</div>
-                                </div>
+                                <span style="font-size: 13px; color: #333;">新闻情感 16%</span>
+                                <input type="range" id="news_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'news_weight')">
+                                <input type="number" id="news_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'news_weight')">
                                 
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">
-                                        市场情绪权重
-                                        <span class="tooltip-container">
-                                            <span class="tooltip-icon">?</span>
-                                            <span class="tooltip-text">市场情绪权重：控制市场情绪（大盘指数走势）在综合得分中的占比。权重越大，市场情绪对预测结果的影响越大。大盘上涨时得分高，下跌时得分低。</span>
-                                        </span>
-                                    </label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="market_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'market_weight')">
-                                        <input type="number" id="market_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'market_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
+                                <span style="font-size: 13px; color: #333;">资金流向 13%</span>
+                                <input type="range" id="capital_flow_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'capital_flow_weight')">
+                                <input type="number" id="capital_flow_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'capital_flow_weight')">
+                                
+                                <span style="font-size: 13px; color: #333;">市场情绪 11%</span>
+                                <input type="range" id="market_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'market_weight')">
+                                <input type="number" id="market_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'market_weight')">
+                                
+                                <span style="font-size: 13px; color: #333;">历史模式 5%</span>
+                                <input type="range" id="history_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'history_weight')">
+                                <input type="number" id="history_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'history_weight')">
+                            </div>
+                            <!-- 兼容性隐藏字段（已移除的因子） -->
+                            <input type="hidden" id="sector_rotation_weight" value="0"><input type="hidden" id="sector_rotation_weight_value" value="0">
+                            <input type="hidden" id="us_sector_weight" value="0"><input type="hidden" id="us_sector_weight_value" value="0">
+                            <input type="hidden" id="valuation_weight" value="0"><input type="hidden" id="valuation_weight_value" value="0">
+                        </div>
+                        
+                        <!-- ML模型 + 其他预测参数（紧凑两列） -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0066cc;">
+                                <h4 style="margin: 0 0 10px 0; color: #0066cc; font-size: 14px;">🤖 ML模型权重（占35%）</h4>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div class="form-group" style="margin-bottom:8px;">
+                                        <label style="font-size:12px;">默认权重</label>
+                                        <input type="number" id="ml_default_weight" min="0" max="1" step="0.01" style="width:100%;padding:6px;">
+                                        <div class="help-text">0.35</div>
                                     </div>
-                                    <div class="help-text">大盘指数影响、整体市场趋势</div>
+                                    <div class="form-group" style="margin-bottom:8px;">
+                                        <label style="font-size:12px;">最小 / 最大</label>
+                                        <div style="display:flex;gap:4px;">
+                                            <input type="number" id="ml_min_weight" min="0" max="1" step="0.01" style="width:50%;padding:6px;">
+                                            <input type="number" id="ml_max_weight" min="0" max="1" step="0.01" style="width:50%;padding:6px;">
+                                        </div>
+                                        <div class="help-text">0.10 ~ 0.50</div>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label style="font-size:12px;">高准确率阈值</label>
+                                        <input type="number" id="ml_high_accuracy_threshold" min="0" max="1" step="0.01" style="width:100%;padding:6px;">
+                                        <div class="help-text">0.60</div>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label style="font-size:12px;">中等准确率阈值</label>
+                                        <input type="number" id="ml_medium_accuracy_threshold" min="0" max="1" step="0.01" style="width:100%;padding:6px;">
+                                        <div class="help-text">0.50</div>
+                                    </div>
                                 </div>
                             </div>
-                            
-                            <!-- 技术分析 -->
-                            <div style="background: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #0c5460;">
-                                <h4 style="margin: 0 0 10px 0; color: #0c5460;">技术分析（约25%）</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">
-                                        技术指标权重
-                                        <span class="tooltip-container">
-                                            <span class="tooltip-icon">?</span>
-                                            <span class="tooltip-text">技术指标权重：控制技术指标（MACD、RSI、KDJ、均线等）在综合得分中的占比。权重越大，技术指标对预测结果的影响越大。所有权重之和应为1.0。</span>
-                                        </span>
-                                    </label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="technical_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'technical_weight')">
-                                        <input type="number" id="technical_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'technical_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #6c757d;">
+                                <h4 style="margin: 0 0 10px 0; color: #495057; font-size: 14px;">⚙️ 预测通用参数</h4>
+                                <div class="form-group" style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">最小置信度</label>
+                                    <input type="number" id="min_confidence" min="0" max="1" step="0.01" style="width:100%;padding:6px;" onchange="updateWeightSum()">
+                                    <div class="help-text">0.50（低于此值降低概率差异）</div>
+                                </div>
+                                <div class="form-group" style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">回看天数</label>
+                                    <input type="number" id="lookback_days" min="30" max="365" step="1" style="width:100%;padding:6px;">
+                                    <div class="help-text">60天</div>
+                                </div>
+                                <h4 style="margin: 10px 0 8px 0; color: #856404; font-size: 13px;">⚠️ 异常检测</h4>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label style="font-size:11px;">ST降低置信度</label>
+                                        <input type="number" id="st_stock_confidence_reduction" min="0" max="1" step="0.01" style="width:100%;padding:5px;">
+                                        <div class="help-text">0.20</div>
                                     </div>
-                                    <div class="help-text">MA、RSI、MACD、KDJ等技术指标</div>
-                                </div>
-                                
-                                <!-- 【已优化移除】板块轮动权重 - 已从预测模型中移除，不再使用 -->
-                                <div class="form-group" style="margin-bottom: 12px; display: none;">
-                                    <label style="font-size: 13px;">板块轮动权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="sector_rotation_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'sector_rotation_weight')">
-                                        <input type="number" id="sector_rotation_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'sector_rotation_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label style="font-size:11px;">涨跌停降低置信度</label>
+                                        <input type="number" id="limit_up_down_confidence_reduction" min="0" max="1" step="0.01" style="width:100%;padding:5px;">
+                                        <div class="help-text">0.10</div>
                                     </div>
-                                    <div class="help-text">行业板块、概念板块轮动</div>
                                 </div>
-                            </div>
-                            
-                            <!-- 辅助因素 -->
-                            <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #155724;">
-                                <h4 style="margin: 0 0 10px 0; color: #155724;">辅助因素（历史5%）</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">历史模式权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="history_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'history_weight')">
-                                        <input type="number" id="history_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'history_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
-                                    </div>
-                                    <div class="help-text">历史相似模式识别</div>
-                                </div>
-                                
-                                <!-- 【已优化移除】美股板块权重 - 已从预测模型中移除，不再使用 -->
-                                <div class="form-group" style="margin-bottom: 12px; display: none;">
-                                    <label style="font-size: 13px;">美股板块权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="us_sector_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'us_sector_weight')">
-                                        <input type="number" id="us_sector_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'us_sector_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
-                                    </div>
-                                    <div class="help-text">美股相关板块表现</div>
-                                </div>
-                                
-                                <!-- 【已优化移除】估值指标权重 - 已从预测模型中移除，不再使用 -->
-                                <div class="form-group" style="margin-bottom: 12px; display: none;">
-                                    <label style="font-size: 13px;">估值指标权重</label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range" id="valuation_weight" min="0" max="100" step="0.01" 
-                                               style="flex: 1;" oninput="updateWeightSlider(this, 'valuation_weight')">
-                                        <input type="number" id="valuation_weight_value" min="0" max="1" step="0.01" 
-                                               style="width: 80px; padding: 5px;" onchange="updateWeightInput(this, 'valuation_weight')">
-                                        <span style="width: 40px; text-align: right; font-size: 12px; color: #666;">%</span>
-                                    </div>
-                                    <div class="help-text">PE、PB等估值指标</div>
-                                </div>
-                            </div>
-                            
-                            <!-- 其他设置 -->
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 4px solid #6c757d;">
-                                <h4 style="margin: 0 0 10px 0; color: #495057;">其他设置</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">
-                                        最小置信度
-                                        <span class="tooltip-container">
-                                            <span class="tooltip-icon">?</span>
-                                            <span class="tooltip-text">最小置信度：预测置信度的最低阈值。如果预测的置信度低于此值，系统会降低上涨/下跌概率的差异，使预测更加保守。建议值：0.3-0.5。</span>
-                                        </span>
-                                    </label>
-                                    <input type="number" id="min_confidence" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;" onchange="updateWeightSum()">
-                                    <div class="help-text">低于此置信度的预测将降低概率差异</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">回看天数</label>
-                                    <input type="number" id="lookback_days" min="30" max="365" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">用于历史模式分析和数据回看（30-365天）</div>
-                                </div>
-                            </div>
-                            
-                            <!-- ML模型权重配置 -->
-                            <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; border-left: 4px solid #0066cc; margin-top: 15px;">
-                                <h4 style="margin: 0 0 10px 0; color: #0066cc;">🤖 ML模型动态权重配置</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">ML模型默认权重</label>
-                                    <input type="number" id="ml_default_weight" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.35（ML模型为主导因子，占总权重35%）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">ML模型最小权重</label>
-                                    <input type="number" id="ml_min_weight" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.10（性能差时降低至此值）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">ML模型最大权重</label>
-                                    <input type="number" id="ml_max_weight" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.50（性能好时提升至此值）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">高准确率阈值</label>
-                                    <input type="number" id="ml_high_accuracy_threshold" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.60（准确率>此值时使用高权重范围）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">中等准确率阈值</label>
-                                    <input type="number" id="ml_medium_accuracy_threshold" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.50（准确率>此值时使用中等权重范围）</div>
-                                </div>
-                            </div>
-                            
-                            <!-- 异常检测参数配置 -->
-                            <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; margin-top: 15px;">
-                                <h4 style="margin: 0 0 10px 0; color: #856404;">⚠️ 异常检测参数配置</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">ST股票置信度降低比例</label>
-                                    <input type="number" id="st_stock_confidence_reduction" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.20（ST股票预测时降低20%置信度）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">涨跌停置信度降低比例</label>
-                                    <input type="number" id="limit_up_down_confidence_reduction" min="0" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.10（涨跌停股票预测时降低10%置信度）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">停牌股票处理方式</label>
-                                    <select id="suspended_stock_action" style="width: 100%; padding: 8px;">
-                                        <option value="skip_prediction">跳过预测</option>
-                                        <option value="lower_confidence">降低置信度</option>
-                                    </select>
-                                    <div class="help-text">默认：跳过预测</div>
-                                </div>
-                            </div>
-                            
-                            <!-- 性能优化参数配置 -->
-                            <div style="background: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #0c5460; margin-top: 15px;">
-                                <h4 style="margin: 0 0 10px 0; color: #0c5460;">⚡ 性能优化参数配置</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">设置页面分析线程数</label>
-                                    <input type="number" id="analysis_max_workers" min="1" max="10" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：3（设置页面股票分析使用的线程数）</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">设置页面启用多线程</label>
-                                    <select id="analysis_enable_parallel" style="width: 100%; padding: 8px;">
-                                        <option value="true">启用</option>
-                                        <option value="false">禁用</option>
-                                    </select>
-                                    <div class="help-text">默认：启用</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">主页未收盘预测最大线程数</label>
-                                    <input type="number" id="before_close_max_workers" min="1" max="10" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：5（用于限制动态线程数的上限）</div>
-                                </div>
-                            </div>
-                            
-                            <!-- 缓存参数配置 -->
-                            <div style="background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #155724; margin-top: 15px;">
-                                <h4 style="margin: 0 0 10px 0; color: #155724;">💾 缓存参数配置</h4>
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">预测结果最小缓存时长（分钟）</label>
-                                    <input type="number" id="prediction_cache_min_duration" min="1" max="60" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：5分钟</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">预测结果最大缓存时长（分钟）</label>
-                                    <input type="number" id="prediction_cache_max_duration" min="1" max="60" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：15分钟</div>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 12px;">
-                                    <label style="font-size: 13px;">实时数据缓存时长（秒）</label>
-                                    <input type="number" id="realtime_data_cache_duration" min="1" max="60" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：10秒</div>
+                                <div class="form-group" style="margin-top:6px;margin-bottom:0;">
+                                    <label style="font-size:11px;">停牌处理</label>
+                                    <select id="suspended_stock_action" style="width:100%;padding:5px;"><option value="skip_prediction">跳过预测</option><option value="lower_confidence">降低置信度</option></select>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- 技术指标参数配置 -->
-                    <div class="form-section" style="margin-bottom: 30px; margin-top: 30px;">
-                        <h3 style="font-size: 18px; color: #333; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e0e0e0;">
-                            📈 技术指标参数配置
-                        </h3>
-                        
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
-                            <div class="form-group">
-                                <label>MA短期均线</label>
-                                <input type="number" id="ma_short" min="1" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：5日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>MA长期均线</label>
-                                <input type="number" id="ma_long" min="1" max="200" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：20日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>RSI周期（默认）</label>
-                                <input type="number" id="rsi_period" min="2" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：14日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>RSI短周期</label>
-                                <input type="number" id="rsi_short" min="2" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：6日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>RSI中周期</label>
-                                <input type="number" id="rsi_mid" min="2" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：12日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>MACD快线</label>
-                                <input type="number" id="macd_fast" min="1" max="50" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：12日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>MACD慢线</label>
-                                <input type="number" id="macd_slow" min="1" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：26日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>MACD信号线</label>
-                                <input type="number" id="macd_signal" min="1" max="50" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：9日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>KDJ周期</label>
-                                <input type="number" id="kdj_period" min="1" max="50" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：9日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>KDJ K值平滑周期</label>
-                                <input type="number" id="kdj_k_period" min="1" max="20" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：3日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>KDJ D值平滑周期</label>
-                                <input type="number" id="kdj_d_period" min="1" max="20" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：3日</div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>CCI周期</label>
-                                <input type="number" id="cci_period" min="2" max="100" step="1" 
-                                       style="width: 100%; padding: 8px;">
-                                <div class="help-text">默认：14日</div>
-                            </div>
+                    <!-- ============ 第二区：技术指标参数（可折叠） ============ -->
+                    <div class="form-section" style="margin-bottom: 25px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                        <div onclick="toggleSection('techSection')" style="cursor: pointer; padding: 14px 18px; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="font-size: 16px; color: #333; margin: 0;">📈 技术指标参数</h3>
+                            <span id="techSectionArrow" style="font-size: 14px; color: #999; transition: transform 0.2s;">▼</span>
                         </div>
-                        
-                        <!-- X2指标参数配置 -->
-                        <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #6c757d;">
-                            <h4 style="margin: 0 0 15px 0; color: #495057; font-size: 16px;">📊 X2指标参数配置</h4>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2超买阈值</label>
-                                    <input type="number" id="x2_overbought_threshold" min="0" max="100" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：80（X2值>此值时判定为超买）</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2超卖阈值</label>
-                                    <input type="number" id="x2_oversold_threshold" min="0" max="100" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：20（X2值<此值时判定为超卖）</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2偏高阈值</label>
-                                    <input type="number" id="x2_high_threshold" min="0" max="100" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：60（X2值>此值时判定为偏高）</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2偏低阈值</label>
-                                    <input type="number" id="x2_low_threshold" min="0" max="100" step="1" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：40（X2值<此值时判定为偏低）</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2超买得分</label>
-                                    <input type="number" id="x2_overbought_score" min="-1" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：-0.15</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2超卖得分</label>
-                                    <input type="number" id="x2_oversold_score" min="-1" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.15</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2偏高得分</label>
-                                    <input type="number" id="x2_high_score" min="-1" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：-0.05</div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label style="font-size: 13px;">X2偏低得分</label>
-                                    <input type="number" id="x2_low_score" min="-1" max="1" step="0.01" 
-                                           style="width: 100%; padding: 8px;">
-                                    <div class="help-text">默认：0.05</div>
-                                </div>
+                        <div id="techSection" style="display: none; padding: 18px;">
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                                <div class="form-group"><label style="font-size:12px;">MA短期</label><input type="number" id="ma_short" min="1" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">5日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">MA长期</label><input type="number" id="ma_long" min="1" max="200" step="1" style="width:100%;padding:6px;"><div class="help-text">20日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">RSI默认</label><input type="number" id="rsi_period" min="2" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">14日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">RSI短</label><input type="number" id="rsi_short" min="2" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">6日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">RSI中</label><input type="number" id="rsi_mid" min="2" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">12日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">MACD快线</label><input type="number" id="macd_fast" min="1" max="50" step="1" style="width:100%;padding:6px;"><div class="help-text">12日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">MACD慢线</label><input type="number" id="macd_slow" min="1" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">26日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">MACD信号</label><input type="number" id="macd_signal" min="1" max="50" step="1" style="width:100%;padding:6px;"><div class="help-text">9日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">KDJ周期</label><input type="number" id="kdj_period" min="1" max="50" step="1" style="width:100%;padding:6px;"><div class="help-text">9日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">KDJ K平滑</label><input type="number" id="kdj_k_period" min="1" max="20" step="1" style="width:100%;padding:6px;"><div class="help-text">3日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">KDJ D平滑</label><input type="number" id="kdj_d_period" min="1" max="20" step="1" style="width:100%;padding:6px;"><div class="help-text">3日</div></div>
+                                <div class="form-group"><label style="font-size:12px;">CCI周期</label><input type="number" id="cci_period" min="2" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">14日</div></div>
+                            </div>
+                            
+                            <h4 style="margin: 15px 0 10px 0; color: #495057; font-size: 14px;">X2 指标参数</h4>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                                <div class="form-group"><label style="font-size:12px;">超买阈值</label><input type="number" id="x2_overbought_threshold" min="0" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">80</div></div>
+                                <div class="form-group"><label style="font-size:12px;">超卖阈值</label><input type="number" id="x2_oversold_threshold" min="0" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">20</div></div>
+                                <div class="form-group"><label style="font-size:12px;">偏高阈值</label><input type="number" id="x2_high_threshold" min="0" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">60</div></div>
+                                <div class="form-group"><label style="font-size:12px;">偏低阈值</label><input type="number" id="x2_low_threshold" min="0" max="100" step="1" style="width:100%;padding:6px;"><div class="help-text">40</div></div>
+                                <div class="form-group"><label style="font-size:12px;">超买得分</label><input type="number" id="x2_overbought_score" min="-1" max="1" step="0.01" style="width:100%;padding:6px;"><div class="help-text">-0.15</div></div>
+                                <div class="form-group"><label style="font-size:12px;">超卖得分</label><input type="number" id="x2_oversold_score" min="-1" max="1" step="0.01" style="width:100%;padding:6px;"><div class="help-text">0.15</div></div>
+                                <div class="form-group"><label style="font-size:12px;">偏高得分</label><input type="number" id="x2_high_score" min="-1" max="1" step="0.01" style="width:100%;padding:6px;"><div class="help-text">-0.05</div></div>
+                                <div class="form-group"><label style="font-size:12px;">偏低得分</label><input type="number" id="x2_low_score" min="-1" max="1" step="0.01" style="width:100%;padding:6px;"><div class="help-text">0.05</div></div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- 实时交易策略配置 -->
-                    <div class="form-section" style="margin-bottom: 30px; margin-top: 30px;">
-                        <h3 style="font-size: 18px; color: #333; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e0e0e0;">
-                            💹 实时交易策略配置
+                    <!-- ============ 第三区：系统性能参数（可折叠） ============ -->
+                    <div class="form-section" style="margin-bottom: 25px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                        <div onclick="toggleSection('perfSection')" style="cursor: pointer; padding: 14px 18px; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="font-size: 16px; color: #333; margin: 0;">⚡ 系统性能与缓存</h3>
+                            <span id="perfSectionArrow" style="font-size: 14px; color: #999; transition: transform 0.2s;">▼</span>
+                        </div>
+                        <div id="perfSection" style="display: none; padding: 18px;">
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                                <div class="form-group"><label style="font-size:12px;">分析线程数</label><input type="number" id="analysis_max_workers" min="1" max="10" step="1" style="width:100%;padding:6px;"><div class="help-text">默认3</div></div>
+                                <div class="form-group"><label style="font-size:12px;">启用多线程</label><select id="analysis_enable_parallel" style="width:100%;padding:6px;"><option value="true">启用</option><option value="false">禁用</option></select><div class="help-text">默认启用</div></div>
+                                <div class="form-group"><label style="font-size:12px;">收盘前最大线程</label><input type="number" id="before_close_max_workers" min="1" max="10" step="1" style="width:100%;padding:6px;"><div class="help-text">默认5</div></div>
+                                <div class="form-group"><label style="font-size:12px;">预测缓存最小(分)</label><input type="number" id="prediction_cache_min_duration" min="1" max="60" step="1" style="width:100%;padding:6px;"><div class="help-text">5分钟</div></div>
+                                <div class="form-group"><label style="font-size:12px;">预测缓存最大(分)</label><input type="number" id="prediction_cache_max_duration" min="1" max="60" step="1" style="width:100%;padding:6px;"><div class="help-text">15分钟</div></div>
+                                <div class="form-group"><label style="font-size:12px;">实时数据缓存(秒)</label><input type="number" id="realtime_data_cache_duration" min="1" max="60" step="1" style="width:100%;padding:6px;"><div class="help-text">10秒</div></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- ============ 第四区：交易策略配置（可折叠） ============ -->
+                    <div class="form-section" style="margin-bottom: 25px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                        <div onclick="toggleSection('tradeSection')" style="cursor: pointer; padding: 14px 18px; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="font-size: 16px; color: #333; margin: 0;">💹 实时交易策略配置</h3>
+                            <span id="tradeSectionArrow" style="font-size: 14px; color: #999; transition: transform 0.2s;">▼</span>
+                        </div>
+                        <div id="tradeSection" style="display: none; padding: 18px;">
+                        <h3 style="display:none;">💹 实时交易策略配置
                             <span class="tooltip-container">
                                 <span class="tooltip-icon">?</span>
                                 <span class="tooltip-text">配置实时交易决策的参数，包括信号阈值、风险控制、仓位管理等。这些配置会影响实时交易策略的信号生成和决策。</span>
@@ -1573,6 +1302,8 @@
                             </div>
                         </div>
                     </div>
+                    </div><!-- 关闭tradeSection折叠容器 -->
+                    </div><!-- 关闭交易策略折叠外框 -->
                     
                     <!-- 操作按钮 -->
                     <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
@@ -1759,30 +1490,35 @@
             <div id="panel-model-learning" class="content-panel">
                 <div class="form-section">
                     <h2>模型学习与优化</h2>
-                    <div class="help-text" style="margin-bottom: 20px;">
-                        <p>功能说明：</p>
-                        <ul style="margin: 10px 0; padding-left: 20px; color: #666; font-size: 13px;">
-                            <li>性能评估：评估模型的历史预测准确率和交易收益</li>
-                            <li>参数优化：基于历史表现自动优化权重参数</li>
-                            <li>回测分析：使用历史数据模拟交易，评估参数表现</li>
-                            <li>定时学习：自动定期评估和优化，持续改进模型</li>
+                    <div class="help-text" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px;">
+                        <p style="margin: 0 0 8px 0; font-weight: 600; color: #333;">架构：ML模型 35% + 传统因子 65% = 100%</p>
+                        <ul style="margin: 0; padding-left: 20px; color: #555; font-size: 13px; line-height: 1.8;">
+                            <li><strong>性能评估</strong>：评估预测准确率、收益率、因子贡献度（含综合评估）</li>
+                            <li><strong>参数/权重优化</strong>：标准优化 / 在线学习 / 自适应优化三种模式</li>
+                            <li><strong>定时任务</strong>：自动定期评估和优化，持续改进模型</li>
                         </ul>
                     </div>
                     
-                    <!-- 性能评估区域 -->
+                    <!-- 性能评估区域（合并了综合评估） -->
                     <div class="form-section" style="margin-top: 30px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>性能评估</h3>
-                            <div style="display: flex; gap: 10px;">
+                            <h3>📊 性能评估</h3>
+                            <div style="display: flex; gap: 10px; align-items: center;">
                                 <select id="evalTimePeriod" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
                                     <option value="7">最近7天</option>
                                     <option value="30" selected>最近30天</option>
                                     <option value="90">最近90天</option>
                                 </select>
                                 <button class="btn btn-primary" onclick="runPerformanceEvaluation()">
-                                    🔍 执行评估
+                                    🔍 基础评估
+                                </button>
+                                <button class="btn" onclick="runComprehensiveEvaluation()" style="background: #e7f3ff; color: #0066cc; border: 1px solid #0066cc;">
+                                    📈 综合评估
                                 </button>
                             </div>
+                        </div>
+                        <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                            基础评估：方向准确率、收益率等核心指标 | 综合评估：多指标、分市场状态、置信度校准
                         </div>
                         
                         <div id="performanceResults" style="display: none;">
@@ -1822,13 +1558,38 @@
                         <div id="performanceLoading" style="display: none; text-align: center; padding: 40px;">
                             <div style="font-size: 18px; color: #667eea;">正在评估性能...</div>
                         </div>
+                        
+                        <!-- 综合评估结果（内嵌在性能评估区域内） -->
+                        <div id="comprehensiveResults" style="display: none;">
+                            <!-- 综合评估结果将在这里显示 -->
+                        </div>
+                        <div id="comprehensiveLoading" style="display: none; text-align: center; padding: 40px;">
+                            <div style="font-size: 18px; color: #667eea;">正在执行综合评估...</div>
+                        </div>
                     </div>
                     
-                    <!-- 参数优化区域 -->
+                    <!-- 参数/权重优化区域（合并了在线学习、自适应优化） -->
                     <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>参数优化</h3>
-                            <div style="display: flex; gap: 10px; align-items: center;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3>⚙️ 参数/权重优化</h3>
+                        </div>
+                        
+                        <!-- 优化方式选择 -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                            <button class="btn opt-mode-btn active" id="optModeStandard" onclick="switchOptMode('standard')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #667eea; color: white; border: none;">
+                                📐 标准优化
+                            </button>
+                            <button class="btn opt-mode-btn" id="optModeOnline" onclick="switchOptMode('online')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
+                                🔄 在线学习
+                            </button>
+                            <button class="btn opt-mode-btn" id="optModeAdaptive" onclick="switchOptMode('adaptive')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
+                                🎯 自适应优化
+                            </button>
+                        </div>
+                        
+                        <!-- 标准优化控制区 -->
+                        <div id="optPanelStandard">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
                                 <select id="optimizeTimePeriod" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
                                     <option value="30" selected>最近30天</option>
                                     <option value="60">最近60天</option>
@@ -1841,9 +1602,46 @@
                                     ⚙️ 执行优化
                                 </button>
                             </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                基于历史表现自动搜索最优权重参数，自动应用阈值默认5.0%
+                            </div>
                         </div>
-                        <div style="font-size: 12px; color: #999; margin-top: 5px; margin-bottom: 10px;">
-                            提示：自动应用阈值表示改进百分比超过此值时自动应用优化参数（默认5.0%）
+                        
+                        <!-- 在线学习控制区 -->
+                        <div id="optPanelOnline" style="display: none;">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                                <select id="onlineLearningDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                    <option value="7" selected>最近7天</option>
+                                    <option value="14">最近14天</option>
+                                    <option value="30">最近30天</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="runOnlineLearning()">
+                                    🔄 执行在线学习
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                根据最新预测结果批量更新权重，快速适应近期市场变化
+                            </div>
+                        </div>
+                        
+                        <!-- 自适应优化控制区 -->
+                        <div id="optPanelAdaptive" style="display: none;">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                                <select id="adaptiveBaseDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                    <option value="7" selected>基础频率7天</option>
+                                    <option value="14">基础频率14天</option>
+                                    <option value="30">基础频率30天</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="runAdaptiveOptimization()">
+                                    🎯 执行自适应优化
+                                </button>
+                                <button class="btn" onclick="checkTriggerLearning()" style="background: #f0f0f0;">
+                                    🔍 检查触发条件
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                根据市场波动率自动调整优化频率和参数，高波动时更频繁优化
+                            </div>
                         </div>
                         
                         <!-- 优化进度显示 -->
@@ -1923,10 +1721,50 @@
                         </div>
                     </div>
                     
+                    <!-- 回测分析区域 -->
+                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3>🔬 回测分析</h3>
+                        </div>
+                        <div style="font-size: 12px; color: #999; margin-bottom: 15px;">
+                            使用历史预测数据模拟交易，评估当前参数的实际收益和风险表现
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 15px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">开始日期</label>
+                                <input type="date" id="backtestStartDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">结束日期</label>
+                                <input type="date" id="backtestEndDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">初始资金</label>
+                                <input type="number" id="backtestCapital" value="1000000" min="10000" step="10000" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px; width: 130px;">
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 5px; padding-bottom: 4px; font-size: 13px; cursor: pointer;">
+                                <input type="checkbox" id="backtestVisualize" checked style="cursor: pointer;">
+                                生成可视化报告
+                            </label>
+                            <button class="btn btn-primary" onclick="runBacktest()" id="backtestRunBtn">
+                                🔬 执行回测
+                            </button>
+                        </div>
+                        
+                        <div id="backtestLoading" style="display: none; text-align: center; padding: 30px;">
+                            <div style="font-size: 16px; color: #667eea;">正在执行回测，请稍候...</div>
+                        </div>
+                        
+                        <div id="backtestResults" style="display: none;">
+                            <!-- 回测结果将在这里显示 -->
+                        </div>
+                    </div>
+                    
                     <!-- 优化历史 -->
                     <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>优化历史</h3>
+                            <h3>📋 优化历史</h3>
                             <button class="btn btn-primary" onclick="refreshOptimizationHistory()">
                                 🔄 刷新
                             </button>
@@ -1937,88 +1775,24 @@
                         </div>
                     </div>
                     
-                    <!-- 综合评估区域 -->
-                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>综合评估（多指标、分市场状态、置信度校准）</h3>
-                            <div style="display: flex; gap: 10px;">
-                                <select id="comprehensiveEvalDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="30" selected>最近30天</option>
-                                    <option value="60">最近60天</option>
-                                    <option value="90">最近90天</option>
-                                </select>
-                                <button class="btn btn-primary" onclick="runComprehensiveEvaluation()">
-                                    📊 执行综合评估
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div id="comprehensiveResults" style="display: none;">
-                            <!-- 综合评估结果将在这里显示 -->
-                        </div>
-                        
-                        <div id="comprehensiveLoading" style="display: none; text-align: center; padding: 40px;">
-                            <div style="font-size: 18px; color: #667eea;">正在执行综合评估...</div>
-                        </div>
+                    <!-- 在线学习和自适应优化的结果/加载区域（内嵌在参数优化区域之后） -->
+                    <div id="onlineLearningResults" style="display: none;">
+                        <!-- 在线学习结果将在这里显示 -->
                     </div>
-                    
-                    <!-- 在线学习区域 -->
-                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>在线学习（批量更新权重）</h3>
-                            <div style="display: flex; gap: 10px;">
-                                <select id="onlineLearningDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="7" selected>最近7天</option>
-                                    <option value="14">最近14天</option>
-                                    <option value="30">最近30天</option>
-                                </select>
-                                <button class="btn btn-primary" onclick="runOnlineLearning()">
-                                    🔄 执行在线学习
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div id="onlineLearningResults" style="display: none;">
-                            <!-- 在线学习结果将在这里显示 -->
-                        </div>
-                        
-                        <div id="onlineLearningLoading" style="display: none; text-align: center; padding: 40px;">
-                            <div style="font-size: 18px; color: #667eea;">正在执行在线学习...</div>
-                        </div>
+                    <div id="onlineLearningLoading" style="display: none; text-align: center; padding: 40px;">
+                        <div style="font-size: 18px; color: #667eea;">正在执行在线学习...</div>
                     </div>
-                    
-                    <!-- 自适应优化区域 -->
-                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>自适应优化（根据市场波动自动调整）</h3>
-                            <div style="display: flex; gap: 10px;">
-                                <select id="adaptiveBaseDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="7" selected>基础频率7天</option>
-                                    <option value="14">基础频率14天</option>
-                                    <option value="30">基础频率30天</option>
-                                </select>
-                                <button class="btn btn-primary" onclick="runAdaptiveOptimization()">
-                                    🎯 执行自适应优化
-                                </button>
-                                <button class="btn" onclick="checkTriggerLearning()" style="background: #f0f0f0;">
-                                    🔍 检查触发条件
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div id="adaptiveResults" style="display: none;">
-                            <!-- 自适应优化结果将在这里显示 -->
-                        </div>
-                        
-                        <div id="adaptiveLoading" style="display: none; text-align: center; padding: 40px;">
-                            <div style="font-size: 18px; color: #667eea;">正在执行自适应优化...</div>
-                        </div>
+                    <div id="adaptiveResults" style="display: none;">
+                        <!-- 自适应优化结果将在这里显示 -->
+                    </div>
+                    <div id="adaptiveLoading" style="display: none; text-align: center; padding: 40px;">
+                        <div style="font-size: 18px; color: #667eea;">正在执行自适应优化...</div>
                     </div>
                     
                     <!-- 定时学习任务 -->
                     <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>定时学习任务</h3>
+                            <h3>⏰ 定时学习任务</h3>
                             <button class="btn btn-primary" onclick="showCreateModelLearningTaskModal()">
                                 ➕ 创建定时任务
                             </button>
@@ -6624,6 +6398,52 @@
             }
         }
         
+        // ========== 折叠/展开区域 ==========
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const arrow = document.getElementById(sectionId + 'Arrow');
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                if (arrow) arrow.textContent = '▲';
+            } else {
+                section.style.display = 'none';
+                if (arrow) arrow.textContent = '▼';
+            }
+        }
+        
+        // ========== 优化模式切换 ==========
+        function switchOptMode(mode) {
+            // 隐藏所有面板
+            document.getElementById('optPanelStandard').style.display = 'none';
+            document.getElementById('optPanelOnline').style.display = 'none';
+            document.getElementById('optPanelAdaptive').style.display = 'none';
+            
+            // 重置所有按钮样式
+            document.querySelectorAll('.opt-mode-btn').forEach(btn => {
+                btn.style.background = '#f0f0f0';
+                btn.style.color = '#666';
+                btn.style.border = '1px solid #ddd';
+            });
+            
+            // 显示选中的面板并高亮按钮
+            const panelMap = {
+                'standard': 'optPanelStandard',
+                'online': 'optPanelOnline',
+                'adaptive': 'optPanelAdaptive'
+            };
+            const btnMap = {
+                'standard': 'optModeStandard',
+                'online': 'optModeOnline',
+                'adaptive': 'optModeAdaptive'
+            };
+            
+            document.getElementById(panelMap[mode]).style.display = 'block';
+            const activeBtn = document.getElementById(btnMap[mode]);
+            activeBtn.style.background = '#667eea';
+            activeBtn.style.color = 'white';
+            activeBtn.style.border = 'none';
+        }
+        
         // ========== 模型学习相关函数 ==========
         
         let performanceChart = null;
@@ -6892,6 +6712,189 @@
                 table.style.display = 'none';
                 btn.textContent = '📊 显示权重对比';
             }
+        }
+        
+        // ===== 回测分析功能 =====
+        function initBacktestDates() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - 30);
+            const fmt = d => d.toISOString().split('T')[0];
+            const startEl = document.getElementById('backtestStartDate');
+            const endEl = document.getElementById('backtestEndDate');
+            if (startEl && !startEl.value) startEl.value = fmt(startDate);
+            if (endEl && !endEl.value) endEl.value = fmt(endDate);
+        }
+        // 页面加载后初始化日期
+        document.addEventListener('DOMContentLoaded', initBacktestDates);
+        
+        async function runBacktest() {
+            const startDate = document.getElementById('backtestStartDate')?.value;
+            const endDate = document.getElementById('backtestEndDate')?.value;
+            const capital = parseFloat(document.getElementById('backtestCapital')?.value || '1000000');
+            const visualize = document.getElementById('backtestVisualize')?.checked ?? true;
+            
+            if (!startDate || !endDate) {
+                alert('请选择回测的开始日期和结束日期');
+                return;
+            }
+            if (new Date(startDate) >= new Date(endDate)) {
+                alert('开始日期必须早于结束日期');
+                return;
+            }
+            
+            const btn = document.getElementById('backtestRunBtn');
+            const loading = document.getElementById('backtestLoading');
+            const results = document.getElementById('backtestResults');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ 回测中...';
+            loading.style.display = 'block';
+            results.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/backtest/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start_date: startDate,
+                        end_date: endDate,
+                        initial_capital: capital,
+                        generate_visualization: visualize
+                    })
+                });
+                
+                const data = await response.json();
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    renderBacktestResults(data.data, data.visualization_path);
+                } else {
+                    results.style.display = 'block';
+                    results.innerHTML = `<div style="padding: 20px; background: #ffebee; border-radius: 8px; color: #c62828;">
+                        <strong>回测失败：</strong>${data.message || '未知错误'}</div>`;
+                }
+            } catch (err) {
+                loading.style.display = 'none';
+                results.style.display = 'block';
+                results.innerHTML = `<div style="padding: 20px; background: #ffebee; border-radius: 8px; color: #c62828;">
+                    <strong>请求失败：</strong>${err.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔬 执行回测';
+            }
+        }
+        
+        function renderBacktestResults(btData, vizPath) {
+            const results = document.getElementById('backtestResults');
+            results.style.display = 'block';
+            
+            let html = '';
+            
+            // 概览卡片
+            const metrics = btData.metrics || btData;
+            const totalReturn = metrics.total_return ?? metrics.total_profit_pct ?? null;
+            const winRate = metrics.win_rate ?? null;
+            const maxDrawdown = metrics.max_drawdown ?? null;
+            const totalTrades = metrics.total_trades ?? (btData.trades ? btData.trades.length : null);
+            
+            html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">';
+            
+            if (totalReturn !== null) {
+                const retColor = totalReturn >= 0 ? '#4CAF50' : '#F44336';
+                html += `<div style="background: ${retColor}10; border: 1px solid ${retColor}40; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">总收益率</div>
+                    <div style="font-size: 20px; font-weight: bold; color: ${retColor};">${(totalReturn * 100).toFixed(2)}%</div>
+                </div>`;
+            }
+            if (winRate !== null) {
+                html += `<div style="background: #E3F2FD; border: 1px solid #90CAF9; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">胜率</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #1565C0;">${(winRate * 100).toFixed(1)}%</div>
+                </div>`;
+            }
+            if (maxDrawdown !== null) {
+                html += `<div style="background: #FFF3E0; border: 1px solid #FFCC80; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">最大回撤</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #E65100;">${(Math.abs(maxDrawdown) * 100).toFixed(2)}%</div>
+                </div>`;
+            }
+            if (totalTrades !== null) {
+                html += `<div style="background: #F3E5F5; border: 1px solid #CE93D8; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">交易次数</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #7B1FA2;">${totalTrades}</div>
+                </div>`;
+            }
+            
+            // 资金信息
+            if (btData.initial_capital || btData.final_value) {
+                html += `<div style="background: #E8F5E9; border: 1px solid #A5D6A7; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">初始 → 最终资金</div>
+                    <div style="font-size: 13px; font-weight: bold; color: #2E7D32;">
+                        ${(btData.initial_capital || 0).toLocaleString()}<br>→ ${(btData.final_value || 0).toLocaleString()}
+                    </div>
+                </div>`;
+            }
+            
+            html += '</div>';
+            
+            // 回测期间
+            if (btData.start_date || btData.end_date) {
+                html += `<div style="font-size: 12px; color: #888; margin-bottom: 12px;">回测期间：${btData.start_date || ''} 至 ${btData.end_date || ''}</div>`;
+            }
+            
+            // 详细指标（如果有更多）
+            if (metrics && typeof metrics === 'object') {
+                const extraKeys = Object.keys(metrics).filter(k => 
+                    !['total_return', 'total_profit_pct', 'win_rate', 'max_drawdown', 'total_trades', 'success'].includes(k)
+                );
+                if (extraKeys.length > 0) {
+                    html += '<details style="margin-bottom: 15px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">展开详细指标</summary>';
+                    html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; font-size: 12px;">';
+                    extraKeys.forEach(k => {
+                        let v = metrics[k];
+                        if (typeof v === 'number') v = v.toFixed(4);
+                        html += `<div style="color: #666;">${k}</div><div style="font-weight: bold;">${v}</div>`;
+                    });
+                    html += '</div></details>';
+                }
+            }
+            
+            // 交易记录
+            if (btData.trades && Array.isArray(btData.trades) && btData.trades.length > 0) {
+                const showTrades = btData.trades.slice(-15);
+                html += `<details style="margin-bottom: 15px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">交易记录（最近 ${showTrades.length} 条 / 共 ${btData.trades.length} 条）</summary>`;
+                html += '<div style="overflow-x: auto; margin-top: 8px;"><table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+                html += '<tr style="background: #f5f5f5;"><th style="padding: 6px; text-align: left;">日期</th><th>股票</th><th>方向</th><th>价格</th><th>盈亏</th></tr>';
+                showTrades.forEach(t => {
+                    const profitColor = (t.profit || 0) >= 0 ? '#4CAF50' : '#F44336';
+                    html += `<tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 6px;">${t.date || t.trade_date || '-'}</td>
+                        <td style="padding: 6px;">${t.stock_code || t.symbol || '-'}</td>
+                        <td style="padding: 6px;">${t.direction || t.action || '-'}</td>
+                        <td style="padding: 6px;">${t.price ? t.price.toFixed(2) : '-'}</td>
+                        <td style="padding: 6px; color: ${profitColor}; font-weight: bold;">${t.profit ? t.profit.toFixed(2) : '-'}</td>
+                    </tr>`;
+                });
+                html += '</table></div></details>';
+            }
+            
+            // 可视化报告链接
+            if (vizPath) {
+                html += `<div style="margin-top: 10px;">
+                    <a href="/api/backtest/result/${vizPath}" target="_blank" 
+                       style="display: inline-block; padding: 10px 20px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; text-decoration: none; border-radius: 8px; font-size: 14px;">
+                        📊 查看可视化回测报告
+                    </a>
+                </div>`;
+            }
+            
+            // 消息
+            if (btData.message) {
+                html += `<div style="margin-top: 10px; font-size: 12px; color: #666;">${btData.message}</div>`;
+            }
+            
+            results.innerHTML = html;
         }
         
         // 刷新优化历史
@@ -7303,7 +7306,7 @@
         
         // 执行综合评估
         async function runComprehensiveEvaluation() {
-            const days = document.getElementById('comprehensiveEvalDays').value;
+            const days = document.getElementById('evalTimePeriod').value;
             const resultsDiv = document.getElementById('comprehensiveResults');
             const loadingDiv = document.getElementById('comprehensiveLoading');
             
