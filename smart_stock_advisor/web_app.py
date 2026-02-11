@@ -5093,7 +5093,9 @@ def api_get_scheduled_task(task_id):
             return jsonify({'success': False, 'message': '定时任务管理器不可用'})
         task = manager.get_task(task_id)
         if task:
-            return jsonify({'success': True, 'data': task})
+            # 序列化任务数据（转换datetime和timedelta对象，避免JSON序列化失败）
+            serialized_task = _serialize_task_for_json(task)
+            return jsonify({'success': True, 'data': serialized_task})
         else:
             return jsonify({'success': False, 'message': '任务不存在'})
     except Exception as e:
@@ -5165,8 +5167,15 @@ def _serialize_task_for_json(task: Dict) -> Dict:
             # datetime对象转换为ISO格式字符串
             serialized_task[key] = value.strftime('%Y-%m-%d %H:%M:%S')
         elif isinstance(value, timedelta):
-            # timedelta对象转换为总秒数
-            serialized_task[key] = int(value.total_seconds())
+            # schedule_time等表示“时刻”的字段：转为HH:MM:SS；其它timedelta转为秒数
+            if key == 'schedule_time':
+                total_seconds = int(value.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                serialized_task[key] = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                serialized_task[key] = int(value.total_seconds())
         elif isinstance(value, dict):
             # 递归处理字典
             serialized_task[key] = _serialize_task_for_json(value)
@@ -6483,23 +6492,52 @@ def api_model_evaluate():
         # 评估交易性能
         trading_result = evaluator.evaluate_trading_performance(days=days)
         
+        prediction_ok = prediction_result.get('success', False)
+        trading_ok = trading_result.get('success', False)
+        
+        # 如果两个评估都失败，返回失败信息
+        if not prediction_ok and not trading_ok:
+            messages = []
+            if prediction_result.get('message'):
+                messages.append(f"预测评估: {prediction_result['message']}")
+            if trading_result.get('message'):
+                messages.append(f"交易评估: {trading_result['message']}")
+            return jsonify({
+                'success': False,
+                'message': ' | '.join(messages) if messages else f'没有找到 {days} 天内的评估数据，请先积累一段时间的预测记录和交易决策记录'
+            })
+        
         # 合并结果
         result = {
-            'prediction': prediction_result if prediction_result.get('success') else None,
-            'trading': trading_result if trading_result.get('success') else None
+            'prediction': prediction_result if prediction_ok else None,
+            'trading': trading_result if trading_ok else None
         }
         
+        # 收集部分失败的警告信息
+        warnings = []
+        
         # 如果预测评估成功，返回其主要指标
-        if prediction_result.get('success'):
+        if prediction_ok:
             result.update({
                 'direction_accuracy': prediction_result.get('direction_accuracy', 0),
                 'magnitude_mae': prediction_result.get('magnitude_mae', 0),
+                'sample_count': prediction_result.get('sample_count', 0),
                 'factor_contributions': prediction_result.get('factor_contributions', {}),
                 'market_condition': prediction_result.get('market_condition', 'unknown')
             })
+        else:
+            # 预测评估失败时提供默认值，避免前端NaN
+            result.update({
+                'direction_accuracy': 0,
+                'magnitude_mae': 0,
+                'sample_count': 0,
+                'factor_contributions': {},
+                'market_condition': 'unknown'
+            })
+            warnings.append(prediction_result.get('message', '预测评估无数据'))
         
         # 如果交易评估成功，返回其主要指标
-        if trading_result.get('success'):
+        if trading_ok:
             result.update({
                 'total_return': trading_result.get('total_return', 0),
                 'win_rate': trading_result.get('win_rate', 0),
@@ -6508,6 +6546,22 @@ def api_model_evaluate():
                 'max_drawdown': trading_result.get('max_drawdown', 0),
                 'sharpe_ratio': trading_result.get('sharpe_ratio', 0)
             })
+        else:
+            # 交易评估失败时提供默认值
+            result.update({
+                'total_return': 0,
+                'win_rate': 0,
+                'win_count': 0,
+                'loss_count': 0,
+                'max_drawdown': 0,
+                'sharpe_ratio': 0
+            })
+            warnings.append(trading_result.get('message', '交易评估无数据'))
+        
+        # 添加警告信息和数据来源标记
+        result['warnings'] = warnings
+        result['prediction_available'] = prediction_ok
+        result['trading_available'] = trading_ok
         
         return jsonify({'success': True, 'data': result})
         

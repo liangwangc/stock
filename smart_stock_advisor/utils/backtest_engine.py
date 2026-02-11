@@ -82,9 +82,10 @@ class BacktestEngine:
             
             # 模拟交易
             capital = initial_capital
-            positions = {}  # {symbol: {'shares': int, 'cost_price': float, 'buy_date': str}}
+            positions = {}  # {symbol: {'shares': int, 'cost_price': float, 'total_cost': float, 'buy_date': str}}
             trades = []  # 交易记录
             daily_values = []  # 每日资产价值
+            latest_prices = {}  # 跟踪每只股票最新市场价格
             
             current_date = None
             daily_capital = capital
@@ -101,12 +102,18 @@ class BacktestEngine:
                 if not symbol or not target_date or current_price <= 0:
                     continue
                 
+                # 更新最新市场价格（用于持仓估值）
+                if actual_price > 0:
+                    latest_prices[symbol] = actual_price
+                elif current_price > 0:
+                    latest_prices[symbol] = current_price
+                
                 # 更新日期
                 if target_date != current_date:
                     if current_date:
-                        # 计算当日资产价值
+                        # 计算当日资产价值（使用最新市场价格）
                         total_value = self._calculate_portfolio_value(
-                            capital, positions, target_date
+                            capital, positions, latest_prices
                         )
                         daily_values.append({
                             'date': current_date,
@@ -121,22 +128,25 @@ class BacktestEngine:
                 if prediction == '上涨' and up_prob >= PROBABILITY_THRESHOLDS["buy_signal"] and confidence >= CONFIDENCE_THRESHOLDS["medium"]:
                     if symbol not in positions:
                         # 买入
-                        shares, cost = self._buy_stock(
+                        shares, total_cost = self._buy_stock(
                             symbol, capital, current_price,
                             commission_rate, slippage_rate
                         )
                         if shares > 0:
+                            # 每股成本价 = 总成本 / 股数
+                            per_share_cost = total_cost / shares
                             positions[symbol] = {
                                 'shares': shares,
-                                'cost_price': cost,
+                                'cost_price': per_share_cost,
+                                'total_cost': total_cost,
                                 'buy_date': target_date
                             }
-                            capital -= cost
+                            capital -= total_cost
                             trades.append({
                                 'date': target_date,
                                 'symbol': symbol,
                                 'action': 'BUY',
-                                'price': cost,
+                                'price': per_share_cost,
                                 'shares': shares,
                                 'capital_after': capital
                             })
@@ -144,8 +154,10 @@ class BacktestEngine:
                 # 卖出条件：预测下跌或持仓盈利达到目标
                 elif symbol in positions:
                     pos = positions[symbol]
-                    cost_price = pos['cost_price']
-                    profit_pct = (actual_price - cost_price) / cost_price * 100
+                    cost_price = pos['cost_price']  # 每股成本价
+                    # 使用actual_price（目标日实际价格）计算利润
+                    sell_price = actual_price if actual_price > 0 else current_price
+                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
                     
                     # 预测下跌或达到止盈/止损
                     should_sell = False
@@ -164,30 +176,33 @@ class BacktestEngine:
                     if should_sell:
                         # 卖出
                         proceeds = self._sell_stock(
-                            symbol, positions[symbol]['shares'],
-                            actual_price, stamp_tax_rate, commission_rate, slippage_rate
+                            symbol, pos['shares'],
+                            sell_price, stamp_tax_rate, commission_rate, slippage_rate
                         )
                         capital += proceeds
+                        
+                        # 利润 = 卖出所得 - 买入总成本
+                        actual_profit = proceeds - pos['total_cost']
                         
                         trades.append({
                             'date': target_date,
                             'symbol': symbol,
                             'action': 'SELL',
-                            'price': actual_price,
-                            'shares': positions[symbol]['shares'],
+                            'price': sell_price,
+                            'shares': pos['shares'],
                             'cost_price': cost_price,
-                            'profit': proceeds - positions[symbol]['shares'] * cost_price,
-                            'profit_pct': profit_pct,
+                            'profit': round(actual_profit, 2),
+                            'profit_pct': round(profit_pct, 2),
                             'reason': sell_reason,
                             'capital_after': capital
                         })
                         
                         del positions[symbol]
             
-            # 计算最终资产价值
+            # 计算最终资产价值（使用最新市场价格估值未平仓头寸）
             final_date = predictions[-1].get('target_date') if predictions else end_date
             final_value = self._calculate_portfolio_value(
-                capital, positions, final_date
+                capital, positions, latest_prices
             )
             
             # 计算回测指标
@@ -274,12 +289,12 @@ class BacktestEngine:
             
             # 模拟交易（使用参数化的策略）
             capital = initial_capital
-            positions = {}  # {symbol: {'shares': int, 'cost_price': float, 'buy_date': str}}
+            positions = {}  # {symbol: {'shares': int, 'cost_price': float, 'total_cost': float, 'buy_date': str}}
             trades = []  # 交易记录
             daily_values = []  # 每日资产价值
+            latest_prices = {}  # 跟踪每只股票最新市场价格
             
             current_date = None
-            daily_capital = capital
             
             for pred in predictions:
                 symbol = pred.get('symbol', '')
@@ -293,12 +308,18 @@ class BacktestEngine:
                 if not symbol or not target_date or current_price <= 0:
                     continue
                 
+                # 更新最新市场价格（用于持仓估值）
+                if actual_price > 0:
+                    latest_prices[symbol] = actual_price
+                elif current_price > 0:
+                    latest_prices[symbol] = current_price
+                
                 # 更新日期
                 if target_date != current_date:
                     if current_date:
-                        # 计算当日资产价值
+                        # 使用实际市价计算当日资产价值
                         total_value = self._calculate_portfolio_value(
-                            capital, positions, target_date
+                            capital, positions, latest_prices
                         )
                         daily_values.append({
                             'date': current_date,
@@ -308,35 +329,42 @@ class BacktestEngine:
                         })
                     current_date = target_date
                 
+                # 确定交易价格：使用actual_price（目标日实际价格）
+                trade_price = actual_price if actual_price > 0 else current_price
+                
                 # 交易决策逻辑（使用参数化的阈值）
                 # 买入条件：预测上涨且上涨概率 >= buy_threshold 且置信度 >= min_confidence
                 if prediction == '上涨' and up_prob >= buy_threshold and confidence >= min_confidence:
                     if symbol not in positions:
                         # 买入（使用参数化的最大仓位）
-                        shares, cost = self._buy_stock_with_max_position(
-                            symbol, capital, current_price, max_position_pct
+                        shares, total_cost = self._buy_stock_with_max_position(
+                            symbol, capital, trade_price, max_position_pct
                         )
                         if shares > 0:
+                            per_share_cost = total_cost / shares
                             positions[symbol] = {
                                 'shares': shares,
-                                'cost_price': current_price,
+                                'cost_price': per_share_cost,
+                                'total_cost': total_cost,
                                 'buy_date': target_date
                             }
-                            capital -= cost
+                            capital -= total_cost
                             trades.append({
                                 'date': target_date,
                                 'symbol': symbol,
                                 'action': 'BUY',
-                                'price': current_price,
+                                'price': trade_price,
+                                'per_share_cost': round(per_share_cost, 4),
                                 'shares': shares,
-                                'capital_after': capital
+                                'capital_after': round(capital, 2)
                             })
                 
                 # 卖出条件：预测下跌或达到止盈/止损
                 elif symbol in positions:
                     pos = positions[symbol]
-                    cost_price = pos['cost_price']
-                    profit_pct = (actual_price - cost_price) / cost_price * 100
+                    cost_price = pos['cost_price']  # 每股成本价
+                    sell_price = actual_price if actual_price > 0 else current_price
+                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
                     
                     # 预测下跌或达到止盈/止损（使用参数化的阈值）
                     should_sell = False
@@ -354,31 +382,34 @@ class BacktestEngine:
                     
                     if should_sell:
                         # 卖出
+                        sell_shares = pos['shares']
                         proceeds = self._sell_stock(
-                            symbol, positions[symbol]['shares'],
-                            actual_price, 0.001, 0.0003, 0.001  # 印花税、佣金、滑点
+                            symbol, sell_shares,
+                            sell_price, 0.001, 0.0003, 0.001  # 印花税、佣金、滑点
                         )
                         capital += proceeds
+                        
+                        # 正确计算利润：卖出所得 - 买入总成本
+                        actual_profit = proceeds - pos['total_cost']
                         
                         trades.append({
                             'date': target_date,
                             'symbol': symbol,
                             'action': 'SELL',
-                            'price': actual_price,
-                            'shares': positions[symbol]['shares'],
-                            'cost_price': cost_price,
-                            'profit': proceeds - positions[symbol]['shares'] * cost_price,
-                            'profit_pct': profit_pct,
+                            'price': sell_price,
+                            'shares': sell_shares,
+                            'cost_price': round(cost_price, 4),
+                            'profit': round(actual_profit, 2),
+                            'profit_pct': round(profit_pct, 2),
                             'reason': sell_reason,
-                            'capital_after': capital
+                            'capital_after': round(capital, 2)
                         })
                         
                         del positions[symbol]
             
-            # 计算最终资产价值
-            final_date = predictions[-1].get('target_date') if predictions else end_date
+            # 计算最终资产价值（使用最新市场价格）
             final_value = self._calculate_portfolio_value(
-                capital, positions, final_date
+                capital, positions, latest_prices
             )
             
             # 计算回测指标
@@ -466,15 +497,26 @@ class BacktestEngine:
         return proceeds
     
     def _calculate_portfolio_value(self, cash: float, positions: Dict,
-                                  date: str) -> float:
-        """计算投资组合总价值"""
-        # 简化处理：使用持仓成本价估算
-        # 实际应该查询当日收盘价
+                                  latest_prices: dict = None) -> float:
+        """
+        计算投资组合总价值
+        
+        Args:
+            cash: 可用现金
+            positions: 持仓字典
+            latest_prices: 最新市场价格字典 {symbol: price}，用于实时估值
+                          如果传入的不是dict（如传了date字符串），则退化为使用成本价
+        """
         total_value = cash
+        
+        # 兼容旧的调用方式：如果传入的不是字典，退化为使用成本价
+        if not isinstance(latest_prices, dict):
+            latest_prices = {}
+        
         for symbol, pos in positions.items():
-            # 这里简化处理，实际应该查询当日价格
-            # 暂时使用成本价
-            total_value += pos['shares'] * pos['cost_price']
+            # 优先使用最新市场价格，没有则使用成本价
+            market_price = latest_prices.get(symbol, pos['cost_price'])
+            total_value += pos['shares'] * market_price
         return total_value
     
     def _calculate_metrics(self, initial_capital: float, final_value: float,

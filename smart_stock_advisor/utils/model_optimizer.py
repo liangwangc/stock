@@ -314,16 +314,23 @@ class ModelOptimizer:
                 except Exception as e:
                     self.logger.warning(f"自动应用优化参数时出错: {str(e)}")
             
-            # 提取权重信息（用于前端展示）
+            # 提取参数信息（用于前端展示）
+            # 当前默认交易参数
+            current_trading_params = {
+                'buy_threshold': current_prediction_config.get('buy_threshold', 0.6),
+                'sell_threshold': current_prediction_config.get('sell_threshold', 0.4),
+                'min_confidence': current_prediction_config.get('min_confidence', 0.55),
+                'stop_loss_pct': current_prediction_config.get('stop_loss_pct', -5.0),
+                'take_profit_pct': current_prediction_config.get('take_profit_pct', 8.0),
+                'max_position_pct': current_prediction_config.get('max_position_pct', 0.3),
+            }
+            
+            # 也提取权重信息（如果best_params中有的话）
             best_weights = {}
             current_weights = {}
-            
-            # 提取best_params中的权重
             for key in best_params:
                 if key.endswith('_weight'):
                     best_weights[key] = best_params[key]
-            
-            # 提取current_prediction_config中的权重
             for key in current_prediction_config:
                 if key.endswith('_weight'):
                     current_weights[key] = current_prediction_config[key]
@@ -336,12 +343,13 @@ class ModelOptimizer:
                 'best_score': round(best_score, 4),
                 'current_score': round(current_score, 4),
                 'improvement_pct': round(improvement_pct, 2),
-                'is_auto_applied': should_auto_apply,  # 是否已自动应用
+                'is_auto_applied': should_auto_apply,
                 'total_combinations_tested': total_combinations,
-                'all_results': sorted(all_results, key=lambda x: x['score'], reverse=True)[:10],  # 返回前10个最佳结果
+                'all_results': sorted(all_results, key=lambda x: x['score'], reverse=True)[:10],
                 'optimization_method': 'grid_search',
-                'best_weights': best_weights,  # 最优权重（用于前端展示）
-                'current_weights': current_weights  # 当前权重（用于前端展示）
+                'best_weights': best_weights,
+                'current_weights': current_weights,
+                'current_trading_params': current_trading_params,  # 当前交易参数（用于前端对比展示）
             }
             
             # 如果使用了交叉验证，添加验证集信息
@@ -642,65 +650,39 @@ class ModelOptimizer:
     
     def _generate_default_search_space(self, current_config: Dict) -> Dict:
         """
-        生成默认搜索空间（优化版）
+        生成默认搜索空间（修复版）
         
-        优化策略：
-        1. 核心权重（news, capital_flow, market, technical）使用较小步长（3%）
-        2. 辅助权重（history）使用较大步长（5%）
-        3. 减少搜索空间大小，提高优化效率
+        关键修复：搜索交易参数（buy_threshold, sell_threshold等），
+        因为回测引擎实际使用的是这些参数，而不是权重参数。
+        权重参数的优化由WeightOptimizer基于因子准确率单独处理。
+        
+        搜索的参数包括：
+        1. buy_threshold: 买入上涨概率阈值
+        2. sell_threshold: 卖出下跌概率阈值
+        3. min_confidence: 最小置信度
+        4. stop_loss_pct: 止损百分比
+        5. take_profit_pct: 止盈百分比
+        6. max_position_pct: 单只股票最大仓位
         """
         search_space = {}
         
-        # 核心权重参数（使用较小步长，更精细搜索）
-        core_weight_params = [
-            'news_weight', 'capital_flow_weight', 'market_weight', 'technical_weight'
-        ]
+        # 买入阈值（上涨概率 >= 此值才买入）
+        search_space['buy_threshold'] = [0.50, 0.55, 0.60, 0.65, 0.70]
         
-        # 辅助权重参数（使用较大步长，快速搜索）
-        # 【已优化移除】以下三个因子已从预测模型中移除：sector_rotation_weight, us_sector_weight, valuation_weight
-        auxiliary_weight_params = [
-            'history_weight'
-        ]
+        # 卖出阈值（上涨概率 <= 此值且预测下跌才卖出）
+        search_space['sell_threshold'] = [0.30, 0.35, 0.40, 0.45]
         
-        # 生成核心权重搜索空间（当前值±15%，步长3%）
-        for param in core_weight_params:
-            current_value = current_config.get(param, 0.1)
-            min_val = max(0.01, current_value * 0.85)
-            max_val = min(0.5, current_value * 1.15)
-            step = 0.03
-            
-            values = []
-            val = min_val
-            while val <= max_val:
-                values.append(round(val, 3))
-                val += step
-            
-            # 确保包含当前值
-            if current_value not in values:
-                values.append(round(current_value, 3))
-                values.sort()
-            
-            search_space[param] = values
+        # 最小置信度（置信度 >= 此值才执行交易）
+        search_space['min_confidence'] = [0.45, 0.50, 0.55, 0.60, 0.65]
         
-        # 生成辅助权重搜索空间（当前值±20%，步长5%）
-        for param in auxiliary_weight_params:
-            current_value = current_config.get(param, 0.05)
-            min_val = max(0.01, current_value * 0.8)
-            max_val = min(0.3, current_value * 1.2)
-            step = 0.05
-            
-            values = []
-            val = min_val
-            while val <= max_val:
-                values.append(round(val, 3))
-                val += step
-            
-            # 确保包含当前值
-            if current_value not in values:
-                values.append(round(current_value, 3))
-                values.sort()
-            
-            search_space[param] = values
+        # 止损百分比（负值，亏损超过此值强制卖出）
+        search_space['stop_loss_pct'] = [-3.0, -5.0, -7.0, -10.0]
+        
+        # 止盈百分比（盈利超过此值强制卖出）
+        search_space['take_profit_pct'] = [5.0, 8.0, 10.0, 15.0]
+        
+        # 单只股票最大仓位比例
+        search_space['max_position_pct'] = [0.15, 0.20, 0.25, 0.30]
         
         return search_space
     
@@ -715,11 +697,12 @@ class ModelOptimizer:
         for combo in itertools.product(*values_lists):
             params = dict(zip(keys, combo))
             
-            # 归一化权重（确保权重总和为1）
-            total_weight = sum(params.get(k, 0) for k in keys if 'weight' in k)
-            if total_weight > 0:
-                for k in keys:
-                    if 'weight' in k:
+            # 如果参数中包含权重参数，进行归一化
+            weight_keys = [k for k in keys if 'weight' in k and k != 'max_position_pct']
+            if weight_keys:
+                total_weight = sum(params.get(k, 0) for k in weight_keys)
+                if total_weight > 0:
+                    for k in weight_keys:
                         params[k] = round(params[k] / total_weight, 4)
             
             combinations.append(params)
@@ -735,30 +718,41 @@ class ModelOptimizer:
     
     def _calculate_optimization_score(self, backtest_result: Dict) -> float:
         """
-        计算优化评分
+        计算优化评分（修复版：统一量纲到0-1区间）
         
-        综合考虑：
-        - 总收益率（权重：40%）
-        - 夏普比率（权重：30%）
-        - 最大回撤（权重：20%，越小越好）
-        - 胜率（权重：10%）
+        综合考虑（各指标先归一化到0-1区间，再加权）：
+        - 总收益率（权重：35%）— 归一化到0-1
+        - 胜率（权重：25%）— 已经是0-1
+        - 最大回撤（权重：25%，越小越好）— 归一化到0-1
+        - 夏普比率（权重：15%）— 归一化到0-1
         """
         if not backtest_result.get('success'):
             return float('-inf')
         
         metrics = backtest_result.get('metrics', {})
         
-        total_return = metrics.get('total_return', 0) / 100.0  # 转换为小数
-        sharpe_ratio = metrics.get('sharpe_ratio', 0)
-        max_drawdown = abs(metrics.get('max_drawdown', 0)) / 100.0  # 转换为小数，取绝对值
-        win_rate = metrics.get('win_rate', 0) / 100.0  # 转换为小数
+        # 总收益率：值域约-50%到+50%，映射到0-1
+        total_return_pct = metrics.get('total_return', 0)  # 已经是百分比值
+        return_score = max(0, min(1, (total_return_pct + 50) / 100.0))  # -50%→0, 0%→0.5, 50%→1
         
-        # 计算综合评分
+        # 胜率：值域0-100%，映射到0-1
+        win_rate_pct = metrics.get('win_rate', 0)  # 已经是百分比值
+        win_rate_score = max(0, min(1, win_rate_pct / 100.0))
+        
+        # 最大回撤：值域0-50%，越小越好，映射到0-1
+        max_drawdown_pct = abs(metrics.get('max_drawdown', 0))  # 已经是百分比值
+        drawdown_score = max(0, min(1, 1 - max_drawdown_pct / 50.0))  # 0%→1, 25%→0.5, 50%→0
+        
+        # 夏普比率：值域约-3到+3，映射到0-1
+        sharpe_ratio = metrics.get('sharpe_ratio', 0)
+        sharpe_score = max(0, min(1, (sharpe_ratio + 3) / 6.0))  # -3→0, 0→0.5, 3→1
+        
+        # 计算综合评分（各分项已归一化到0-1，加权求和）
         score = (
-            total_return * 0.4 +
-            sharpe_ratio * 0.3 +
-            (1 - max_drawdown) * 0.2 +  # 回撤越小越好，所以用1减去
-            win_rate * 0.1
+            return_score * 0.35 +
+            win_rate_score * 0.25 +
+            drawdown_score * 0.25 +
+            sharpe_score * 0.15
         )
         
         return score

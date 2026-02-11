@@ -350,6 +350,32 @@
             margin-bottom: 30px;
         }
         
+        /* 日志更新条目样式 */
+        .log-entry {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-date {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 15px;
+            margin-bottom: 10px;
+        }
+        .log-items {
+            margin: 0;
+            padding-left: 20px;
+            color: #555;
+            font-size: 13px;
+            line-height: 1.8;
+        }
+        .log-items li {
+            margin-bottom: 6px;
+        }
+        
         .help-section h3 {
             color: #667eea;
             margin-bottom: 15px;
@@ -523,10 +549,16 @@
     <div class="settings-container">
         <div class="settings-header" style="display: flex; justify-content: space-between; align-items: center;">
             <h1>系统设置</h1>
-            <button class="help-button" onclick="showHelpModal()">
-                <span>❓</span>
-                <span>帮助文档</span>
-            </button>
+            <div style="display: flex; gap: 10px;">
+                <button class="help-button" onclick="showHelpModal()">
+                    <span>❓</span>
+                    <span>帮助文档</span>
+                </button>
+                <button class="help-button" onclick="showLogModal()">
+                    <span>📝</span>
+                    <span>日志更新</span>
+                </button>
+            </div>
         </div>
         
         <div class="settings-menu-wrapper">
@@ -616,6 +648,9 @@
                         </button>
                         <button id="stopAnalysisBtn" class="btn btn-danger" onclick="stopAnalysis()" style="display: none; margin-left: 10px;">
                             ⏹️ 中止任务
+                        </button>
+                        <button class="btn btn-success" onclick="showCreateStockAnalysisTaskModal()" style="margin-left: 10px;">
+                            ⏰ 创建定时任务
                         </button>
                     </div>
                     
@@ -2349,6 +2384,37 @@
         </div>
     </div>
     
+    <!-- 日志更新模态框 -->
+    <div id="logModal" class="help-modal">
+        <div class="help-modal-content">
+            <button class="help-modal-close" onclick="closeLogModal()">&times;</button>
+            <h2 style="margin-top: 0; color: #667eea;">📝 功能更新日志</h2>
+            <p style="color: #666; font-size: 13px; margin-bottom: 20px;">每次更新仅记录：日期 + 1-2条简要变更说明</p>
+            
+            <div id="logUpdateContent" class="help-section">
+                <div class="log-entry">
+                    <div class="log-date">2026-02-11</div>
+                    <ul class="log-items">
+                        <li>【性能评估修复】修复API在评估无数据时仍返回成功的BUG，现在会正确提示"没有找到评估数据"；前端不再显示NaN，无数据时显示"无数据"</li>
+                        <li>【回测引擎修复】修复持仓估值始终用成本价的问题，改为使用实际市场价格；修复backtest_with_parameters中cost_price和利润计算不一致</li>
+                        <li>【回测前端修复】修复双重百分比转换BUG（后端已返回百分比值，前端又乘100导致5%显示为500%）</li>
+                        <li>【参数优化修复】修复致命设计缺陷：优化器搜索的权重参数被回测引擎完全忽略，改为搜索实际生效的交易参数（买卖阈值、止盈止损、仓位比例）</li>
+                        <li>【评分函数修复】修复优化评分量纲不一致问题（夏普比率~1.5完全压倒收益率~0.05），所有指标归一化到0-1后再加权</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-10</div>
+                    <ul class="log-items">
+                        <li>设置页面：在帮助文档旁新增「日志更新」按钮，用于记录功能修改记录</li>
+                        <li>页面日期展示：统一为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss 格式，不再使用 GMT 格式</li>
+                        <li>股票分析任务管理：恢复「创建定时任务」按钮；定时任务管理为综合入口</li>
+                        <li>定时任务编辑：修复 timedelta 无法 JSON 序列化导致的加载失败问题</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- 模型训练说明模态框 -->
     <div id="modelTrainingHelpModal" class="help-modal">
         <div class="help-modal-content">
@@ -2552,6 +2618,26 @@
     <script>
         let currentTaskId = null;
         let socket = null;
+        
+        // 统一日期格式：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，不使用 GMT 等格式
+        function formatDateTimeDisplay(str) {
+            if (!str) return '-';
+            try {
+                const d = new Date(str);
+                if (isNaN(d.getTime())) return String(str);
+                const pad = n => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            } catch (e) { return String(str); }
+        }
+        function formatDateDisplay(str) {
+            if (!str) return '-';
+            try {
+                const d = new Date(str);
+                if (isNaN(d.getTime())) return String(str);
+                const pad = n => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+            } catch (e) { return String(str); }
+        }
         
         // ========== 统一的错误处理工具 ==========
         
@@ -3359,24 +3445,7 @@
                     'running': '#2196f3'
                 }[task.status] || '#666';
                 
-                let startTime = '-';
-                if (task.start_time) {
-                    try {
-                        const dt = new Date(task.start_time);
-                        if (!isNaN(dt.getTime())) {
-                            startTime = dt.toLocaleString('zh-CN', {
-                                year: 'numeric',
-                                month: '2-digit',
-                                day: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                second: '2-digit'
-                            });
-                        }
-                    } catch (e) {
-                        startTime = String(task.start_time);
-                    }
-                }
+                const startTime = formatDateTimeDisplay(task.start_time);
                 
                 const durationText = (task.duration_seconds !== null && task.duration_seconds !== undefined) ? formatDuration(task.duration_seconds) : '-';
                 
@@ -3884,7 +3953,7 @@
                     return;
                 }
                 
-                const configName = prompt('请输入配置名称：', `配置_${new Date().toLocaleString('zh-CN')}`);
+                const configName = prompt('请输入配置名称：', `配置_${formatDateTimeDisplay(new Date())}`);
                 if (!configName) return;
                 
                 const description = prompt('请输入配置描述（可选）：', '');
@@ -3960,7 +4029,7 @@
                     }
                 } else {
                     // 创建新配置
-                    const configName = prompt('请输入配置名称：', `配置_${new Date().toLocaleString('zh-CN')}`);
+                    const configName = prompt('请输入配置名称：', `配置_${formatDateTimeDisplay(new Date())}`);
                     if (!configName) return;
                     
                     const description = prompt('请输入配置描述（可选）：', '');
@@ -4462,27 +4531,8 @@
                     (typeof task.schedule_time === 'string' ? task.schedule_time.substring(0, 5) : task.schedule_time) : 
                     '15:05';
                 
-                // 格式化下次执行时间
-                let nextRunTime = '-';
-                if (task.next_run_time) {
-                    try {
-                        const nextRun = new Date(task.next_run_time);
-                        nextRunTime = nextRun.toLocaleString('zh-CN');
-                    } catch (e) {
-                        nextRunTime = task.next_run_time;
-                    }
-                }
-                
-                // 格式化上次执行时间
-                let lastRunTime = '-';
-                if (task.last_run_time) {
-                    try {
-                        const lastRun = new Date(task.last_run_time);
-                        lastRunTime = lastRun.toLocaleString('zh-CN');
-                    } catch (e) {
-                        lastRunTime = task.last_run_time;
-                    }
-                }
+                const nextRunTime = formatDateTimeDisplay(task.next_run_time);
+                const lastRunTime = formatDateTimeDisplay(task.last_run_time);
                 
                 // 格式化上次执行状态
                 let lastRunStatus = '-';
@@ -4832,8 +4882,8 @@
                         '<table style="width: 100%; border-collapse: collapse; font-size: 12px;"><thead><tr style="background: #f5f5f5;"><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">开始时间</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">结束时间</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">时长</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">状态</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">消息</th></tr></thead><tbody>' +
                         history.map(h => {
                             const statusColor = (h.status === 'success' || h.status === 'completed') ? '#4caf50' : h.status === 'failed' ? '#f44336' : '#ff9800';
-                            const startTime = h.start_time ? new Date(h.start_time).toLocaleString('zh-CN') : '-';
-                            const endTime = h.end_time ? new Date(h.end_time).toLocaleString('zh-CN') : '-';
+                            const startTime = formatDateTimeDisplay(h.start_time);
+                            const endTime = formatDateTimeDisplay(h.end_time);
                             const duration = h.duration_seconds ? h.duration_seconds + '秒' : '-';
                             return `<tr><td style="padding: 8px; border-bottom: 1px solid #ddd;">${startTime}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${endTime}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${duration}</td><td style="padding: 8px; border-bottom: 1px solid #ddd; color: ${statusColor};">${h.status}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${h.message || '-'}</td></tr>`;
                         }).join('') +
@@ -5270,27 +5320,8 @@
                     (typeof task.schedule_time === 'string' ? task.schedule_time.substring(0, 5) : task.schedule_time) : 
                     '15:05';
                 
-                // 格式化下次执行时间
-                let nextRunTime = '-';
-                if (task.next_run_time) {
-                    try {
-                        const nextRun = new Date(task.next_run_time);
-                        nextRunTime = nextRun.toLocaleString('zh-CN');
-                    } catch (e) {
-                        nextRunTime = task.next_run_time;
-                    }
-                }
-                
-                // 格式化上次执行时间
-                let lastRunTime = '-';
-                if (task.last_run_time) {
-                    try {
-                        const lastRun = new Date(task.last_run_time);
-                        lastRunTime = lastRun.toLocaleString('zh-CN');
-                    } catch (e) {
-                        lastRunTime = task.last_run_time;
-                    }
-                }
+                const nextRunTime = formatDateTimeDisplay(task.next_run_time);
+                const lastRunTime = formatDateTimeDisplay(task.last_run_time);
                 
                 // 格式化上次执行状态
                 let lastRunStatus = '-';
@@ -5621,8 +5652,8 @@
                         '<table style="width: 100%; border-collapse: collapse; font-size: 12px;"><thead><tr style="background: #f5f5f5;"><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">开始时间</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">结束时间</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">时长</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">状态</th><th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">消息</th></tr></thead><tbody>' +
                         history.map(h => {
                             const statusColor = (h.status === 'success' || h.status === 'completed') ? '#4caf50' : h.status === 'failed' ? '#f44336' : '#ff9800';
-                            const startTime = h.start_time ? new Date(h.start_time).toLocaleString('zh-CN') : '-';
-                            const endTime = h.end_time ? new Date(h.end_time).toLocaleString('zh-CN') : '-';
+                            const startTime = formatDateTimeDisplay(h.start_time);
+                            const endTime = formatDateTimeDisplay(h.end_time);
                             const duration = h.duration_seconds ? h.duration_seconds + '秒' : '-';
                             return `<tr><td style="padding: 8px; border-bottom: 1px solid #ddd;">${startTime}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${endTime}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${duration}</td><td style="padding: 8px; border-bottom: 1px solid #ddd; color: ${statusColor};">${h.status}</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${h.message || '-'}</td></tr>`;
                         }).join('') +
@@ -7178,11 +7209,16 @@
                 if (result.success) {
                     displayPerformanceResults(result.data);
                     resultsDiv.style.display = 'block';
+                    // 显示部分数据缺失的警告
+                    if (result.data.warnings && result.data.warnings.length > 0) {
+                        const warningMsg = result.data.warnings.join('\n');
+                        alert('⚠️ 部分数据不可用：\n' + warningMsg + '\n\n已用默认值填充对应指标，请关注有数据的部分。');
+                    }
                 } else {
-                    alert('评估失败: ' + result.message);
+                    alert('评估失败: ' + (result.message || '未知错误'));
                 }
             } catch (error) {
-                alert('评估失败: ' + error.message);
+                alert('评估请求异常: ' + error.message);
             } finally {
                 loadingDiv.style.display = 'none';
             }
@@ -7190,28 +7226,76 @@
         
         // 显示性能评估结果
         function displayPerformanceResults(data) {
-            // 更新指标卡片
-            const accuracy = (data.direction_accuracy * 100).toFixed(2);
-            document.getElementById('metric-accuracy').textContent = accuracy + '%';
+            // 安全取值辅助函数
+            function safeNum(val, defaultVal) {
+                const n = Number(val);
+                return isNaN(n) ? (defaultVal || 0) : n;
+            }
             
-            const returnValue = (data.total_return || 0).toFixed(2);
-            document.getElementById('metric-return').textContent = returnValue + '%';
+            // 更新指标卡片 - 区分预测数据和交易数据是否可用
+            const predAvail = data.prediction_available;
+            const tradAvail = data.trading_available;
             
-            const winRate = (data.win_rate * 100 || 0).toFixed(2);
-            document.getElementById('metric-winrate').textContent = winRate + '%';
+            // 方向准确率（来自预测评估）
+            const accuracyEl = document.getElementById('metric-accuracy');
+            if (predAvail) {
+                const accuracy = (safeNum(data.direction_accuracy) * 100).toFixed(2);
+                accuracyEl.textContent = accuracy + '%';
+                const sampleInfo = data.sample_count ? ` (${data.sample_count}条)` : '';
+                accuracyEl.title = '基于' + sampleInfo + '预测记录';
+            } else {
+                accuracyEl.textContent = '无数据';
+                accuracyEl.style.fontSize = '20px';
+            }
             
-            const drawdown = (data.max_drawdown ?? 0).toFixed(2);
-            document.getElementById('metric-drawdown').textContent = drawdown + '%';
+            // 总收益率（来自交易评估）
+            const returnEl = document.getElementById('metric-return');
+            if (tradAvail) {
+                const returnValue = safeNum(data.total_return).toFixed(2);
+                returnEl.textContent = returnValue + '%';
+            } else {
+                returnEl.textContent = '无数据';
+                returnEl.style.fontSize = '20px';
+            }
             
-            const sharpe = (data.sharpe_ratio ?? 0).toFixed(2);
+            // 胜率（来自交易评估）
+            const winRateEl = document.getElementById('metric-winrate');
+            if (tradAvail) {
+                const winRate = (safeNum(data.win_rate) * 100).toFixed(2);
+                winRateEl.textContent = winRate + '%';
+            } else {
+                winRateEl.textContent = '无数据';
+                winRateEl.style.fontSize = '20px';
+            }
+            
+            // 最大回撤（来自交易评估）
+            const drawdownEl = document.getElementById('metric-drawdown');
+            if (tradAvail) {
+                const drawdown = safeNum(data.max_drawdown).toFixed(2);
+                drawdownEl.textContent = drawdown + '%';
+            } else {
+                drawdownEl.textContent = '无数据';
+                drawdownEl.style.fontSize = '20px';
+            }
+            
+            // 夏普比率（来自交易评估）
             const sharpeEl = document.getElementById('metric-sharpe');
-            if (sharpeEl) sharpeEl.textContent = sharpe;
+            if (sharpeEl) {
+                if (tradAvail) {
+                    sharpeEl.textContent = safeNum(data.sharpe_ratio).toFixed(2);
+                } else {
+                    sharpeEl.textContent = '无数据';
+                    sharpeEl.style.fontSize = '20px';
+                }
+            }
             
-            // 绘制性能趋势图表
-            drawPerformanceChart(data);
+            // 绘制性能趋势图表（仅在有数据时绘制）
+            if (predAvail || tradAvail) {
+                drawPerformanceChart(data);
+            }
             
             // 绘制因子贡献度图表
-            if (data.factor_contributions) {
+            if (data.factor_contributions && Object.keys(data.factor_contributions).length > 0) {
                 drawFactorChart(data.factor_contributions);
             }
         }
@@ -7226,28 +7310,40 @@
                 performanceChart.destroy();
             }
             
-            // 这里可以添加历史趋势数据，目前先显示当前值
+            // 安全取值
+            function sn(val) { const n = Number(val); return isNaN(n) ? 0 : n; }
+            
+            // 使用雷达图（更适合多维度对比展示）
             performanceChart = new Chart(ctx, {
-                type: 'line',
+                type: 'bar',
                 data: {
-                    labels: ['准确率', '收益率', '胜率', '回撤', '夏普'],
+                    labels: ['准确率(%)', '收益率(%)', '胜率(%)', '回撤(%)', '夏普比率'],
                     datasets: [{
                         label: '性能指标',
                         data: [
-                            (data.direction_accuracy * 100).toFixed(2),
-                            (data.total_return || 0).toFixed(2),
-                            (data.win_rate * 100 || 0).toFixed(2),
-                            (data.max_drawdown ?? 0).toFixed(2),
-                            (data.sharpe_ratio ?? 0).toFixed(2)
+                            parseFloat((sn(data.direction_accuracy) * 100).toFixed(2)),
+                            parseFloat(sn(data.total_return).toFixed(2)),
+                            parseFloat((sn(data.win_rate) * 100).toFixed(2)),
+                            parseFloat(sn(data.max_drawdown).toFixed(2)),
+                            parseFloat(sn(data.sharpe_ratio).toFixed(2))
                         ],
                         borderColor: 'rgb(102, 126, 234)',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                        tension: 0.1
+                        backgroundColor: [
+                            'rgba(102, 126, 234, 0.7)',
+                            'rgba(240, 147, 251, 0.7)',
+                            'rgba(79, 172, 254, 0.7)',
+                            'rgba(67, 233, 123, 0.7)',
+                            'rgba(250, 112, 154, 0.7)'
+                        ],
+                        borderWidth: 1
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true
@@ -7518,22 +7614,23 @@
             html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">';
             
             if (totalReturn !== null) {
+                // 后端_calculate_metrics已返回百分比值（如5.23表示5.23%），不再乘100
                 const retColor = totalReturn >= 0 ? '#4CAF50' : '#F44336';
                 html += `<div style="background: ${retColor}10; border: 1px solid ${retColor}40; border-radius: 8px; padding: 12px; text-align: center;">
                     <div style="font-size: 11px; color: #999;">总收益率</div>
-                    <div style="font-size: 20px; font-weight: bold; color: ${retColor};">${(totalReturn * 100).toFixed(2)}%</div>
+                    <div style="font-size: 20px; font-weight: bold; color: ${retColor};">${Number(totalReturn).toFixed(2)}%</div>
                 </div>`;
             }
             if (winRate !== null) {
                 html += `<div style="background: #E3F2FD; border: 1px solid #90CAF9; border-radius: 8px; padding: 12px; text-align: center;">
                     <div style="font-size: 11px; color: #999;">胜率</div>
-                    <div style="font-size: 20px; font-weight: bold; color: #1565C0;">${(winRate * 100).toFixed(1)}%</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #1565C0;">${Number(winRate).toFixed(1)}%</div>
                 </div>`;
             }
             if (maxDrawdown !== null) {
                 html += `<div style="background: #FFF3E0; border: 1px solid #FFCC80; border-radius: 8px; padding: 12px; text-align: center;">
                     <div style="font-size: 11px; color: #999;">最大回撤</div>
-                    <div style="font-size: 20px; font-weight: bold; color: #E65100;">${(Math.abs(maxDrawdown) * 100).toFixed(2)}%</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #E65100;">${Math.abs(Number(maxDrawdown)).toFixed(2)}%</div>
                 </div>`;
             }
             if (totalTrades !== null) {
@@ -9613,18 +9710,41 @@
             }
         }
         
+        /**
+         * 显示日志更新模态框
+         */
+        function showLogModal() {
+            const modal = document.getElementById('logModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+        
+        /**
+         * 关闭日志更新模态框
+         */
+        function closeLogModal() {
+            const modal = document.getElementById('logModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+        
         // 点击模态框外部关闭
         document.addEventListener('click', (e) => {
-            const modal = document.getElementById('helpModal');
-            if (modal && e.target === modal) {
-                closeHelpModal();
-            }
+            const helpModal = document.getElementById('helpModal');
+            const logModal = document.getElementById('logModal');
+            if (helpModal && e.target === helpModal) closeHelpModal();
+            if (logModal && e.target === logModal) closeLogModal();
         });
         
         // ESC键关闭模态框
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 closeHelpModal();
+                closeLogModal();
             }
         });
         
@@ -9700,7 +9820,7 @@
             let html = '<div style="display: grid; gap: 15px;">';
             
             backups.forEach(backup => {
-                const createdDate = new Date(backup.created_at).toLocaleString('zh-CN');
+                const createdDate = formatDateTimeDisplay(backup.created_at);
                 const fileSize = formatFileSize(backup.size || 0);
                 
                 html += `
@@ -10239,8 +10359,8 @@
                                 <div style="color: #666; font-size: 12px; line-height: 1.8;">
                                     <div>调度方式: ${task.schedule_type === 'daily' ? '每日' : task.schedule_type === 'weekly' ? '每周' : task.schedule_type === 'monthly' ? '每月' : task.schedule_type}</div>
                                     ${task.schedule_time ? `<div>执行时间: ${task.schedule_time}</div>` : ''}
-                                    ${task.last_run_time ? `<div>上次执行: ${new Date(task.last_run_time).toLocaleString('zh-CN')}</div>` : '<div>上次执行: 从未执行</div>'}
-                                    ${task.next_run_time ? `<div>下次执行: ${new Date(task.next_run_time).toLocaleString('zh-CN')}</div>` : ''}
+                                    ${task.last_run_time ? `<div>上次执行: ${formatDateTimeDisplay(task.last_run_time)}</div>` : '<div>上次执行: 从未执行</div>'}
+                                    ${task.next_run_time ? `<div>下次执行: ${formatDateTimeDisplay(task.next_run_time)}</div>` : ''}
                                     ${task.last_run_message ? `<div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; font-size: 11px;">${task.last_run_message}</div>` : ''}
                                 </div>
                             </div>
@@ -10614,22 +10734,10 @@
             return typeMap[modelType] || modelType;
         }
         
-        // 格式化日期时间（如果已存在则跳过）
+        // 格式化日期时间（与 formatDateTimeDisplay 一致：YYYY-MM-DD HH:mm:ss）
         if (typeof formatDateTime === 'undefined') {
             function formatDateTime(dateTimeStr) {
-                if (!dateTimeStr) return '-';
-                try {
-                    const date = new Date(dateTimeStr);
-                    return date.toLocaleString('zh-CN', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
-                } catch (e) {
-                    return dateTimeStr;
-                }
+                return formatDateTimeDisplay(dateTimeStr);
             }
         }
         

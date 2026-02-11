@@ -1,0 +1,26 @@
+---
+description: 每次修改后需在设置页面的日志更新中简要记录
+globs: smart_stock_advisor/**/*
+alwaysApply: false
+---
+
+# 更新日志记录约定
+
+每次对 smart_stock_advisor 做功能性修改后，需在 **设置页面 → 日志更新** 中简要记录：
+
+1. **更新内容**：用一句话说明本次改了啥
+2. **更新日期**：YYYY-MM-DD
+
+**位置**：`templates/settings.html` 中的 `#logUpdateContent` 区域
+
+**格式示例**：
+```html
+<div class="log-entry">
+    <div class="log-date">2026-02-10</div>
+    <ul class="log-items">
+        <li>简要说明修改内容</li>
+    </ul>
+</div>
+```
+
+文字简要即可，不要复杂。
