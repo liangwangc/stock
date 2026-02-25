@@ -48,6 +48,9 @@ class MLFeatureEngineering:
         if df.empty:
             return pd.DataFrame(), pd.Series(), []
         
+        # 机构级增强因子：横截面排名、指数、相对强弱（无未来函数，新增列自动参与后续 feature_columns）
+        df = self._add_enhanced_factors(df)
+        
         # 默认排除的列（元数据列和标签列，不应该作为特征）
         default_exclude = ['symbol', 'target_date', 'future_date', 'prediction_date', 
                           'label_direction', 'label_change_pct', 'label_up', 'label_up_probability',
@@ -277,6 +280,95 @@ class MLFeatureEngineering:
         
         return X
     
+    def _add_enhanced_factors(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        机构级增强因子：横截面排名、指数收益/波动、相对强弱。
+        无未来函数（排名用当日截面，指数用 shift(1) 后 merge）。
+        新增列自动处理 NaN（填 0 或 0.5）。
+        """
+        if df.empty or 'target_date' not in df.columns:
+            return df
+        try:
+            # 1. 横截面排名（按 target_date 分组，pct=True 得 [0,1]）
+            date_col = 'target_date'
+            for col in ['volume', 'turnover_rate', 'amount', 'return_5d', 'return_20d']:
+                if col not in df.columns:
+                    continue
+                rank_col = f'{col}_rank_all'
+                df[rank_col] = df.groupby(date_col)[col].rank(pct=True)
+                df[rank_col] = df[rank_col].fillna(0.5)
+            
+            # 2. 指数因子：从 market_indices 取沪深300，算收益/波动后 shift(1) 再 merge
+            try:
+                from utils.db_connection import DatabaseConnection
+                db = DatabaseConnection()
+                # 取 df 日期范围并外扩约 65 天以便算 20d/60d 指标
+                dates = pd.to_datetime(df[date_col].dropna().astype(str))
+                d_min, d_max = dates.min(), dates.max()
+                start = (d_min - pd.Timedelta(days=65)).strftime('%Y-%m-%d')
+                end = d_max.strftime('%Y-%m-%d')
+                # 优先沪深300，其次上证指数，单指数保证每交易日一行
+                rows = db.execute_query(
+                    "SELECT trade_date, close_price FROM market_indices "
+                    "WHERE index_code = %s AND trade_date >= %s AND trade_date <= %s ORDER BY trade_date",
+                    ('sh000300', start, end)
+                )
+                if not rows:
+                    rows = db.execute_query(
+                        "SELECT trade_date, close_price FROM market_indices "
+                        "WHERE index_code = %s AND trade_date >= %s AND trade_date <= %s ORDER BY trade_date",
+                        ('sh000001', start, end)
+                    )
+                if rows:
+                    idx_df = pd.DataFrame(rows)
+                    idx_df['trade_date'] = pd.to_datetime(idx_df['trade_date']).dt.strftime('%Y-%m-%d')
+                    idx_df = idx_df.sort_values('trade_date').drop_duplicates(subset=['trade_date'], keep='last')
+                    idx_df['close_price'] = pd.to_numeric(idx_df['close_price'], errors='coerce').ffill()
+                    idx_df['index_return_1d'] = idx_df['close_price'].pct_change(1).shift(1)
+                    idx_df['index_return_5d'] = idx_df['close_price'].pct_change(5).shift(1)
+                    idx_df['index_return_20d'] = idx_df['close_price'].pct_change(20).shift(1)
+                    idx_df['index_volatility_20d'] = idx_df['close_price'].pct_change().rolling(20).std().shift(1)
+                    idx_df = idx_df[['trade_date', 'index_return_1d', 'index_return_5d', 'index_return_20d', 'index_volatility_20d']]
+                    df['_dt_key'] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d')
+                    df = df.merge(idx_df, left_on='_dt_key', right_on='trade_date', how='left')
+                    df = df.drop(columns=['_dt_key', 'trade_date'], errors='ignore')
+                    for c in ['index_return_1d', 'index_return_5d', 'index_return_20d', 'index_volatility_20d']:
+                        if c in df.columns:
+                            df[c] = df[c].fillna(0.0)
+                    # 3. 相对强弱 = 个股 return_* - 指数 return_*
+                    for period in ['5d', '20d', '60d']:
+                        stock_col = f'return_{period}'
+                        index_col = f'index_return_{period}'
+                        if stock_col in df.columns and index_col in df.columns:
+                            df[f'relative_strength_{period}'] = (df[stock_col] - df[index_col]).fillna(0.0)
+                        elif stock_col in df.columns:
+                            df[f'relative_strength_{period}'] = df[stock_col].fillna(0.0)
+                else:
+                    for c in ['index_return_1d', 'index_return_5d', 'index_return_20d', 'index_volatility_20d']:
+                        df[c] = 0.0
+                    for period in ['5d', '20d', '60d']:
+                        if f'return_{period}' in df.columns:
+                            df[f'relative_strength_{period}'] = df[f'return_{period}'].fillna(0.0)
+            except Exception as e:
+                self.logger.debug(f"指数/相对强弱因子加载失败，仅使用截面排名: {e}")
+                for c in ['index_return_1d', 'index_return_5d', 'index_return_20d', 'index_volatility_20d']:
+                    if c not in df.columns:
+                        df[c] = 0.0
+                for period in ['5d', '20d', '60d']:
+                    if f'return_{period}' in df.columns and f'relative_strength_{period}' not in df.columns:
+                        df[f'relative_strength_{period}'] = df[f'return_{period}'].fillna(0.0)
+            
+            # 4. 新增列统一 NaN 填 0（排名列已在上面填 0.5）
+            new_cols = [c for c in df.columns if c.endswith('_rank_all') or c.startswith('index_') or c.startswith('relative_strength_')]
+            for c in new_cols:
+                if c in df.columns and c not in ['volume_rank_all', 'turnover_rank_all', 'amount_rank_all', 'return_5d_rank_all', 'return_20d_rank_all']:
+                    df[c] = df[c].fillna(0.0)
+                elif c in df.columns and c.endswith('_rank_all'):
+                    df[c] = df[c].fillna(0.5)
+        except Exception as e:
+            self.logger.warning(f"增强因子计算异常，跳过: {e}")
+        return df
+    
     def normalize_features(self, X_train: pd.DataFrame, 
                           X_val: Optional[pd.DataFrame] = None,
                           X_test: Optional[pd.DataFrame] = None,
@@ -403,8 +495,11 @@ class MLFeatureEngineering:
                 # scikit-learn模型
                 importances = model.feature_importances_
             elif hasattr(model, 'get_feature_importance'):
-                # LightGBM模型
+                # LightGBM sklearn API
                 importances = model.get_feature_importance()
+            elif hasattr(model, 'feature_importance'):
+                # LightGBM Booster (lgb.train 返回)
+                importances = model.feature_importance(importance_type='gain')
             elif hasattr(model, 'get_score'):
                 # XGBoost模型（需要特殊处理）
                 importances = []

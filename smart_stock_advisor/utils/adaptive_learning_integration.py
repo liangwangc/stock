@@ -102,18 +102,26 @@ class AdaptiveLearningIntegration:
             
             self.logger.info(f"开始自适应优化（学习范围: {days}天, 频率: {frequency_info.get('frequency_days')}天）")
             
-            # 使用网格搜索或贝叶斯优化
+            # 优先使用贝叶斯优化（效率更高、效果更好）
             optimization_config = {
                 'use_cross_validation': True,
                 'train_ratio': 0.8,
-                'auto_apply_threshold': 0.05  # 5%改进自动应用
+                'auto_apply_threshold': 5.0  # 5%改进自动应用（improvement_pct 是百分数口径）
             }
             
-            result = self.optimizer.optimize_weights_grid_search(
-                start_date=start_date.strftime('%Y-%m-%d'),
-                end_date=end_date.strftime('%Y-%m-%d'),
-                optimization_config=optimization_config
-            )
+            # 尝试贝叶斯优化，若不可用则回退到网格搜索
+            if hasattr(self.optimizer, 'optimize_weights_bayesian'):
+                result = self.optimizer.optimize_weights_bayesian(
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d'),
+                    optimization_config=optimization_config
+                )
+            else:
+                result = self.optimizer.optimize_weights_grid_search(
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d'),
+                    optimization_config=optimization_config
+                )
             
             return {
                 'success': result.get('success', False),

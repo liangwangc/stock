@@ -537,6 +537,94 @@ class MLDataLoader:
                 features['volume_ma5'] = 0.0
                 features['volume_ma20'] = 0.0
             
+            # 9. 机构级增强因子（无未来函数：均基于当前截面日 T 及之前数据，用于预测 T+1）
+            # 9.1 区间收益率（供横截面排名与相对强弱用）
+            if len(df) >= 6:
+                close_arr = df['close_price'].astype(float).fillna(0).values
+                if close_arr[-6] > 0:
+                    features['return_5d'] = float((close_arr[-1] - close_arr[-6]) / close_arr[-6])
+                else:
+                    features['return_5d'] = 0.0
+            else:
+                features['return_5d'] = 0.0
+            if len(df) >= 21:
+                close_arr = df['close_price'].astype(float).fillna(0).values
+                if close_arr[-21] > 0:
+                    features['return_20d'] = float((close_arr[-1] - close_arr[-21]) / close_arr[-21])
+                else:
+                    features['return_20d'] = 0.0
+            else:
+                features['return_20d'] = 0.0
+            if len(df) >= 61:
+                close_arr = df['close_price'].astype(float).fillna(0).values
+                if close_arr[-61] > 0:
+                    features['return_60d'] = float((close_arr[-1] - close_arr[-61]) / close_arr[-61])
+                else:
+                    features['return_60d'] = 0.0
+            else:
+                features['return_60d'] = 0.0
+            
+            # 9.2 Delta 因子（5 日变化）
+            def _safe_val(series, idx, default=0.0):
+                if series is None or len(series) == 0:
+                    return default
+                try:
+                    n = len(series)
+                    if idx < 0 and n < abs(idx):
+                        return default
+                    v = series.iloc[idx] if hasattr(series, 'iloc') else series[idx]
+                    return float(v) if v is not None and pd.notna(v) else default
+                except Exception:
+                    return default
+            if len(df) >= 6:
+                rsi_ser = df['rsi'].ffill() if 'rsi' in df.columns else None
+                features['rsi_change_5d'] = features['rsi'] - _safe_val(rsi_ser, -6, 50.0)
+                if 'macd_hist' in df.columns:
+                    macd_ser = df['macd_hist'].ffill()
+                    features['macd_hist_change_5d'] = features['macd_hist'] - _safe_val(macd_ser, -6, 0.0)
+                else:
+                    features['macd_hist_change_5d'] = 0.0
+                if 'volume_ratio' in df.columns:
+                    vr_ser = df['volume_ratio'].ffill()
+                    features['volume_ratio_change_5d'] = features['volume_ratio'] - _safe_val(vr_ser, -6, 0.0)
+                else:
+                    features['volume_ratio_change_5d'] = 0.0
+                if 'turnover_rate' in df.columns:
+                    tr_ser = df['turnover_rate'].ffill()
+                    features['turnover_rate_change_5d'] = features['turnover_rate'] - _safe_val(tr_ser, -6, 0.0)
+                else:
+                    features['turnover_rate_change_5d'] = 0.0
+                if 'main_net_inflow' in df.columns:
+                    mn_ser = df['main_net_inflow'].ffill()
+                    features['main_net_inflow_change_5d'] = features['main_net_inflow'] - _safe_val(mn_ser, -6, 0.0)
+                else:
+                    features['main_net_inflow_change_5d'] = 0.0
+            else:
+                features['rsi_change_5d'] = 0.0
+                features['macd_hist_change_5d'] = 0.0
+                features['volume_ratio_change_5d'] = 0.0
+                features['turnover_rate_change_5d'] = 0.0
+                features['main_net_inflow_change_5d'] = 0.0
+            
+            # 9.3 突破因子（0/1）：close/volume 是否 >= 过去 N 日最大值（不含当日，即 shift(1) 语义）
+            close_arr = df['close_price'].astype(float).fillna(0).values
+            vol_arr = df['volume'].astype(float).fillna(0).values
+            if len(close_arr) >= 21:
+                past_20_max = float(np.max(close_arr[-21:-1]))  # 前 20 日
+                features['is_20d_high'] = 1 if close_arr[-1] >= past_20_max and past_20_max > 0 else 0
+            else:
+                features['is_20d_high'] = 0
+            if len(close_arr) >= 61:
+                past_60_max = float(np.max(close_arr[-61:-1]))
+                features['is_60d_high'] = 1 if close_arr[-1] >= past_60_max and past_60_max > 0 else 0
+            else:
+                features['is_60d_high'] = 0
+            if len(vol_arr) >= 21:
+                past_20_vol_max = float(np.max(vol_arr[-21:-1]))
+                features['is_volume_breakout'] = 1 if past_20_vol_max > 0 and vol_arr[-1] >= past_20_vol_max else 0
+            else:
+                features['is_volume_breakout'] = 0
+            
             return features
             
         except Exception as e:
@@ -1129,6 +1217,42 @@ class MLDataLoader:
                             features['trend_20'] = 0.0
                             features['volume_ma5'] = 0.0
                             features['volume_ma20'] = 0.0
+                        
+                        # 9. 机构级增强因子（无未来函数）
+                        if i >= 5 and close_prices[i - 5] > 0:
+                            features['return_5d'] = float((close_prices[i] - close_prices[i - 5]) / close_prices[i - 5])
+                        else:
+                            features['return_5d'] = 0.0
+                        if i >= 20 and close_prices[i - 20] > 0:
+                            features['return_20d'] = float((close_prices[i] - close_prices[i - 20]) / close_prices[i - 20])
+                        else:
+                            features['return_20d'] = 0.0
+                        if i >= 60 and close_prices[i - 60] > 0:
+                            features['return_60d'] = float((close_prices[i] - close_prices[i - 60]) / close_prices[i - 60])
+                        else:
+                            features['return_60d'] = 0.0
+                        
+                        features['rsi_change_5d'] = float(rsis[i] - rsis[i - 5]) if i >= 5 else 0.0
+                        features['macd_hist_change_5d'] = float(macd_hists[i] - macd_hists[i - 5]) if i >= 5 else 0.0
+                        features['volume_ratio_change_5d'] = float(volume_ratios[i] - volume_ratios[i - 5]) if i >= 5 else 0.0
+                        features['turnover_rate_change_5d'] = float(turnover_rates[i] - turnover_rates[i - 5]) if i >= 5 else 0.0
+                        features['main_net_inflow_change_5d'] = float(main_net_inflows[i] - main_net_inflows[i - 5]) if i >= 5 else 0.0
+                        
+                        if i >= 20:
+                            past_20_max = float(np.max(close_prices[i - 20:i]))
+                            features['is_20d_high'] = 1 if past_20_max > 0 and close_prices[i] >= past_20_max else 0
+                        else:
+                            features['is_20d_high'] = 0
+                        if i >= 60:
+                            past_60_max = float(np.max(close_prices[i - 60:i]))
+                            features['is_60d_high'] = 1 if past_60_max > 0 and close_prices[i] >= past_60_max else 0
+                        else:
+                            features['is_60d_high'] = 0
+                        if i >= 20:
+                            past_20_vol_max = float(np.max(volumes[i - 20:i]))
+                            features['is_volume_breakout'] = 1 if past_20_vol_max > 0 and volumes[i] >= past_20_vol_max else 0
+                        else:
+                            features['is_volume_breakout'] = 0
                         
                         # 标签：涨跌幅
                         change_pct = (future_price - current_price) / current_price * 100

@@ -14,6 +14,7 @@ sys.path.insert(0, project_root)
 
 from utils.db_connection import DatabaseConnection
 from utils.logger import get_logger
+from utils.prediction_config_manager import PredictionConfigManager
 
 # 导入配置常量
 try:
@@ -33,9 +34,228 @@ logger = get_logger(__name__)
 class BacktestEngine:
     """回测引擎"""
     
+    # 最大持仓天数（超过后强制平仓，避免持仓"卡住"）
+    MAX_HOLDING_DAYS = 10
+    
     def __init__(self):
         self.db = DatabaseConnection()
         self.logger = logger
+        self.config_manager = PredictionConfigManager()
+    
+    def _get_trading_params_from_config(self) -> Dict:
+        """
+        从数据库配置中读取交易参数（优化器保存的最佳参数）。
+        如果读取失败则使用合理默认值。
+        """
+        defaults = {
+            'buy_threshold': 0.6,
+            'sell_threshold': 0.4,
+            'min_confidence': 0.55,
+            'stop_loss_pct': -5.0,
+            'take_profit_pct': 8.0,
+            'max_position_pct': 0.3,
+            'max_holding_days': self.MAX_HOLDING_DAYS,
+        }
+        try:
+            config = self.config_manager.get_config()
+            if config:
+                prediction = config.get('prediction', {}) if isinstance(config.get('prediction', {}), dict) else {}
+                # 统一优先读取顶层 trading 分类，其次兼容历史结构
+                trading = config.get('trading', {}) if isinstance(config.get('trading', {}), dict) else {}
+                legacy_trading = prediction.get('trading', {}) if isinstance(prediction.get('trading', {}), dict) else {}
+
+                # 兼容旧键名，避免“设置了参数但回测读不到”
+                alias_map = {
+                    'buy_threshold': ['buy_threshold', 'buy_signal_threshold'],
+                    'sell_threshold': ['sell_threshold', 'sell_signal_threshold'],
+                    'min_confidence': ['min_confidence', 'trading_min_confidence', 'confidence_threshold'],
+                    'stop_loss_pct': ['stop_loss_pct'],
+                    'take_profit_pct': ['take_profit_pct'],
+                    'max_position_pct': ['max_position_pct', 'max_single_position_pct'],
+                    'max_holding_days': ['max_holding_days'],
+                }
+
+                sources = [trading, legacy_trading, prediction]
+                for target_key, candidate_keys in alias_map.items():
+                    for source in sources:
+                        for candidate_key in candidate_keys:
+                            if candidate_key in source and source[candidate_key] is not None:
+                                defaults[target_key] = float(source[candidate_key])
+                                break
+                        else:
+                            continue
+                        break
+
+                # 统一仓位单位：配置可能是比例(0.3)或百分比(30)
+                if defaults['max_position_pct'] > 1:
+                    defaults['max_position_pct'] = defaults['max_position_pct'] / 100.0
+
+                # 防御性裁剪，避免脏配置影响回测稳定性
+                defaults['max_position_pct'] = max(0.01, min(1.0, defaults['max_position_pct']))
+                if defaults['stop_loss_pct'] > 0:
+                    defaults['stop_loss_pct'] = -abs(defaults['stop_loss_pct'])
+        except Exception as e:
+            self.logger.warning(f"读取配置交易参数失败，使用默认值: {e}")
+        return defaults
+    
+    def _get_predictions(self, start_date: str, end_date: str) -> List[Dict]:
+        """查询已验证的预测记录"""
+        sql = """
+            SELECT 
+                symbol, name, prediction_date, target_date,
+                prediction, up_probability, down_probability, confidence,
+                current_price, actual_price, actual_change_pct,
+                prediction_hit
+            FROM stock_predictions
+            WHERE target_date >= %s 
+              AND target_date <= %s
+              AND actual_price IS NOT NULL
+              AND prediction_hit IS NOT NULL
+            ORDER BY target_date ASC
+        """
+        return self.db.execute_query(sql, (start_date, end_date)) or []
+    
+    def _check_positions_for_sell(self, positions: dict, latest_prices: dict,
+                                  current_date, capital: float, trades: list,
+                                  stop_loss_pct: float, take_profit_pct: float,
+                                  stamp_tax_rate: float, commission_rate: float,
+                                  slippage_rate: float,
+                                  max_holding_days: int = None,
+                                  exclude_symbols: set = None) -> float:
+        """
+        在日期切换时，遍历所有持仓检查止盈/止损/超时强制平仓。
+        这样即使某只股票当天没有新的预测记录，仍然能执行风控。
+        
+        Args:
+            positions: 当前持仓字典（会被原地修改）
+            latest_prices: 最新市价字典
+            current_date: 当前处理的日期
+            capital: 当前可用现金
+            trades: 交易记录列表（会被原地追加）
+            stop_loss_pct: 止损阈值（百分比，如 -5.0）
+            take_profit_pct: 止盈阈值（百分比，如 8.0）
+            stamp_tax_rate: 印花税费率
+            commission_rate: 佣金费率
+            slippage_rate: 滑点费率
+            max_holding_days: 最大持仓天数，None 使用类默认值
+            exclude_symbols: 本轮已经被信号处理过的股票，跳过避免重复
+            
+        Returns:
+            更新后的 capital
+        """
+        if max_holding_days is None:
+            max_holding_days = self.MAX_HOLDING_DAYS
+        if exclude_symbols is None:
+            exclude_symbols = set()
+        
+        symbols_to_sell = []
+        
+        for symbol, pos in positions.items():
+            if symbol in exclude_symbols:
+                continue
+            
+            cost_price = pos['cost_price']
+            market_price = latest_prices.get(symbol, cost_price)
+            profit_pct = (market_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
+            
+            should_sell = False
+            sell_reason = ''
+            
+            # 止盈
+            if profit_pct >= take_profit_pct:
+                should_sell = True
+                sell_reason = '止盈'
+            # 止损
+            elif profit_pct <= stop_loss_pct:
+                should_sell = True
+                sell_reason = '止损'
+            # 超时强制平仓
+            elif max_holding_days > 0:
+                buy_date = pos.get('buy_date')
+                if buy_date and current_date:
+                    try:
+                        if isinstance(buy_date, str):
+                            buy_dt = datetime.strptime(buy_date, '%Y-%m-%d').date()
+                        else:
+                            buy_dt = buy_date if hasattr(buy_date, 'year') else buy_date
+                        if isinstance(current_date, str):
+                            cur_dt = datetime.strptime(current_date, '%Y-%m-%d').date()
+                        else:
+                            cur_dt = current_date if hasattr(current_date, 'year') else current_date
+                        holding_days = (cur_dt - buy_dt).days
+                        if holding_days >= max_holding_days:
+                            should_sell = True
+                            sell_reason = f'持仓超{max_holding_days}天'
+                    except Exception:
+                        pass
+            
+            if should_sell:
+                symbols_to_sell.append((symbol, market_price, sell_reason, profit_pct))
+        
+        # 执行卖出（不能在遍历 positions 时删除）
+        for symbol, sell_price, sell_reason, profit_pct in symbols_to_sell:
+            pos = positions[symbol]
+            proceeds = self._sell_stock(
+                symbol, pos['shares'], sell_price,
+                stamp_tax_rate, commission_rate, slippage_rate
+            )
+            capital += proceeds
+            actual_profit = proceeds - pos['total_cost']
+            
+            trades.append({
+                'date': current_date,
+                'symbol': symbol,
+                'action': 'SELL',
+                'price': sell_price,
+                'shares': pos['shares'],
+                'cost_price': round(pos['cost_price'], 4),
+                'profit': round(actual_profit, 2),
+                'profit_pct': round(profit_pct, 2),
+                'reason': sell_reason,
+                'capital_after': round(capital, 2)
+            })
+            del positions[symbol]
+        
+        return capital
+    
+    def _force_close_all(self, positions: dict, latest_prices: dict,
+                         close_date, capital: float, trades: list,
+                         stamp_tax_rate: float, commission_rate: float,
+                         slippage_rate: float) -> float:
+        """
+        回测结束时强制平仓所有剩余持仓，计入交易记录和手续费。
+        
+        Returns:
+            更新后的 capital
+        """
+        symbols_to_close = list(positions.keys())
+        for symbol in symbols_to_close:
+            pos = positions[symbol]
+            sell_price = latest_prices.get(symbol, pos['cost_price'])
+            profit_pct = (sell_price - pos['cost_price']) / pos['cost_price'] * 100 if pos['cost_price'] > 0 else 0
+            
+            proceeds = self._sell_stock(
+                symbol, pos['shares'], sell_price,
+                stamp_tax_rate, commission_rate, slippage_rate
+            )
+            capital += proceeds
+            actual_profit = proceeds - pos['total_cost']
+            
+            trades.append({
+                'date': close_date,
+                'symbol': symbol,
+                'action': 'SELL',
+                'price': sell_price,
+                'shares': pos['shares'],
+                'cost_price': round(pos['cost_price'], 4),
+                'profit': round(actual_profit, 2),
+                'profit_pct': round(profit_pct, 2),
+                'reason': '回测结束平仓',
+                'capital_after': round(capital, 2)
+            })
+            del positions[symbol]
+        
+        return capital
     
     def backtest_predictions(self, start_date: str, end_date: str, 
                             initial_capital: float = 100000.0,
@@ -57,22 +277,23 @@ class BacktestEngine:
             回测结果字典
         """
         try:
-            # 查询预测记录
-            sql = """
-                SELECT 
-                    symbol, name, prediction_date, target_date,
-                    prediction, up_probability, down_probability, confidence,
-                    current_price, actual_price, actual_change_pct,
-                    prediction_hit
-                FROM stock_predictions
-                WHERE target_date >= %s 
-                  AND target_date <= %s
-                  AND actual_price IS NOT NULL
-                  AND prediction_hit IS NOT NULL
-                ORDER BY target_date ASC
-            """
+            # 从数据库配置读取交易参数（与优化器使用同一套参数）
+            tp = self._get_trading_params_from_config()
+            buy_threshold = tp['buy_threshold']
+            sell_threshold = tp['sell_threshold']
+            min_confidence = tp['min_confidence']
+            stop_loss_pct = tp['stop_loss_pct']
+            take_profit_pct = tp['take_profit_pct']
+            max_position_pct = tp['max_position_pct']
+            max_holding_days = int(tp['max_holding_days'])
             
-            predictions = self.db.execute_query(sql, (start_date, end_date))
+            self.logger.info(
+                f"回测使用交易参数: 买入阈值={buy_threshold}, 卖出阈值={sell_threshold}, "
+                f"置信度={min_confidence}, 止损={stop_loss_pct}%, 止盈={take_profit_pct}%, "
+                f"仓位={max_position_pct}, 持仓天数={max_holding_days}"
+            )
+            
+            predictions = self._get_predictions(start_date, end_date)
             
             if not predictions:
                 return {
@@ -88,7 +309,23 @@ class BacktestEngine:
             latest_prices = {}  # 跟踪每只股票最新市场价格
             
             current_date = None
-            daily_capital = capital
+            processed_symbols_today = set()  # 当天已被信号处理过的股票
+            
+            # 统计有效交易日数 vs 自然日跨度
+            unique_dates = set()
+            
+            # 预先按日期分组每只股票的价格，确保风控检查时使用当天最新价格
+            date_prices_map = {}
+            for p in predictions:
+                td = p.get('target_date')
+                sym = p.get('symbol', '')
+                ap = float(p.get('actual_price', 0))
+                cp = float(p.get('current_price', 0))
+                price = ap if ap > 0 else cp
+                if td and sym and price > 0:
+                    if td not in date_prices_map:
+                        date_prices_map[td] = {}
+                    date_prices_map[td][sym] = price
             
             for pred in predictions:
                 symbol = pred.get('symbol', '')
@@ -102,38 +339,101 @@ class BacktestEngine:
                 if not symbol or not target_date or current_price <= 0:
                     continue
                 
+                unique_dates.add(str(target_date))
+                
                 # 更新最新市场价格（用于持仓估值）
                 if actual_price > 0:
                     latest_prices[symbol] = actual_price
                 elif current_price > 0:
                     latest_prices[symbol] = current_price
                 
-                # 更新日期
+                # 日期切换：先对所有持仓做风控检查（止盈/止损/超时），再处理当天信号
                 if target_date != current_date:
                     if current_date:
-                        # 计算当日资产价值（使用最新市场价格）
+                        # 记录前一天的资产价值
                         total_value = self._calculate_portfolio_value(
                             capital, positions, latest_prices
                         )
                         daily_values.append({
                             'date': current_date,
-                            'capital': capital,
-                            'positions_value': total_value - capital,
-                            'total_value': total_value
+                            'capital': round(capital, 2),
+                            'positions_value': round(total_value - capital, 2),
+                            'total_value': round(total_value, 2)
                         })
+                    
                     current_date = target_date
+                    processed_symbols_today = set()
+                    
+                    # 先用当天所有预测的价格更新latest_prices，再做风控
+                    if current_date in date_prices_map:
+                        latest_prices.update(date_prices_map[current_date])
+                    
+                    # 在新的一天开始时，检查所有持仓的止盈/止损/超时
+                    capital = self._check_positions_for_sell(
+                        positions, latest_prices, current_date, capital, trades,
+                        stop_loss_pct=stop_loss_pct, take_profit_pct=take_profit_pct,
+                        stamp_tax_rate=stamp_tax_rate, commission_rate=commission_rate,
+                        slippage_rate=slippage_rate, max_holding_days=max_holding_days,
+                        exclude_symbols=processed_symbols_today
+                    )
                 
-                # 交易决策逻辑
-                # 买入条件：预测上涨且置信度足够
-                if prediction == '上涨' and up_prob >= PROBABILITY_THRESHOLDS["buy_signal"] and confidence >= CONFIDENCE_THRESHOLDS["medium"]:
+                # 确定交易价格：统一使用actual_price（目标日实际收盘价）
+                trade_price = actual_price if actual_price > 0 else current_price
+                
+                # --- 交易决策逻辑 ---
+                
+                # 先检查是否持有该股票，如果持有，优先检查信号卖出
+                if symbol in positions:
+                    pos = positions[symbol]
+                    cost_price = pos['cost_price']
+                    sell_price = trade_price
+                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
+                    
+                    should_sell = False
+                    sell_reason = ''
+                    
+                    if prediction == '下跌' and up_prob <= sell_threshold:
+                        should_sell = True
+                        sell_reason = '预测下跌'
+                    elif profit_pct >= take_profit_pct:
+                        should_sell = True
+                        sell_reason = '止盈'
+                    elif profit_pct <= stop_loss_pct:
+                        should_sell = True
+                        sell_reason = '止损'
+                    
+                    if should_sell:
+                        proceeds = self._sell_stock(
+                            symbol, pos['shares'],
+                            sell_price, stamp_tax_rate, commission_rate, slippage_rate
+                        )
+                        capital += proceeds
+                        actual_profit = proceeds - pos['total_cost']
+                        
+                        trades.append({
+                            'date': target_date,
+                            'symbol': symbol,
+                            'action': 'SELL',
+                            'price': sell_price,
+                            'shares': pos['shares'],
+                            'cost_price': round(cost_price, 4),
+                            'profit': round(actual_profit, 2),
+                            'profit_pct': round(profit_pct, 2),
+                            'reason': sell_reason,
+                            'capital_after': round(capital, 2)
+                        })
+                        del positions[symbol]
+                    
+                    processed_symbols_today.add(symbol)
+                
+                # 买入条件：预测上涨且置信度足够，且当前未持有
+                elif prediction == '上涨' and up_prob >= buy_threshold and confidence >= min_confidence:
                     if symbol not in positions:
-                        # 买入
-                        shares, total_cost = self._buy_stock(
-                            symbol, capital, current_price,
+                        shares, total_cost = self._buy_stock_with_max_position(
+                            symbol, capital, trade_price, max_position_pct,
                             commission_rate, slippage_rate
                         )
                         if shares > 0:
-                            # 每股成本价 = 总成本 / 股数
                             per_share_cost = total_cost / shares
                             positions[symbol] = {
                                 'shares': shares,
@@ -146,69 +446,48 @@ class BacktestEngine:
                                 'date': target_date,
                                 'symbol': symbol,
                                 'action': 'BUY',
-                                'price': per_share_cost,
+                                'price': round(trade_price, 4),
+                                'per_share_cost': round(per_share_cost, 4),
                                 'shares': shares,
-                                'capital_after': capital
+                                'capital_after': round(capital, 2)
                             })
-                
-                # 卖出条件：预测下跌或持仓盈利达到目标
-                elif symbol in positions:
-                    pos = positions[symbol]
-                    cost_price = pos['cost_price']  # 每股成本价
-                    # 使用actual_price（目标日实际价格）计算利润
-                    sell_price = actual_price if actual_price > 0 else current_price
-                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
                     
-                    # 预测下跌或达到止盈/止损
-                    should_sell = False
-                    sell_reason = ''
-                    
-                    if prediction == '下跌' and up_prob <= 0.4:
-                        should_sell = True
-                        sell_reason = '预测下跌'
-                    elif profit_pct >= 8.0:  # 止盈
-                        should_sell = True
-                        sell_reason = '止盈'
-                    elif profit_pct <= -5.0:  # 止损
-                        should_sell = True
-                        sell_reason = '止损'
-                    
-                    if should_sell:
-                        # 卖出
-                        proceeds = self._sell_stock(
-                            symbol, pos['shares'],
-                            sell_price, stamp_tax_rate, commission_rate, slippage_rate
-                        )
-                        capital += proceeds
-                        
-                        # 利润 = 卖出所得 - 买入总成本
-                        actual_profit = proceeds - pos['total_cost']
-                        
-                        trades.append({
-                            'date': target_date,
-                            'symbol': symbol,
-                            'action': 'SELL',
-                            'price': sell_price,
-                            'shares': pos['shares'],
-                            'cost_price': cost_price,
-                            'profit': round(actual_profit, 2),
-                            'profit_pct': round(profit_pct, 2),
-                            'reason': sell_reason,
-                            'capital_after': capital
-                        })
-                        
-                        del positions[symbol]
+                    processed_symbols_today.add(symbol)
             
-            # 计算最终资产价值（使用最新市场价格估值未平仓头寸）
-            final_date = predictions[-1].get('target_date') if predictions else end_date
-            final_value = self._calculate_portfolio_value(
-                capital, positions, latest_prices
+            # 记录最后一天的资产价值
+            if current_date:
+                total_value = self._calculate_portfolio_value(
+                    capital, positions, latest_prices
+                )
+                daily_values.append({
+                    'date': current_date,
+                    'capital': round(capital, 2),
+                    'positions_value': round(total_value - capital, 2),
+                    'total_value': round(total_value, 2)
+                })
+            
+            # 回测结束：强制平仓所有剩余持仓（标准回测实践）
+            final_date = current_date or end_date
+            capital = self._force_close_all(
+                positions, latest_prices, final_date, capital, trades,
+                stamp_tax_rate, commission_rate, slippage_rate
             )
+            
+            final_value = capital  # 全部平仓后，final_value 就是 capital
             
             # 计算回测指标
             metrics = self._calculate_metrics(
                 initial_capital, final_value, daily_values, trades
             )
+            
+            # 计算覆盖密度信息
+            total_natural_days = 0
+            try:
+                d1 = datetime.strptime(start_date, '%Y-%m-%d').date()
+                d2 = datetime.strptime(end_date, '%Y-%m-%d').date()
+                total_natural_days = (d2 - d1).days + 1
+            except Exception:
+                total_natural_days = len(unique_dates)
             
             return {
                 'success': True,
@@ -220,9 +499,15 @@ class BacktestEngine:
                 'trades_count': len(trades),
                 'win_trades': sum(1 for t in trades if t.get('action') == 'SELL' and t.get('profit', 0) > 0),
                 'loss_trades': sum(1 for t in trades if t.get('action') == 'SELL' and t.get('profit', 0) <= 0),
+                'parameters': tp,  # 返回实际使用的交易参数
                 'metrics': metrics,
-                'trades': trades[-20:] if len(trades) > 20 else trades,  # 只返回最后20笔交易
-                'daily_values': daily_values[-30:] if len(daily_values) > 30 else daily_values  # 只返回最后30天
+                'trades': trades[-50:] if len(trades) > 50 else trades,
+                'daily_values': daily_values[-60:] if len(daily_values) > 60 else daily_values,
+                'data_coverage': {
+                    'trading_days_with_data': len(unique_dates),
+                    'total_natural_days': total_natural_days,
+                    'coverage_ratio': round(len(unique_dates) / max(total_natural_days, 1) * 100, 1)
+                }
             }
             
         except Exception as e:
@@ -250,6 +535,7 @@ class BacktestEngine:
                 - stop_loss_pct: 止损百分比（默认-5.0）
                 - take_profit_pct: 止盈百分比（默认8.0）
                 - max_position_pct: 单只股票最大仓位（默认0.3）
+                - max_holding_days: 最大持仓天数（默认10）
             initial_capital: 初始资金
             
         Returns:
@@ -262,24 +548,15 @@ class BacktestEngine:
         stop_loss_pct = parameters.get('stop_loss_pct', -5.0)
         take_profit_pct = parameters.get('take_profit_pct', 8.0)
         max_position_pct = parameters.get('max_position_pct', 0.3)
+        max_holding_days = parameters.get('max_holding_days', self.MAX_HOLDING_DAYS)
+        
+        # 费率
+        commission_rate = 0.0003
+        stamp_tax_rate = 0.001
+        slippage_rate = 0.001
         
         try:
-            # 查询预测记录（与backtest_predictions相同）
-            sql = """
-                SELECT 
-                    symbol, name, prediction_date, target_date,
-                    prediction, up_probability, down_probability, confidence,
-                    current_price, actual_price, actual_change_pct,
-                    prediction_hit
-                FROM stock_predictions
-                WHERE target_date >= %s 
-                  AND target_date <= %s
-                  AND actual_price IS NOT NULL
-                  AND prediction_hit IS NOT NULL
-                ORDER BY target_date ASC
-            """
-            
-            predictions = self.db.execute_query(sql, (start_date, end_date))
+            predictions = self._get_predictions(start_date, end_date)
             
             if not predictions:
                 return {
@@ -289,12 +566,27 @@ class BacktestEngine:
             
             # 模拟交易（使用参数化的策略）
             capital = initial_capital
-            positions = {}  # {symbol: {'shares': int, 'cost_price': float, 'total_cost': float, 'buy_date': str}}
-            trades = []  # 交易记录
-            daily_values = []  # 每日资产价值
-            latest_prices = {}  # 跟踪每只股票最新市场价格
+            positions = {}
+            trades = []
+            daily_values = []
+            latest_prices = {}
             
             current_date = None
+            processed_symbols_today = set()
+            unique_dates = set()
+            
+            # 预先按日期分组价格，确保风控检查使用当天价格
+            date_prices_map = {}
+            for p in predictions:
+                td = p.get('target_date')
+                sym = p.get('symbol', '')
+                ap = float(p.get('actual_price', 0))
+                cp = float(p.get('current_price', 0))
+                price = ap if ap > 0 else cp
+                if td and sym and price > 0:
+                    if td not in date_prices_map:
+                        date_prices_map[td] = {}
+                    date_prices_map[td][sym] = price
             
             for pred in predictions:
                 symbol = pred.get('symbol', '')
@@ -308,35 +600,95 @@ class BacktestEngine:
                 if not symbol or not target_date or current_price <= 0:
                     continue
                 
-                # 更新最新市场价格（用于持仓估值）
+                unique_dates.add(str(target_date))
+                
+                # 更新最新市场价格
                 if actual_price > 0:
                     latest_prices[symbol] = actual_price
                 elif current_price > 0:
                     latest_prices[symbol] = current_price
                 
-                # 更新日期
+                # 日期切换
                 if target_date != current_date:
                     if current_date:
-                        # 使用实际市价计算当日资产价值
                         total_value = self._calculate_portfolio_value(
                             capital, positions, latest_prices
                         )
                         daily_values.append({
                             'date': current_date,
-                            'capital': capital,
-                            'positions_value': total_value - capital,
-                            'total_value': total_value
+                            'capital': round(capital, 2),
+                            'positions_value': round(total_value - capital, 2),
+                            'total_value': round(total_value, 2)
                         })
+                    
                     current_date = target_date
+                    processed_symbols_today = set()
+                    
+                    # 先用当天所有预测的价格更新latest_prices，再做风控
+                    if current_date in date_prices_map:
+                        latest_prices.update(date_prices_map[current_date])
+                    
+                    # 在新的一天开始时，检查所有持仓的止盈/止损/超时
+                    capital = self._check_positions_for_sell(
+                        positions, latest_prices, current_date, capital, trades,
+                        stop_loss_pct=stop_loss_pct, take_profit_pct=take_profit_pct,
+                        stamp_tax_rate=stamp_tax_rate, commission_rate=commission_rate,
+                        slippage_rate=slippage_rate, max_holding_days=max_holding_days,
+                        exclude_symbols=processed_symbols_today
+                    )
                 
-                # 确定交易价格：使用actual_price（目标日实际价格）
+                # 交易价格：统一使用 actual_price
                 trade_price = actual_price if actual_price > 0 else current_price
                 
-                # 交易决策逻辑（使用参数化的阈值）
-                # 买入条件：预测上涨且上涨概率 >= buy_threshold 且置信度 >= min_confidence
-                if prediction == '上涨' and up_prob >= buy_threshold and confidence >= min_confidence:
+                # --- 交易决策 ---
+                
+                # 先检查持仓卖出（信号驱动）
+                if symbol in positions:
+                    pos = positions[symbol]
+                    cost_price = pos['cost_price']
+                    sell_price = trade_price
+                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
+                    
+                    should_sell = False
+                    sell_reason = ''
+                    
+                    if prediction == '下跌' and up_prob <= sell_threshold:
+                        should_sell = True
+                        sell_reason = '预测下跌'
+                    elif profit_pct >= take_profit_pct:
+                        should_sell = True
+                        sell_reason = '止盈'
+                    elif profit_pct <= stop_loss_pct:
+                        should_sell = True
+                        sell_reason = '止损'
+                    
+                    if should_sell:
+                        proceeds = self._sell_stock(
+                            symbol, pos['shares'],
+                            sell_price, stamp_tax_rate, commission_rate, slippage_rate
+                        )
+                        capital += proceeds
+                        actual_profit = proceeds - pos['total_cost']
+                        
+                        trades.append({
+                            'date': target_date,
+                            'symbol': symbol,
+                            'action': 'SELL',
+                            'price': sell_price,
+                            'shares': pos['shares'],
+                            'cost_price': round(cost_price, 4),
+                            'profit': round(actual_profit, 2),
+                            'profit_pct': round(profit_pct, 2),
+                            'reason': sell_reason,
+                            'capital_after': round(capital, 2)
+                        })
+                        del positions[symbol]
+                    
+                    processed_symbols_today.add(symbol)
+                
+                # 买入条件
+                elif prediction == '上涨' and up_prob >= buy_threshold and confidence >= min_confidence:
                     if symbol not in positions:
-                        # 买入（使用参数化的最大仓位）
                         shares, total_cost = self._buy_stock_with_max_position(
                             symbol, capital, trade_price, max_position_pct
                         )
@@ -353,69 +705,48 @@ class BacktestEngine:
                                 'date': target_date,
                                 'symbol': symbol,
                                 'action': 'BUY',
-                                'price': trade_price,
+                                'price': round(trade_price, 4),
                                 'per_share_cost': round(per_share_cost, 4),
                                 'shares': shares,
                                 'capital_after': round(capital, 2)
                             })
-                
-                # 卖出条件：预测下跌或达到止盈/止损
-                elif symbol in positions:
-                    pos = positions[symbol]
-                    cost_price = pos['cost_price']  # 每股成本价
-                    sell_price = actual_price if actual_price > 0 else current_price
-                    profit_pct = (sell_price - cost_price) / cost_price * 100 if cost_price > 0 else 0
                     
-                    # 预测下跌或达到止盈/止损（使用参数化的阈值）
-                    should_sell = False
-                    sell_reason = ''
-                    
-                    if prediction == '下跌' and up_prob <= sell_threshold:
-                        should_sell = True
-                        sell_reason = '预测下跌'
-                    elif profit_pct >= take_profit_pct:  # 止盈
-                        should_sell = True
-                        sell_reason = '止盈'
-                    elif profit_pct <= stop_loss_pct:  # 止损
-                        should_sell = True
-                        sell_reason = '止损'
-                    
-                    if should_sell:
-                        # 卖出
-                        sell_shares = pos['shares']
-                        proceeds = self._sell_stock(
-                            symbol, sell_shares,
-                            sell_price, 0.001, 0.0003, 0.001  # 印花税、佣金、滑点
-                        )
-                        capital += proceeds
-                        
-                        # 正确计算利润：卖出所得 - 买入总成本
-                        actual_profit = proceeds - pos['total_cost']
-                        
-                        trades.append({
-                            'date': target_date,
-                            'symbol': symbol,
-                            'action': 'SELL',
-                            'price': sell_price,
-                            'shares': sell_shares,
-                            'cost_price': round(cost_price, 4),
-                            'profit': round(actual_profit, 2),
-                            'profit_pct': round(profit_pct, 2),
-                            'reason': sell_reason,
-                            'capital_after': round(capital, 2)
-                        })
-                        
-                        del positions[symbol]
+                    processed_symbols_today.add(symbol)
             
-            # 计算最终资产价值（使用最新市场价格）
-            final_value = self._calculate_portfolio_value(
-                capital, positions, latest_prices
+            # 记录最后一天的资产价值
+            if current_date:
+                total_value = self._calculate_portfolio_value(
+                    capital, positions, latest_prices
+                )
+                daily_values.append({
+                    'date': current_date,
+                    'capital': round(capital, 2),
+                    'positions_value': round(total_value - capital, 2),
+                    'total_value': round(total_value, 2)
+                })
+            
+            # 回测结束：强制平仓所有剩余持仓
+            final_date = current_date or end_date
+            capital = self._force_close_all(
+                positions, latest_prices, final_date, capital, trades,
+                stamp_tax_rate, commission_rate, slippage_rate
             )
+            
+            final_value = capital
             
             # 计算回测指标
             metrics = self._calculate_metrics(
                 initial_capital, final_value, daily_values, trades
             )
+            
+            # 覆盖密度
+            total_natural_days = 0
+            try:
+                d1 = datetime.strptime(start_date, '%Y-%m-%d').date()
+                d2 = datetime.strptime(end_date, '%Y-%m-%d').date()
+                total_natural_days = (d2 - d1).days + 1
+            except Exception:
+                total_natural_days = len(unique_dates)
             
             return {
                 'success': True,
@@ -427,10 +758,15 @@ class BacktestEngine:
                 'trades_count': len(trades),
                 'win_trades': sum(1 for t in trades if t.get('action') == 'SELL' and t.get('profit', 0) > 0),
                 'loss_trades': sum(1 for t in trades if t.get('action') == 'SELL' and t.get('profit', 0) <= 0),
-                'parameters': parameters,  # 记录使用的参数
+                'parameters': parameters,
                 'metrics': metrics,
-                'trades': trades[-20:] if len(trades) > 20 else trades,
-                'daily_values': daily_values[-30:] if len(daily_values) > 30 else daily_values
+                'trades': trades[-50:] if len(trades) > 50 else trades,
+                'daily_values': daily_values[-60:] if len(daily_values) > 60 else daily_values,
+                'data_coverage': {
+                    'trading_days_with_data': len(unique_dates),
+                    'total_natural_days': total_natural_days,
+                    'coverage_ratio': round(len(unique_dates) / max(total_natural_days, 1) * 100, 1)
+                }
             }
             
         except Exception as e:

@@ -203,7 +203,8 @@ class PredictionConfigManager:
                 'prediction': {...},
                 'indicator': {...},
                 'news': {...},
-                'trading': {...}
+                'trading': {...},
+                'performance': {...}
             }
         """
         try:
@@ -231,12 +232,13 @@ class PredictionConfigManager:
             if not results:
                 return None
             
-            # 组织配置数据
+            # 组织配置数据（R6-4修复：添加performance分类）
             config_dict = {
                 'prediction': {},
                 'indicator': {},
                 'news': {},
-                'trading': {}
+                'trading': {},
+                'performance': {}
             }
             
             for row in results:

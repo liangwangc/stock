@@ -638,6 +638,25 @@ class NewsTaskManager:
             sql = f"UPDATE news_crawl_tasks SET {', '.join(updates)} WHERE id = %s"
             DBConnection.execute_update(sql, tuple(params))
             
+            # 同步更新 scheduled_tasks 表（news_crawl_tasks 创建时会同步插入，id 相同）
+            try:
+                sync_updates = []
+                sync_params = []
+                if 'task_name' in kwargs:
+                    sync_updates.append("task_name = %s")
+                    sync_params.append(kwargs['task_name'])
+                if 'is_active' in kwargs:
+                    sync_updates.append("is_active = %s")
+                    sync_params.append(kwargs['is_active'])
+                if sync_updates:
+                    sync_updates.append("updated_at = %s")
+                    sync_params.append(datetime.now())
+                    sync_params.append(task_id)
+                    sync_sql = f"UPDATE scheduled_tasks SET {', '.join(sync_updates)} WHERE id = %s AND task_type = 'news_crawl'"
+                    DBConnection.execute_update(sync_sql, tuple(sync_params))
+            except Exception as sync_err:
+                self.logger.warning(f"同步更新 scheduled_tasks 失败（非致命）: {sync_err}")
+            
             self.logger.info(f"更新任务 {task_id} 成功")
             return True
             
@@ -660,6 +679,13 @@ class NewsTaskManager:
             # 删除任务
             sql = "DELETE FROM news_crawl_tasks WHERE id = %s"
             DBConnection.execute_update(sql, (task_id,))
+            
+            # 同步删除 scheduled_tasks 表中的对应记录
+            try:
+                sync_sql = "DELETE FROM scheduled_tasks WHERE id = %s AND task_type = 'news_crawl'"
+                DBConnection.execute_update(sync_sql, (task_id,))
+            except Exception as sync_err:
+                self.logger.warning(f"同步删除 scheduled_tasks 记录失败（非致命）: {sync_err}")
             
             self.logger.info(f"删除任务 {task_id} 成功")
             return True

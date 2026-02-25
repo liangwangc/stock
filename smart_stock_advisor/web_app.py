@@ -896,6 +896,9 @@ def api_update_user(user_id):
         if not data:
             return jsonify({'success': False, 'message': '请求数据不能为空'}), 400
         
+        current_user_id = session.get('user_id')
+        is_self = (isinstance(current_user_id, int) and current_user_id == user_id)
+        
         updates = {}
         
         if 'password' in data and data['password']:
@@ -910,6 +913,9 @@ def api_update_user(user_id):
             role = (role_raw if role_raw else 'user').strip() if isinstance(role_raw, str) else 'user'
             if role not in ['admin', 'user']:
                 return jsonify({'success': False, 'message': '角色必须是admin或user'}), 400
+            # 自我保护：管理员不能降级自己
+            if is_self and role != 'admin':
+                return jsonify({'success': False, 'message': '不能降级自己的管理员角色'}), 400
             updates['role'] = role
         
         if 'email' in data:
@@ -921,6 +927,9 @@ def api_update_user(user_id):
             updates['email'] = email
         
         if 'is_active' in data:
+            # 自我保护：管理员不能禁用自己
+            if is_self and not bool(data['is_active']):
+                return jsonify({'success': False, 'message': '不能禁用自己的账户'}), 400
             updates['is_active'] = bool(data['is_active'])
         
         if not updates:
@@ -1011,6 +1020,13 @@ def api_delete_user(user_id):
         um = get_user_manager()
         if not um or not USE_DATABASE:
             return jsonify({'success': False, 'message': '用户管理功能未启用'})
+        
+        # 自我保护：不能删除最后一个活跃管理员
+        all_users = um.get_all_users()
+        active_admins = [u for u in all_users if u.get('role') == 'admin' and u.get('is_active') in (1, True)]
+        target_is_admin = any(u.get('id') == user_id and u.get('role') == 'admin' for u in active_admins)
+        if target_is_admin and len(active_admins) <= 1:
+            return jsonify({'success': False, 'message': '不能删除最后一个管理员账户'}), 400
         
         if um.delete_user(user_id):
             return jsonify({'success': True, 'message': '用户删除成功'})
@@ -6483,6 +6499,8 @@ def api_model_evaluate():
     
     try:
         days = request.args.get('days', 30, type=int)
+        # ML10修复：参数范围校验
+        days = max(1, min(days, 365))
         
         evaluator = ModelPerformanceEvaluator()
         
@@ -6602,14 +6620,11 @@ def api_model_optimize():
         import uuid
         progress_id = str(uuid.uuid4())
         
-        # 执行优化（使用较小的搜索空间以加快速度）
+        # 执行优化（使用交易参数搜索空间，这些参数是回测引擎实际使用的）
         optimization_config = {
-            'search_space': {
-                'news_weight': [0.20, 0.25, 0.30],
-                'capital_flow_weight': [0.15, 0.18, 0.20],
-                'market_weight': [0.15, 0.17, 0.20],
-                'technical_weight': [0.18, 0.20, 0.22]
-            },
+            # 不传 search_space，使用 model_optimizer 中的默认搜索空间
+            # 默认搜索：buy_threshold, sell_threshold, min_confidence,
+            #           stop_loss_pct, take_profit_pct, max_position_pct
             'auto_apply_threshold': auto_apply_threshold  # 自动应用阈值
         }
         
@@ -6640,6 +6655,29 @@ def api_model_optimize():
         logger.error(f"参数优化失败: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/model/optimize/progress/<progress_id>', methods=['GET'])
+def api_get_optimization_progress(progress_id):
+    """获取优化进度"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+    
+    if not MODEL_LEARNING_AVAILABLE:
+        return jsonify({'success': False, 'message': '模型学习模块不可用'})
+    
+    try:
+        from utils.model_optimizer import ModelOptimizer
+        progress = ModelOptimizer.get_progress(progress_id)
+        
+        if progress is None:
+            return jsonify({'success': False, 'message': '进度不存在或已过期'})
+        
+        return jsonify({'success': True, 'data': progress})
+        
+    except Exception as e:
+        logger.error(f"获取优化进度失败: {str(e)}")
         return jsonify({'success': False, 'message': str(e)})
 
 
@@ -6782,6 +6820,12 @@ def api_comprehensive_evaluation():
     try:
         data = request.get_json() or {}
         days = data.get('days', 30)
+        # ML10修复：类型检查和范围校验
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = 30
+        days = max(1, min(days, 365))
         
         from utils.adaptive_learning_integration import AdaptiveLearningIntegration
         integration = AdaptiveLearningIntegration()
@@ -7318,6 +7362,22 @@ def api_predict_before_close():
 # 存储训练任务状态
 ml_training_tasks = {}
 ml_training_lock = threading.Lock()
+ML_TRAINING_MAX_HISTORY = 20  # 最多保留历史任务数
+
+
+def _cleanup_ml_training_tasks():
+    """清理已完成的历史训练任务，防止内存泄漏（需在 ml_training_lock 内调用）"""
+    finished = [(k, v) for k, v in ml_training_tasks.items() if v.get('status') in ('completed', 'failed')]
+    if len(finished) > ML_TRAINING_MAX_HISTORY:
+        # 按开始时间排序，删除最旧的
+        finished.sort(key=lambda x: x[1].get('start_time', ''))
+        for k, _ in finished[:len(finished) - ML_TRAINING_MAX_HISTORY]:
+            del ml_training_tasks[k]
+
+
+def _has_running_ml_task() -> bool:
+    """检查是否有正在运行的训练任务（需在 ml_training_lock 内调用）"""
+    return any(t.get('status') == 'running' for t in ml_training_tasks.values())
 
 @app.route('/api/ml/train/base', methods=['POST'])
 def api_train_base_model():
@@ -7339,12 +7399,14 @@ def api_train_base_model():
         if not models:
             return jsonify({'success': False, 'message': '请至少选择一个模型类型'})
         
-        # 生成任务ID
+        # 并发控制：同一时刻只允许一个训练任务
         import uuid
         task_id = str(uuid.uuid4())
         
-        # 初始化任务状态
         with ml_training_lock:
+            if _has_running_ml_task():
+                return jsonify({'success': False, 'message': '已有训练任务正在运行，请等待完成后再试'}), 409
+            _cleanup_ml_training_tasks()
             ml_training_tasks[task_id] = {
                 'task_id': task_id,
                 'task_type': 'base',
@@ -7420,12 +7482,14 @@ def api_train_finetune_model():
         if not all([start_date, end_date]):
             return jsonify({'success': False, 'message': '请填写开始日期和结束日期'})
         
-        # 生成任务ID
+        # 并发控制：同一时刻只允许一个训练任务
         import uuid
         task_id = str(uuid.uuid4())
         
-        # 初始化任务状态
         with ml_training_lock:
+            if _has_running_ml_task():
+                return jsonify({'success': False, 'message': '已有训练任务正在运行，请等待完成后再试'}), 409
+            _cleanup_ml_training_tasks()
             ml_training_tasks[task_id] = {
                 'task_id': task_id,
                 'task_type': 'finetune',
@@ -7478,6 +7542,83 @@ def api_train_finetune_model():
         
     except Exception as e:
         logger.error(f"启动微调训练任务失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/ml/optimize-factor-quality', methods=['POST'])
+def api_optimize_factor_quality():
+    """因子质量优化：分析因子重要性并筛选高质量因子，保存为 selected_features.pkl"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'})
+    
+    try:
+        data = request.get_json() or {}
+        train_start = data.get('train_start_date', '2014-01-01')
+        train_end = data.get('train_end_date', '2022-12-31')
+        val_start = data.get('val_start_date', '2023-01-01')
+        val_end = data.get('val_end_date', '2023-12-31')
+        
+        import uuid
+        task_id = str(uuid.uuid4())
+        
+        with ml_training_lock:
+            if _has_running_ml_task():
+                return jsonify({'success': False, 'message': '已有训练或优化任务正在运行，请等待完成后再试'}), 409
+            _cleanup_ml_training_tasks()
+            ml_training_tasks[task_id] = {
+                'task_id': task_id,
+                'task_type': 'factor_optimize',
+                'status': 'running',
+                'progress': 0,
+                'message': '正在启动因子质量优化...',
+                'logs': [],
+                'start_time': datetime.now().isoformat(),
+                'user_id': session.get('user_id')
+            }
+        
+        def run_optimization():
+            try:
+                from scripts.optimize_factor_quality import run_optimization as do_run
+                with ml_training_lock:
+                    ml_training_tasks[task_id]['message'] = '正在加载数据与特征...'
+                    ml_training_tasks[task_id]['progress'] = 5
+                    ml_training_tasks[task_id]['logs'].append('开始因子质量优化（LGBM 全因子 → 重要性筛选 → 保存 selected_features.pkl）')
+                result = do_run(
+                    train_start_date=train_start,
+                    train_end_date=train_end,
+                    val_start_date=val_start,
+                    val_end_date=val_end,
+                    use_history_data=True,
+                )
+                with ml_training_lock:
+                    ml_training_tasks[task_id]['status'] = 'completed'
+                    ml_training_tasks[task_id]['progress'] = 100
+                    ml_training_tasks[task_id]['message'] = '因子质量优化完成'
+                    ml_training_tasks[task_id]['logs'].append('因子质量优化完成')
+                    if result:
+                        summary = (
+                            f"原始因子: {result.get('original_count', 0)} → "
+                            f"筛选后: {result.get('selected_count', 0)}，删除: {result.get('removed_count', 0)}；"
+                            f"验证集 AUC: {result.get('metrics_before', {}).get('AUC', 0):.4f} → {result.get('metrics_after', {}).get('AUC', 0):.4f}"
+                        )
+                        ml_training_tasks[task_id]['logs'].append(summary)
+            except Exception as e:
+                logger.error(f"因子质量优化失败: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                with ml_training_lock:
+                    ml_training_tasks[task_id]['status'] = 'failed'
+                    ml_training_tasks[task_id]['message'] = f'因子质量优化失败: {str(e)}'
+                    ml_training_tasks[task_id]['logs'].append(f'因子质量优化失败: {str(e)}')
+        
+        thread = threading.Thread(target=run_optimization, daemon=True, name=f"MLFactorOpt-{task_id}")
+        thread.start()
+        
+        return jsonify({'success': True, 'data': {'task_id': task_id}})
+    except Exception as e:
+        logger.error(f"启动因子质量优化失败: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)})

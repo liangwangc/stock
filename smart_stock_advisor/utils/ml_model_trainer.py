@@ -20,6 +20,11 @@ from utils.ml_feature_engineering import MLFeatureEngineering
 
 logger = get_logger(__name__)
 
+# 时间序列交叉验证默认折数
+DEFAULT_TS_CV_SPLITS = 5
+# 重要性接近0的阈值（可选删除）
+DEFAULT_IMPORTANCE_THRESHOLD = 1e-6
+
 
 class MLModelTrainer:
     """机器学习模型训练器"""
@@ -62,7 +67,11 @@ class MLModelTrainer:
                 'random_state': 42,
                 'n_jobs': -1
             }
-            
+            # 类别不平衡：scale_pos_weight = 负样本数/正样本数
+            n_pos = int((y_train == 1).sum())
+            n_neg = int((y_train == 0).sum())
+            if n_pos > 0:
+                default_params['scale_pos_weight'] = n_neg / n_pos
             if params:
                 default_params.update(params)
             
@@ -137,6 +146,110 @@ class MLModelTrainer:
             self.logger.error(traceback.format_exc())
             return None, {}
     
+    def train_xgb_classifier_timeseries_cv(self,
+                                            X: pd.DataFrame,
+                                            y: pd.Series,
+                                            n_splits: int = DEFAULT_TS_CV_SPLITS,
+                                            params: Optional[Dict] = None,
+                                            drop_near_zero_importance: bool = False,
+                                            importance_threshold: float = DEFAULT_IMPORTANCE_THRESHOLD,
+                                            X_val: Optional[pd.DataFrame] = None,
+                                            y_val: Optional[pd.Series] = None) -> Tuple[object, Dict, List[str]]:
+        """
+        使用时间序列 5 折交叉验证训练 XGBoost 分类器（禁止随机切分）。
+        输出每折 AUC、平均 AUC、特征重要性前30；可选删除重要性接近0的因子。
+        """
+        try:
+            import xgboost as xgb
+            from sklearn.model_selection import TimeSeriesSplit
+            from sklearn.metrics import roc_auc_score
+        except ImportError as e:
+            self.logger.error(f"依赖未安装: {e}")
+            return None, {}, list(X.columns) if hasattr(X, 'columns') else []
+        try:
+            # 去除 object 列
+            object_cols = X.select_dtypes(include=['object']).columns.tolist()
+            if object_cols:
+                X = X.drop(columns=object_cols).copy()
+            feature_names = list(X.columns)
+            n_pos = int((y == 1).sum())
+            n_neg = int((y == 0).sum())
+            scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
+            default_params = {
+                'objective': 'binary:logistic',
+                'eval_metric': 'logloss',
+                'max_depth': 6,
+                'learning_rate': 0.1,
+                'n_estimators': 100,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'random_state': 42,
+                'n_jobs': -1,
+                'scale_pos_weight': scale_pos_weight,
+            }
+            if params:
+                default_params.update(params)
+            tscv = TimeSeriesSplit(n_splits=n_splits)
+            cv_aucs = []
+            self.logger.info(f"TimeSeriesSplit {n_splits} 折交叉验证（时间序列切分），scale_pos_weight={scale_pos_weight:.4f}")
+            for fold, (train_idx, test_idx) in enumerate(tscv.split(X), 1):
+                X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+                y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+                if y_te.nunique() < 2:
+                    self.logger.warning(f"Fold {fold}: 测试集仅一类，跳过 AUC")
+                    continue
+                clf = xgb.XGBClassifier(**default_params)
+                clf.fit(X_tr, y_tr, verbose=False)
+                proba = clf.predict_proba(X_te)[:, 1]
+                auc = roc_auc_score(y_te, proba)
+                cv_aucs.append(auc)
+                self.logger.info(f"  Fold {fold} AUC: {auc:.4f}")
+            mean_auc = float(np.mean(cv_aucs)) if cv_aucs else 0.0
+            self.logger.info(f"  平均 AUC: {mean_auc:.4f}")
+            # 全量训练
+            final = xgb.XGBClassifier(**default_params)
+            final.fit(X, y, verbose=10)
+            # 特征重要性（与 feature_names 顺序一致）
+            imp = final.feature_importances_
+            fi_list = sorted(zip(feature_names, imp), key=lambda x: x[1], reverse=True)
+            top30 = fi_list[:30]
+            self.logger.info("特征重要性前30名:")
+            for name, val in top30:
+                self.logger.info(f"  {name}: {val:.6f}")
+            metrics = {
+                'cv_aucs': cv_aucs,
+                'mean_auc': mean_auc,
+                'train_accuracy': float(np.mean(final.predict(X) == y)),
+                'scale_pos_weight': scale_pos_weight,
+            }
+            fi_dict = {k: float(v) for k, v in fi_list}
+            metrics['feature_importance'] = fi_dict
+            if X_val is not None and y_val is not None:
+                X_val_clean = X_val.drop(columns=object_cols, errors='ignore').copy() if object_cols else X_val.copy()
+                if list(X_val_clean.columns) == feature_names:
+                    proba_val = final.predict_proba(X_val_clean)[:, 1]
+                    metrics['val_auc'] = float(roc_auc_score(y_val, proba_val))
+                    self.logger.info(f"验证集 AUC: {metrics['val_auc']:.4f}")
+            # 可选：删除重要性接近0的因子并重新训练
+            if drop_near_zero_importance and fi_list:
+                to_drop = [name for name, val in fi_list if val < importance_threshold]
+                if to_drop:
+                    self.logger.info(f"删除重要性<{importance_threshold}的因子: {len(to_drop)} 个")
+                    X_reduced = X.drop(columns=to_drop, errors='ignore')
+                    feature_names = list(X_reduced.columns)
+                    final = xgb.XGBClassifier(**default_params)
+                    final.fit(X_reduced, y, verbose=10)
+                    imp = final.feature_importances_
+                    fi_list = sorted(zip(feature_names, imp), key=lambda x: x[1], reverse=True)
+                    metrics['feature_importance'] = {k: float(v) for k, v in fi_list}
+                    metrics['dropped_features'] = to_drop
+            return final, metrics, feature_names
+        except Exception as e:
+            self.logger.error(f"XGBoost TimeSeriesSplit 训练失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return None, {}, list(X.columns) if hasattr(X, 'columns') else []
+
     def train_lgb_classifier(self,
                             X_train: pd.DataFrame,
                             y_train: pd.Series,
@@ -172,7 +285,10 @@ class MLModelTrainer:
                 'verbose': -1,
                 'random_state': 42
             }
-            
+            n_pos = int((y_train == 1).sum())
+            n_neg = int((y_train == 0).sum())
+            if n_pos > 0:
+                default_params['scale_pos_weight'] = n_neg / n_pos
             if params:
                 default_params.update(params)
             
@@ -257,6 +373,121 @@ class MLModelTrainer:
             self.logger.error(traceback.format_exc())
             return None, {}
     
+    def train_lgb_classifier_timeseries_cv(self,
+                                            X: pd.DataFrame,
+                                            y: pd.Series,
+                                            n_splits: int = DEFAULT_TS_CV_SPLITS,
+                                            params: Optional[Dict] = None,
+                                            drop_near_zero_importance: bool = False,
+                                            importance_threshold: float = DEFAULT_IMPORTANCE_THRESHOLD,
+                                            X_val: Optional[pd.DataFrame] = None,
+                                            y_val: Optional[pd.Series] = None) -> Tuple[object, Dict, List[str]]:
+        """
+        使用时间序列 5 折交叉验证训练 LightGBM 分类器（禁止随机切分）。
+        输出每折 AUC、平均 AUC、特征重要性前30；可选删除重要性接近0的因子。
+        """
+        try:
+            import lightgbm as lgb
+            from sklearn.model_selection import TimeSeriesSplit
+            from sklearn.metrics import roc_auc_score
+        except ImportError as e:
+            self.logger.error(f"依赖未安装: {e}")
+            return None, {}, list(X.columns) if hasattr(X, 'columns') else []
+        try:
+            object_cols = X.select_dtypes(include=['object']).columns.tolist()
+            if object_cols:
+                X = X.drop(columns=object_cols).copy()
+            feature_names = list(X.columns)
+            n_pos = int((y == 1).sum())
+            n_neg = int((y == 0).sum())
+            scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
+            default_params = {
+                'objective': 'binary',
+                'metric': 'binary_logloss',
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,
+                'learning_rate': 0.1,
+                'feature_fraction': 0.8,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'verbose': -1,
+                'random_state': 42,
+                'scale_pos_weight': scale_pos_weight,
+            }
+            if params:
+                default_params.update(params)
+            tscv = TimeSeriesSplit(n_splits=n_splits)
+            cv_aucs = []
+            self.logger.info(f"TimeSeriesSplit {n_splits} 折交叉验证（时间序列切分），scale_pos_weight={scale_pos_weight:.4f}")
+            for fold, (train_idx, test_idx) in enumerate(tscv.split(X), 1):
+                X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+                y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+                if y_te.nunique() < 2:
+                    self.logger.warning(f"Fold {fold}: 测试集仅一类，跳过 AUC")
+                    continue
+                train_data = lgb.Dataset(X_tr, label=y_tr)
+                model_fold = lgb.train(
+                    default_params,
+                    train_data,
+                    num_boost_round=100,
+                    callbacks=[lgb.log_evaluation(0)]
+                )
+                proba = model_fold.predict(X_te)
+                auc = roc_auc_score(y_te, proba)
+                cv_aucs.append(auc)
+                self.logger.info(f"  Fold {fold} AUC: {auc:.4f}")
+            mean_auc = float(np.mean(cv_aucs)) if cv_aucs else 0.0
+            self.logger.info(f"  平均 AUC: {mean_auc:.4f}")
+            train_data = lgb.Dataset(X, label=y)
+            final = lgb.train(
+                default_params,
+                train_data,
+                num_boost_round=100,
+                callbacks=[lgb.log_evaluation(10)]
+            )
+            imp = final.feature_importance(importance_type='gain')
+            fi_list = sorted(zip(feature_names, imp), key=lambda x: x[1], reverse=True)
+            top30 = fi_list[:30]
+            self.logger.info("特征重要性前30名:")
+            for name, val in top30:
+                self.logger.info(f"  {name}: {val:.6f}")
+            metrics = {
+                'cv_aucs': cv_aucs,
+                'mean_auc': mean_auc,
+                'train_accuracy': float(np.mean((final.predict(X) > 0.5).astype(int) == y)),
+                'scale_pos_weight': scale_pos_weight,
+            }
+            metrics['feature_importance'] = {k: float(v) for k, v in fi_list}
+            if X_val is not None and y_val is not None:
+                X_val_clean = X_val.drop(columns=object_cols, errors='ignore').copy() if object_cols else X_val.copy()
+                if list(X_val_clean.columns) == feature_names:
+                    proba_val = final.predict(X_val_clean)
+                    metrics['val_auc'] = float(roc_auc_score(y_val, proba_val))
+                    self.logger.info(f"验证集 AUC: {metrics['val_auc']:.4f}")
+            if drop_near_zero_importance and fi_list:
+                to_drop = [name for name, val in fi_list if val < importance_threshold]
+                if to_drop:
+                    self.logger.info(f"删除重要性<{importance_threshold}的因子: {len(to_drop)} 个")
+                    X_reduced = X.drop(columns=to_drop, errors='ignore')
+                    feature_names = list(X_reduced.columns)
+                    train_data = lgb.Dataset(X_reduced, label=y)
+                    final = lgb.train(
+                        default_params,
+                        train_data,
+                        num_boost_round=100,
+                        callbacks=[lgb.log_evaluation(10)]
+                    )
+                    imp = final.feature_importance(importance_type='gain')
+                    fi_list = sorted(zip(feature_names, imp), key=lambda x: x[1], reverse=True)
+                    metrics['feature_importance'] = {k: float(v) for k, v in fi_list}
+                    metrics['dropped_features'] = to_drop
+            return final, metrics, feature_names
+        except Exception as e:
+            self.logger.error(f"LightGBM TimeSeriesSplit 训练失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return None, {}, list(X.columns) if hasattr(X, 'columns') else []
+
     def train_xgb_regressor(self,
                            X_train: pd.DataFrame,
                            y_train: pd.Series,

@@ -217,9 +217,11 @@ class BackupManager:
             # 获取文件大小
             file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
             
-            # 创建备份记录
+            # 创建备份记录（使用 max(id)+1 防止删除后ID冲突）
+            existing_ids = [b.get('id', 0) for b in self.metadata.get('backups', [])]
+            next_id = max(existing_ids, default=0) + 1
             backup_info = {
-                'id': len(self.metadata.get('backups', [])) + 1,
+                'id': next_id,
                 'filename': filename,
                 'filepath': filepath,
                 'size': file_size,
@@ -537,21 +539,29 @@ class BackupManager:
             return []
     
     def _scan_backup_files(self, limit: int = 50) -> List[Dict]:
-        """从文件系统扫描备份文件"""
+        """从文件系统扫描备份文件，并将结果写入 metadata 使其可管理"""
         try:
             backups = []
             
             if not os.path.exists(self.backup_dir):
                 return backups
             
+            # 获取 metadata 中已有的文件名集合，避免重复
+            existing_filenames = {b.get('filename') for b in self.metadata.get('backups', [])}
+            existing_ids = [b.get('id', 0) for b in self.metadata.get('backups', [])]
+            next_id = max(existing_ids, default=0) + 1
+            
             # 扫描备份目录
+            new_entries = []
             for filename in os.listdir(self.backup_dir):
                 if filename.startswith('backup_') and filename.endswith('.sql'):
+                    if filename in existing_filenames:
+                        continue  # 已在 metadata 中，跳过
                     filepath = os.path.join(self.backup_dir, filename)
                     if os.path.isfile(filepath):
                         stat = os.stat(filepath)
-                        backups.append({
-                            'id': len(backups) + 1,
+                        entry = {
+                            'id': next_id,
                             'filename': filename,
                             'filepath': filepath,
                             'size': stat.st_size,
@@ -559,11 +569,34 @@ class BackupManager:
                             'description': '自动扫描的备份',
                             'created_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
                             'status': 'success'
-                        })
+                        }
+                        new_entries.append(entry)
+                        backups.append(entry)
+                        next_id += 1
+            
+            # 将扫描到的新备份写入 metadata，使其可通过 ID 操作（删除/恢复）
+            if new_entries:
+                if 'backups' not in self.metadata:
+                    self.metadata['backups'] = []
+                self.metadata['backups'].extend(new_entries)
+                self.metadata['total_backups'] = len(self.metadata['backups'])
+                self._save_metadata()
+                self.logger.info(f"扫描发现 {len(new_entries)} 个新备份文件，已写入元数据")
+            
+            # 合并 metadata 中已有的 + 新扫描的
+            all_backups = self.metadata.get('backups', [])
+            # 验证文件存在
+            valid_backups = []
+            for b in all_backups:
+                fp = b.get('filepath') or os.path.join(self.backup_dir, b.get('filename', ''))
+                if os.path.exists(fp):
+                    b['filepath'] = fp
+                    b['size'] = os.path.getsize(fp)
+                    valid_backups.append(b)
             
             # 按时间倒序排序
-            backups.sort(key=lambda x: x['created_at'], reverse=True)
-            return backups[:limit]
+            valid_backups.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            return valid_backups[:limit]
             
         except Exception as e:
             self.logger.error(f"扫描备份文件失败: {str(e)}")

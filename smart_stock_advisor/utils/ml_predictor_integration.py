@@ -4,9 +4,10 @@ ML模型预测集成模块
 """
 import os
 import sys
+import pickle
 import pandas as pd
 import numpy as np
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
 # 添加项目根目录到路径
@@ -20,6 +21,9 @@ from utils.ml_data_loader import MLDataLoader
 
 logger = get_logger(__name__)
 
+# 因子筛选结果路径（与 optimize_factor_quality.py / train_ml_models.py 一致）
+SELECTED_FEATURES_PATH = os.path.join(project_root, 'models', 'selected_features.pkl')
+
 
 class MLPredictorIntegration:
     """ML模型预测集成类"""
@@ -30,6 +34,31 @@ class MLPredictorIntegration:
         self.data_loader = MLDataLoader()
         self.logger = logger
         self._active_models = {}  # 缓存激活的模型
+        self._selected_features_cache: Optional[List[str]] = None  # 缓存筛选因子列表
+    
+    def _get_feature_list_for_prediction(self, model_type: str = 'classifier') -> Optional[List[str]]:
+        """
+        获取预测时使用的特征列表。优先使用 selected_features.pkl，保证与训练一致。
+        """
+        if os.path.isfile(SELECTED_FEATURES_PATH):
+            try:
+                if self._selected_features_cache is None:
+                    with open(SELECTED_FEATURES_PATH, 'rb') as f:
+                        self._selected_features_cache = pickle.load(f)
+                if self._selected_features_cache:
+                    return self._selected_features_cache
+            except Exception as e:
+                self.logger.debug(f"加载 selected_features.pkl 失败: {e}")
+        model_info = None
+        if model_type == 'classifier':
+            model_info = self.model_manager.get_model_info('xgb_classifier') or \
+                        self.model_manager.get_model_info('lgb_classifier')
+        else:
+            model_info = self.model_manager.get_model_info('xgb_regressor') or \
+                        self.model_manager.get_model_info('lgb_regressor')
+        if model_info and model_info.get('feature_list'):
+            return model_info['feature_list']
+        return None
     
     def get_ml_prediction(self, symbol: str, stock_data: pd.DataFrame) -> Dict:
         """
@@ -130,13 +159,9 @@ class MLPredictorIntegration:
                     'model_type': None
                 }
             
-            # 2. 获取模型信息以确定特征顺序
-            model_info = self.model_manager.get_model_info('xgb_classifier') or \
-                        self.model_manager.get_model_info('lgb_classifier')
-            
-            if model_info and model_info.get('feature_list'):
-                feature_list = model_info['feature_list']
-                # 确保特征顺序与训练时一致
+            # 2. 获取特征列表（优先使用 selected_features.pkl，确保训练与预测特征一致）
+            feature_list = self._get_feature_list_for_prediction(model_type='classifier')
+            if feature_list:
                 missing_features = set(feature_list) - set(features_df.columns)
                 if missing_features:
                     for feat in missing_features:
@@ -222,12 +247,9 @@ class MLPredictorIntegration:
                     'model_type': None
                 }
             
-            # 2. 获取模型信息
-            model_info = self.model_manager.get_model_info('xgb_regressor') or \
-                        self.model_manager.get_model_info('lgb_regressor')
-            
-            if model_info and model_info.get('feature_list'):
-                feature_list = model_info['feature_list']
+            # 2. 获取特征列表（优先使用 selected_features.pkl）
+            feature_list = self._get_feature_list_for_prediction(model_type='regressor')
+            if feature_list:
                 missing_features = set(feature_list) - set(features_df.columns)
                 if missing_features:
                     for feat in missing_features:

@@ -268,19 +268,6 @@ class ModelOptimizer:
             auto_apply_threshold = optimization_config.get('auto_apply_threshold', 5.0) if optimization_config else 5.0  # 默认5%
             should_auto_apply = improvement_pct >= auto_apply_threshold
             
-            # 更新进度：优化完成
-            if progress_id:
-                self._update_progress(progress_id, {
-                    'status': 'completed',
-                    'current': total_combinations,
-                    'total': total_combinations,
-                    'percentage': 100.0,
-                    'message': f'优化完成！改进: {improvement_pct:.2f}%',
-                    'best_score': best_score,
-                    'current_score': current_score,
-                    'improvement_pct': improvement_pct
-                })
-            
             # 保存优化历史
             optimization_record = {
                 'optimization_date': datetime.now(),
@@ -358,13 +345,24 @@ class ModelOptimizer:
                 result['train_ratio'] = train_ratio
                 result['best_validation_score'] = round(best_validation_score, 4) if best_validation_score is not None else None
             
-            # 清理进度（延迟清理，给前端时间获取最终结果）
+            # 更新进度：优化完成（包含完整结果）
             if progress_id:
+                self._update_progress(progress_id, {
+                    'status': 'completed',
+                    'current': total_combinations,
+                    'total': total_combinations,
+                    'percentage': 100.0,
+                    'message': f'优化完成！改进: {improvement_pct:.2f}%',
+                    'best_score': best_score,
+                    'current_score': current_score,
+                    'improvement_pct': improvement_pct,
+                    'result': result  # 存储完整结果，供前端获取
+                })
                 try:
                     import threading
                     def cleanup_progress():
                         import time
-                        time.sleep(5)  # 5秒后清理
+                        time.sleep(30)  # 30秒后清理，给前端足够时间获取结果
                         self._clear_progress(progress_id)
                     threading.Thread(target=cleanup_progress, daemon=True).start()
                 except Exception as e:
@@ -465,6 +463,20 @@ class ModelOptimizer:
             
             current_prediction_config = current_config.get('prediction', {})
             
+            # 确保当前配置包含交易参数的合理默认值（避免基线回测使用全默认值）
+            trading_defaults = {
+                'buy_threshold': 0.6,
+                'sell_threshold': 0.4,
+                'min_confidence': 0.55,
+                'stop_loss_pct': -5.0,
+                'take_profit_pct': 8.0,
+                'max_position_pct': 0.3,
+            }
+            trading_section = current_prediction_config.get('trading', current_prediction_config)
+            for key, default_val in trading_defaults.items():
+                if key not in current_prediction_config:
+                    current_prediction_config[key] = trading_section.get(key, default_val)
+            
             # 检查是否使用交叉验证
             use_cross_validation = optimization_config.get('use_cross_validation', False) if optimization_config else False
             train_ratio = optimization_config.get('train_ratio', 0.8) if optimization_config else 0.8
@@ -486,41 +498,30 @@ class ModelOptimizer:
                 train_end_date = end_date
             
             # 定义搜索空间（使用Real类型，连续值）
+            # 搜索交易参数（回测引擎实际使用的参数）
             dimensions = []
             param_names = []
             
-            # 核心权重参数
-            core_params = {
-                'news_weight': (0.15, 0.30),
-                'capital_flow_weight': (0.12, 0.25),
-                'market_weight': (0.12, 0.25),
-                'technical_weight': (0.15, 0.30)
+            trading_params = {
+                'buy_threshold': (0.50, 0.75),       # 买入上涨概率阈值
+                'sell_threshold': (0.25, 0.50),       # 卖出上涨概率上限
+                'min_confidence': (0.40, 0.70),       # 最小置信度
+                'stop_loss_pct': (-12.0, -2.0),       # 止损百分比
+                'take_profit_pct': (4.0, 20.0),       # 止盈百分比
+                'max_position_pct': (0.10, 0.40),     # 单股最大仓位
             }
             
-            # 辅助权重参数
-            # 【已优化移除】以下三个因子已从预测模型中移除：sector_rotation_weight, us_sector_weight, valuation_weight
-            auxiliary_params = {
-                'history_weight': (0.05, 0.15)
-            }
-            
-            # 添加所有参数到搜索空间
-            for param_name, (min_val, max_val) in {**core_params, **auxiliary_params}.items():
+            for param_name, (min_val, max_val) in trading_params.items():
                 dimensions.append(Real(min_val, max_val, name=param_name))
                 param_names.append(param_name)
             
             # 定义目标函数（负评分，因为gp_minimize是最小化）
             @use_named_args(dimensions=dimensions)
             def objective(**params):
-                # 归一化权重
-                total_weight = sum(params.values())
-                if total_weight > 0:
-                    normalized_params = {k: v / total_weight for k, v in params.items()}
-                else:
-                    normalized_params = params
-                
+                # 交易参数直接使用，不需要归一化
                 # 在训练集上回测
                 backtest_result = self.backtest_engine.backtest_with_parameters(
-                    start_date, train_end_date, normalized_params
+                    start_date, train_end_date, params
                 )
                 
                 if not backtest_result.get('success'):
@@ -532,7 +533,7 @@ class ModelOptimizer:
                 # 如果使用交叉验证，在验证集上验证
                 if use_cross_validation:
                     validation_backtest = self.backtest_engine.backtest_with_parameters(
-                        train_end_date, end_date, normalized_params
+                        train_end_date, end_date, params
                     )
                     if validation_backtest.get('success'):
                         validation_score = self._calculate_optimization_score(validation_backtest)
@@ -557,15 +558,11 @@ class ModelOptimizer:
                 n_initial_points=10  # 初始随机采样点数
             )
             
-            # 提取最佳参数
-            best_params_dict = dict(zip(param_names, result.x))
-            
-            # 归一化权重
-            total_weight = sum(best_params_dict.values())
-            if total_weight > 0:
-                best_params = {k: v / total_weight for k, v in best_params_dict.items()}
-            else:
-                best_params = best_params_dict
+            # 提取最佳参数（交易参数直接使用，无需归一化）
+            best_params = dict(zip(param_names, result.x))
+            # 对 stop_loss_pct 确保为负值
+            if best_params.get('stop_loss_pct', 0) > 0:
+                best_params['stop_loss_pct'] = -best_params['stop_loss_pct']
             
             best_score = -result.fun  # 取负号（因为返回的是负评分）
             
@@ -821,13 +818,9 @@ if __name__ == '__main__':
     print("测试参数优化（网格搜索）")
     print("=" * 60)
     
-    # 使用较小的搜索空间进行测试
+    # 使用默认交易参数搜索空间进行测试
     test_config = {
-        'search_space': {
-            'news_weight': [0.20, 0.25, 0.30],
-            'capital_flow_weight': [0.15, 0.18, 0.20],
-            'technical_weight': [0.18, 0.20, 0.22]
-        }
+        # 不传 search_space，使用默认交易参数搜索空间
     }
     
     result = optimizer.optimize_weights_grid_search(

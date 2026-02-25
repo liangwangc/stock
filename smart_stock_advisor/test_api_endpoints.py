@@ -5,8 +5,37 @@
 import requests
 import json
 import sys
+import pytest
 
 BASE_URL = "http://localhost:5000"
+
+
+def _create_logged_in_session():
+    """创建并返回已登录会话，失败返回None"""
+    session = requests.Session()
+    try:
+        response = session.post(
+            f"{BASE_URL}/login",
+            data={
+                'username': 'admin',
+                'password': 'admin@123'
+            },
+            allow_redirects=False
+        )
+        if response.status_code in [200, 302]:
+            return session
+        return None
+    except Exception:
+        return None
+
+
+@pytest.fixture(scope="session")
+def session():
+    """pytest会话fixture，依赖本地已启动的web服务"""
+    sess = _create_logged_in_session()
+    if sess is None:
+        pytest.skip("web服务未启动或登录失败，请先运行: py web_app.py")
+    return sess
 
 def test_api_login():
     """测试登录"""
@@ -28,14 +57,14 @@ def test_api_login():
         
         if response.status_code in [200, 302]:
             print("[OK] 登录成功")
-            return session
+            assert True
         else:
             print(f"[ERROR] 登录失败: {response.status_code}")
-            return None
+            assert False, f"登录失败: {response.status_code}"
     except Exception as e:
         print(f"[ERROR] 登录请求失败: {str(e)}")
         print("提示: 请确保web服务已启动 (py web_app.py)")
-        return None
+        pytest.skip("登录请求失败，请确保web服务已启动 (py web_app.py)")
 
 
 def test_get_configs(session):
@@ -48,18 +77,18 @@ def test_get_configs(session):
         response = session.get(f"{BASE_URL}/api/prediction/configs")
         result = response.json()
         
-        if result.get('success'):
+        ok = result.get('success')
+        if ok:
             configs = result.get('data', [])
             print(f"[OK] 获取配置列表成功，共 {len(configs)} 个配置")
             for config in configs[:3]:
                 print(f"   - {config.get('config_name')} (ID: {config.get('id')})")
-            return True
         else:
             print(f"[ERROR] 获取配置列表失败: {result.get('message')}")
-            return False
+        assert ok, f"获取配置列表失败: {result.get('message')}"
     except Exception as e:
         print(f"[ERROR] 请求失败: {str(e)}")
-        return False
+        pytest.fail(f"请求失败: {str(e)}")
 
 
 def test_get_active_config(session):
@@ -72,7 +101,8 @@ def test_get_active_config(session):
         response = session.get(f"{BASE_URL}/api/prediction/config/active")
         result = response.json()
         
-        if result.get('success'):
+        ok = result.get('success')
+        if ok:
             data = result.get('data', {})
             if data.get('info'):
                 print(f"[OK] 获取激活配置成功: {data['info'].get('config_name')}")
@@ -82,13 +112,12 @@ def test_get_active_config(session):
                     print(f"   - 包含技术指标配置: {len(data['values'].get('indicator', {}))} 个参数")
             else:
                 print("[OK] 当前没有激活的配置，使用config.py默认值")
-            return True
         else:
             print(f"[ERROR] 获取激活配置失败: {result.get('message')}")
-            return False
+        assert ok, f"获取激活配置失败: {result.get('message')}"
     except Exception as e:
         print(f"[ERROR] 请求失败: {str(e)}")
-        return False
+        pytest.fail(f"请求失败: {str(e)}")
 
 
 def test_validate_config(session):
@@ -103,13 +132,10 @@ def test_validate_config(session):
             'values': {
                 'prediction': {
                     'news_weight': 0.25,
-                    'capital_flow_weight': 0.18,
-                    'market_weight': 0.17,
+                    'capital_flow_weight': 0.20,
+                    'market_weight': 0.20,
                     'technical_weight': 0.20,
-                    'sector_rotation_weight': 0.05,
-                    'history_weight': 0.08,
-                    'us_sector_weight': 0.05,
-                    'valuation_weight': 0.02
+                    'history_weight': 0.15
                 },
                 'indicator': {
                     'ma_short': 5,
@@ -125,7 +151,8 @@ def test_validate_config(session):
         )
         result = response.json()
         
-        if result.get('success') and result.get('is_valid'):
+        ok = result.get('success') and result.get('is_valid')
+        if ok:
             print("[OK] 正确配置验证通过")
             
             # 测试错误的配置
@@ -136,10 +163,7 @@ def test_validate_config(session):
                         'capital_flow_weight': 0.30,
                         'market_weight': 0.30,
                         'technical_weight': 0.20,
-                        'sector_rotation_weight': 0.05,
-                        'history_weight': 0.08,
-                        'us_sector_weight': 0.05,
-                        'valuation_weight': 0.02
+                        'history_weight': 0.20
                     }
                 }
             }
@@ -153,16 +177,15 @@ def test_validate_config(session):
             
             if not result2.get('is_valid'):
                 print(f"[OK] 错误配置验证失败（符合预期）: {result2.get('message')}")
-                return True
             else:
                 print("[ERROR] 错误配置验证通过（不符合预期）")
-                return False
+                ok = False
         else:
             print(f"[ERROR] 配置验证失败: {result.get('message')}")
-            return False
+        assert ok, f"配置验证失败: {result.get('message')}"
     except Exception as e:
         print(f"[ERROR] 请求失败: {str(e)}")
-        return False
+        pytest.fail(f"请求失败: {str(e)}")
 
 
 def main():
@@ -182,7 +205,7 @@ def main():
     results = []
     
     # 测试登录
-    session = test_api_login()
+    session = _create_logged_in_session()
     results.append(('API登录', session is not None))
     
     if not session:
@@ -193,13 +216,25 @@ def main():
         return
     
     # 测试获取配置列表
-    results.append(('获取配置列表', test_get_configs(session)))
+    try:
+        test_get_configs(session)
+        results.append(('获取配置列表', True))
+    except Exception:
+        results.append(('获取配置列表', False))
     
     # 测试获取激活配置
-    results.append(('获取激活配置', test_get_active_config(session)))
+    try:
+        test_get_active_config(session)
+        results.append(('获取激活配置', True))
+    except Exception:
+        results.append(('获取激活配置', False))
     
     # 测试配置验证
-    results.append(('配置验证', test_validate_config(session)))
+    try:
+        test_validate_config(session)
+        results.append(('配置验证', True))
+    except Exception:
+        results.append(('配置验证', False))
     
     # 输出测试结果汇总
     print("\n" + "=" * 60)

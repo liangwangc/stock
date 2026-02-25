@@ -83,6 +83,10 @@ class BacktestVisualizer:
         metrics = backtest_result.get('metrics', {})
         trades = backtest_result.get('trades', [])
         daily_values = backtest_result.get('daily_values', [])
+        parameters = backtest_result.get('parameters', {})
+        
+        # 本次回测使用的交易参数（R7：报告内展示，与设置页一致）
+        params_html = self._create_params_section(parameters)
         
         # 生成图表HTML
         profit_curve_html = self._create_profit_curve_chart(daily_values, initial_capital)
@@ -211,12 +215,17 @@ class BacktestVisualizer:
             </div>
             <div class="summary-item">
                 <h3>胜率</h3>
-                <div class="value">{metrics.get('win_rate', 0)*100:.2f}%</div>
+                <div class="value">{metrics.get('win_rate', 0):.2f}%</div>
             </div>
             <div class="summary-item">
                 <h3>交易次数</h3>
                 <div class="value">{backtest_result.get('trades_count', 0)}</div>
             </div>
+        </div>
+        
+        <h2>📋 本次回测使用的交易参数</h2>
+        <div class="chart-container">
+            {params_html}
         </div>
         
         <h2>📈 收益曲线</h2>
@@ -244,6 +253,37 @@ class BacktestVisualizer:
 </body>
 </html>
 """
+        return html
+    
+    def _create_params_section(self, parameters: Dict) -> str:
+        """生成本次回测使用的交易参数 HTML（R7：与设置页一致，便于核对）"""
+        if not parameters:
+            return "<p>无参数记录</p>"
+        p = parameters
+        max_pos = p.get('max_position_pct')
+        if max_pos is not None:
+            max_pos_str = f"{max_pos * 100:.0f}%" if max_pos <= 1 else f"{max_pos}%"
+        else:
+            max_pos_str = "-"
+        rows = [
+            ("买入阈值", p.get('buy_threshold'), ""),
+            ("卖出阈值", p.get('sell_threshold'), ""),
+            ("最小置信度", p.get('min_confidence'), ""),
+            ("止损", p.get('stop_loss_pct'), "%"),
+            ("止盈", p.get('take_profit_pct'), "%"),
+            ("单只仓位", max_pos_str, ""),
+            ("最大持仓天数", p.get('max_holding_days'), ""),
+        ]
+        html = '<table style="width: auto; min-width: 280px;"><tbody>'
+        for label, val, suffix in rows:
+            if val is None or val == "":
+                disp = "-"
+            elif suffix == "%" and isinstance(val, (int, float)):
+                disp = f"{val}{suffix}"
+            else:
+                disp = str(val) + str(suffix)
+            html += f'<tr><td style="color:#666; padding:6px 12px 6px 0;">{label}</td><td style="font-weight:bold;">{disp}</td></tr>'
+        html += '</tbody></table>'
         return html
     
     def _create_profit_curve_chart(self, daily_values: List[Dict], initial_capital: float) -> str:
@@ -409,7 +449,7 @@ class BacktestVisualizer:
             metrics_data = {
                 '年化收益率': metrics.get('annual_return', 0),
                 '最大回撤': metrics.get('max_drawdown', 0),
-                '胜率': metrics.get('win_rate', 0) * 100,
+                '胜率': metrics.get('win_rate', 0),
                 '盈亏比': metrics.get('profit_loss_ratio', 0),
                 '夏普比率': metrics.get('sharpe_ratio', 0)
             }

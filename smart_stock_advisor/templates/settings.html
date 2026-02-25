@@ -995,7 +995,7 @@
                                     <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一区：预测权重配置（最重要）</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
                                         <strong>包含：</strong>5 个传统因子权重（技术 20% + 新闻 16% + 资金 13% + 市场 11% + 历史 5%）、ML 模型参数、通用预测参数。<br>
-                                        <strong>操作：</strong>拖动滑块或直接输入数值调整权重。传统因子合计必须等于 0.65，可点击「一键平衡」自动调整。<br>
+                                        <strong>操作：</strong>拖动滑块或直接输入数值调整权重。传统因子合计必须等于 1.0，可点击「一键平衡」自动调整。<br>
                                         <strong>建议：</strong>一般不需要手动调，使用「模型学习 → 参数优化」自动优化后会反映到这里。如需手动微调，每次只改一个因子，然后去「模型学习」回测对比效果。
                                     </div>
                                 </div>
@@ -1080,11 +1080,11 @@
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">✓ 验证配置</td>
-                                            <td style="padding: 8px;">检查当前参数是否合理（权重是否等于 0.65、数值是否在合法范围内等）</td>
+                                            <td style="padding: 8px;">检查当前参数是否合理（权重是否等于 1.0、数值是否在合法范围内等）</td>
                                         </tr>
                                         <tr>
                                             <td style="padding: 8px; color: #333; font-weight: 500;">⚖️ 一键平衡</td>
-                                            <td style="padding: 8px;">自动按比例调整 5 个传统因子权重，使其精确合计等于 0.65</td>
+                                            <td style="padding: 8px;">自动按比例调整 5 个传统因子权重，使其精确合计等于 1.0</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -1108,18 +1108,15 @@
                         </h3>
                         <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px; padding: 12px 15px; background: linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); border-radius: 8px;">
                             <div style="font-size: 14px;">
-                                传统因子 <span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 18px;">0.65</span> / 0.65
-                                <span style="color: #888; margin: 0 6px;">+</span>
-                                ML模型 <span style="font-weight: bold; color: #0066cc; font-size: 18px;">0.35</span>
-                                <span style="color: #888; margin: 0 6px;">=</span>
-                                <span style="font-weight: bold; color: #333; font-size: 18px;">1.00</span>
+                                传统因子权重合计 <span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 18px;">1.00</span> / 1.00
+                                <span style="color: #888; margin-left: 8px; font-size: 12px;">（ML模型权重在预测时动态计算）</span>
                             </div>
                             <button class="btn" onclick="balanceWeights()" style="padding: 6px 14px; font-size: 12px; background: white; border: 1px solid #ddd;">⚖️ 一键平衡</button>
                         </div>
                         
                         <!-- 传统因子权重（5个，清晰列表） -->
                         <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 18px; margin-bottom: 15px;">
-                            <h4 style="margin: 0 0 12px 0; color: #555; font-size: 14px;">传统因子权重（合计 65%）</h4>
+                            <h4 style="margin: 0 0 12px 0; color: #555; font-size: 14px;">传统因子权重（合计应为 1.0）</h4>
                             
                             <div style="display: grid; grid-template-columns: 110px 1fr 80px; gap: 8px; align-items: center;">
                                 <span style="font-size: 13px; color: #333;">技术指标 20%</span>
@@ -1487,33 +1484,40 @@
                             <div style="padding: 16px 18px; background: #f8fff8; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 功能概览</div>
                                 <div style="font-size: 13px; color: #555; line-height: 1.7;">
-                                    模型训练是让 ML 模型「学习」历史数据规律的过程。训练好的模型会在每次预测时自动使用，占预测权重的 <strong>35%</strong>。<br>
-                                    本页提供两种训练方式和模型管理功能，建议按顺序操作。
+                                    模型训练是让 ML 模型「学习」历史数据规律的过程。训练并<strong>激活</strong>后的模型会参与预测，占预测权重的约 <strong>35%</strong>（可动态调整）。<br>
+                                    本页提供因子质量优化、历史数据训练、预测数据微调和已训练模型管理，建议按上方推荐流程操作。
                                 </div>
                             </div>
                             
                             <!-- 推荐流程 -->
                             <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">🔄 推荐使用流程</div>
-                                <div style="display: flex; gap: 0; flex-wrap: wrap;">
-                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
-                                        <div style="width: 36px; height: 36px; background: #43e97b; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">1</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">历史数据训练</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用大量历史数据<br>建立基础模型</div>
+                                <div style="display: flex; gap: 0; flex-wrap: wrap; align-items: center;">
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 10px 6px;">
+                                        <div style="width: 32px; height: 32px; background: #9e9e9e; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">0</div>
+                                        <div style="font-weight: 600; color: #333; margin: 6px 0 2px; font-size: 12px;">因子质量优化 <span style="color: #888; font-weight: normal;">(可选)</span></div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">筛掉低价值因子<br>建议首训前做一次</div>
                                     </div>
-                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #43e97b; font-size: 20px;">→</div>
-                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
-                                        <div style="width: 36px; height: 36px; background: #38f9d7; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">2</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">预测数据微调</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用实际预测结果<br>持续微调模型</div>
+                                    <div style="flex: 0 0 24px; color: #ccc; font-size: 16px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 10px 6px;">
+                                        <div style="width: 32px; height: 32px; background: #43e97b; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">1</div>
+                                        <div style="font-weight: 600; color: #333; margin: 6px 0 2px; font-size: 12px;">历史数据训练</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">用大量历史数据<br>建立基础模型</div>
                                     </div>
-                                    <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #43e97b; font-size: 20px;">→</div>
-                                    <div style="flex: 1; min-width: 180px; text-align: center; padding: 12px 8px;">
-                                        <div style="width: 36px; height: 36px; background: #2196F3; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">3</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">模型管理</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">查看模型状态<br>管理历史版本</div>
+                                    <div style="flex: 0 0 24px; color: #43e97b; font-size: 16px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 10px 6px;">
+                                        <div style="width: 32px; height: 32px; background: #38f9d7; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">2</div>
+                                        <div style="font-weight: 600; color: #333; margin: 6px 0 2px; font-size: 12px;">预测数据微调</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">用实际预测结果<br>持续微调模型</div>
+                                    </div>
+                                    <div style="flex: 0 0 24px; color: #43e97b; font-size: 16px;">→</div>
+                                    <div style="flex: 1; min-width: 140px; text-align: center; padding: 10px 6px;">
+                                        <div style="width: 32px; height: 32px; background: #2196F3; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">3</div>
+                                        <div style="font-weight: 600; color: #333; margin: 6px 0 2px; font-size: 12px;">模型管理</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.4;">激活/切换模型<br>查看准确率与版本</div>
                                     </div>
                                 </div>
+                                <div style="margin-top: 10px; font-size: 11px; color: #888;">同一时间仅能运行一个训练或优化任务；若提示「已有任务正在运行」请等待完成后再试。</div>
                             </div>
                             
                             <!-- 各功能详细说明 -->
@@ -1548,11 +1552,20 @@
                                     </div>
                                 </div>
                                 
+                                <div style="margin-bottom: 14px; padding: 12px; background: #f5f5f5; border-radius: 8px; border-left: 4px solid #757575;">
+                                    <div style="font-weight: 600; color: #424242; margin-bottom: 6px; font-size: 13px;">📐 因子质量优化</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>对全部因子做重要性分析，筛掉低重要性因子并保存为 <code>selected_features.pkl</code>，后续训练与预测只使用筛选后的因子，提升稳定性。<br>
+                                        <strong>操作步骤：</strong>设置训练集/验证集日期 → 点击「运行因子质量优化」→ 等待完成。<br>
+                                        <strong>使用时机：</strong>建议在<strong>首次做历史数据训练之前</strong>运行一次；之后若因子体系无大改可不必重复运行。
+                                    </div>
+                                </div>
+                                
                                 <div style="padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #2196F3;">
                                     <div style="font-weight: 600; color: #1565C0; margin-bottom: 6px; font-size: 13px;">📋 已训练模型列表</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>查看所有已训练的模型版本，包括训练时间、模型类型、准确率等信息。可用于对比不同版本的表现。<br>
-                                        <strong>操作：</strong>点击「刷新」加载最新模型列表。系统会自动使用最新训练的模型进行预测。
+                                        <strong>作用：</strong>查看所有已训练的模型版本，包括训练时间、模型类型、训练/验证准确率等，便于对比不同版本表现。<br>
+                                        <strong>操作：</strong>点击「刷新」加载列表。需要<strong>在列表中点击某模型的「激活」</strong>后，该模型才会被用于预测；系统不会自动使用最新训练的模型。
                                     </div>
                                 </div>
                             </div>
@@ -1568,7 +1581,7 @@
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">没训练过模型能用系统吗？</td>
-                                            <td style="padding: 8px;">可以。未训练时系统仅用传统因子（65%部分）预测，ML 部分使用默认值。训练后预测更准。</td>
+                                            <td style="padding: 8px;">可以。未训练或未激活模型时，预测仅使用传统因子；训练并在「已训练模型列表」中激活模型后，ML 会参与预测（默认约占 35% 权重），预测更准。</td>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">分类器和回归器有什么区别？</td>
@@ -1577,6 +1590,10 @@
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">训练数据越多越好吗？</td>
                                             <td style="padding: 8px;">不一定。太早的数据市场规律可能已变化，建议用最近 1-2 年的数据做训练集。</td>
+                                        </tr>
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">提示「已有任务正在运行」怎么办？</td>
+                                            <td style="padding: 8px;">同一时间只能运行一个任务（基础训练、微调或因子质量优化）。请等待当前任务完成后再发起新任务，或点击「查看状态」查看进度。</td>
                                         </tr>
                                         <tr>
                                             <td style="padding: 8px; color: #333; font-weight: 500;">训练和「模型学习」有什么关系？</td>
@@ -1723,6 +1740,53 @@
                             </div>
                         </div>
                         
+                        <!-- 因子质量优化 -->
+                        <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #e0e0e0;">
+                            <h4 style="margin: 0 0 15px 0;">📐 因子质量优化</h4>
+                            <p style="font-size: 13px; color: #666; margin-bottom: 15px;">对全部因子做重要性分析，筛掉低重要性因子并保存为 <code>selected_features.pkl</code>，后续训练与预测将只使用筛选后的因子，提升稳定性。建议在「历史数据训练」之前运行一次。</p>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #666;">训练集开始</label>
+                                    <input type="date" id="factorOptTrainStart" value="2014-01-01" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #666;">训练集结束</label>
+                                    <input type="date" id="factorOptTrainEnd" value="2022-12-31" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #666;">验证集开始</label>
+                                    <input type="date" id="factorOptValStart" value="2023-01-01" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px; font-size: 13px; color: #666;">验证集结束</label>
+                                    <input type="date" id="factorOptValEnd" value="2023-12-31" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="startFactorQualityOptimization()" id="factorOptBtn">
+                                    📐 运行因子质量优化
+                                </button>
+                                <button class="btn" onclick="checkHistoryTrainingStatus()" style="background: #f0f0f0;">
+                                    🔍 查看状态
+                                </button>
+                            </div>
+                            <div id="factorOptProgress" style="display: none; margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                                <div style="margin-bottom: 10px;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                        <span id="factorOptProgressMessage" style="font-size: 14px; color: #666;">正在初始化...</span>
+                                        <span id="factorOptProgressPercentage" style="font-size: 14px; font-weight: bold; color: #667eea;">0%</span>
+                                    </div>
+                                    <div style="background: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden;">
+                                        <div id="factorOptProgressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
+                                            <span id="factorOptProgressText">0%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="factorOptLog" style="font-size: 12px; color: #666; max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 5px; font-family: monospace;">
+                                </div>
+                            </div>
+                        </div>
+                        
                         <!-- 已训练模型列表 -->
                         <div style="background: white; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -1743,8 +1807,17 @@
             <div id="panel-model-learning" class="content-panel">
                 <div class="form-section">
                     <h2>模型学习与优化</h2>
-                    <div style="margin-bottom: 16px; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; font-size: 13px; color: #555;">
-                        <strong>本页包含：</strong>性能评估（看准确率）→ 参数优化（自动调参）→ 回测验证（模拟交易）→ 定时任务（自动化）。往下滚动查看各区域。
+                    <div style="margin-bottom: 16px; padding: 14px 18px; background: linear-gradient(135deg, #f0f4ff, #f8f0ff); border-radius: 10px; font-size: 13px; color: #444; border: 1px solid #e0e0f0;">
+                        <strong>📌 使用流程：</strong>
+                        <span style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                            <span style="background: #667eea; color: white; border-radius: 12px; padding: 2px 10px; font-size: 12px;">① 回测</span> 看当前效果
+                            <span style="color: #aaa;">→</span>
+                            <span style="background: #764ba2; color: white; border-radius: 12px; padding: 2px 10px; font-size: 12px;">② 优化</span> 自动搜索更优参数
+                            <span style="color: #aaa;">→</span>
+                            <span style="background: #e91e63; color: white; border-radius: 12px; padding: 2px 10px; font-size: 12px;">③ 再回测</span> 验证优化效果
+                            <span style="color: #aaa;">→</span>
+                            <span style="background: #4CAF50; color: white; border-radius: 12px; padding: 2px 10px; font-size: 12px;">④ 自动化</span> 设定时任务
+                        </span>
                     </div>
                     
                     <!-- 使用指南（可折叠） -->
@@ -1771,26 +1844,26 @@
                                 <div style="display: flex; gap: 0; flex-wrap: wrap;">
                                     <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px; position: relative;">
                                         <div style="width: 36px; height: 36px; background: #667eea; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">1</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">性能评估</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">先了解当前模型<br>预测得准不准</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">回测 — 看现状</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用历史数据模拟交易<br>看当前参数赚不赚钱</div>
                                     </div>
                                     <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
                                     <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
                                         <div style="width: 36px; height: 36px; background: #764ba2; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">2</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">参数优化</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">让系统自动寻找<br>更优的参数权重</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">优化 — 自动调参</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">系统自动搜索更优的<br>买卖阈值/止盈止损等</div>
                                     </div>
                                     <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
                                     <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
                                         <div style="width: 36px; height: 36px; background: #e91e63; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">3</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">回测验证</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用历史数据模拟交易<br>验证优化效果</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">再回测 — 验证效果</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">用同样的时间段再跑一次<br>对比优化前后收益变化</div>
                                     </div>
                                     <div style="flex: 0 0 30px; display: flex; align-items: center; justify-content: center; color: #667eea; font-size: 20px;">→</div>
                                     <div style="flex: 1; min-width: 160px; text-align: center; padding: 12px 8px;">
                                         <div style="width: 36px; height: 36px; background: #4CAF50; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">4</div>
-                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">定时自动化</div>
-                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">设定定时任务<br>让系统自动持续优化</div>
+                                        <div style="font-weight: 600; color: #333; margin: 8px 0 4px; font-size: 13px;">自动化 — 省心</div>
+                                        <div style="font-size: 11px; color: #888; line-height: 1.5;">设定定时任务<br>让系统每天/每周自动优化</div>
                                     </div>
                                 </div>
                             </div>
@@ -1799,61 +1872,74 @@
                             <div style="padding: 16px 18px; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 12px; font-size: 14px;">📋 各功能详细说明</div>
                                 
-                                <!-- 功能1：性能评估 -->
+                                <!-- 功能1：回测分析 -->
                                 <div style="margin-bottom: 14px; padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #667eea;">
-                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一步：性能评估</div>
+                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">🔬 第一步：回测分析 — 看当前参数效果如何</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>了解模型当前的预测效果，是否需要优化。<br>
-                                        <strong>操作：</strong>选择时间段（7/30/90天） → 点击「基础评估」查看方向准确率、总收益率、胜率、最大回撤、夏普比率；点击「综合评估」查看多维度分析（分市场状态、置信度校准等）。<br>
-                                        <strong>建议频率：</strong>每周至少 1 次，或在发现预测不准时随时执行。<br>
-                                        <strong>如何判断：</strong>方向准确率 > 55% 为良好，> 65% 为优秀；低于 50% 说明急需优化参数。
+                                        <strong>作用：</strong>用历史预测数据模拟真实买卖，查看当前参数（买卖阈值、止盈止损等）能赚多少钱。<br>
+                                        <strong>操作：</strong>选择日期范围（建议 ≥ 14天，数据越多越准）→ 设置初始资金 → 点击「执行回测」。<br>
+                                        <strong>你不需要手动选股票</strong>，系统会自动使用该时间段内所有股票的历史预测记录进行模拟。<br>
+                                        <strong>关注指标：</strong><br>
+                                        &nbsp;&nbsp;• <strong>总收益率</strong>：正数 = 赚钱，负数 = 亏钱<br>
+                                        &nbsp;&nbsp;• <strong>胜率</strong>：> 50% 为好，越高越好<br>
+                                        &nbsp;&nbsp;• <strong>最大回撤</strong>：越小越安全（< 15% 为理想）<br>
+                                        &nbsp;&nbsp;• <strong>夏普比率</strong>：> 1 表示风险调整后收益较好<br>
+                                        <strong>建议：</strong>优化参数前先回测一次记住收益率，优化后再回测一次，对比效果。
                                     </div>
                                 </div>
                                 
-                                <!-- 功能2：参数/权重优化 -->
+                                <!-- 功能2：参数优化 -->
                                 <div style="margin-bottom: 14px; padding: 12px; background: #f5f0ff; border-radius: 8px; border-left: 4px solid #764ba2;">
-                                    <div style="font-weight: 600; color: #764ba2; margin-bottom: 6px; font-size: 13px;">⚙️ 第二步：参数 / 权重优化</div>
+                                    <div style="font-weight: 600; color: #764ba2; margin-bottom: 6px; font-size: 13px;">⚙️ 第二步：参数优化 — 让系统自动找最佳参数</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>根据历史数据自动搜索更优的预测参数和因子权重。<br>
+                                        <strong>作用：</strong>系统自动尝试不同的交易参数组合，找到收益最高的一套参数。<br>
+                                        <strong>优化的参数包括：</strong>买入阈值、卖出阈值、最低置信度、止损比例、止盈比例、最大仓位比例。<br>
                                         <strong>三种模式：</strong><br>
-                                        &nbsp;&nbsp;• <strong>标准优化</strong>：基于历史准确率全面调优，适合定期（每周/月）使用。<br>
-                                        &nbsp;&nbsp;• <strong>在线学习</strong>：使用最新数据实时微调，适合每日收盘后使用。<br>
-                                        &nbsp;&nbsp;• <strong>自适应优化</strong>：根据市场状态（牛市/震荡/熊市）动态调整策略，适合市场风格变化时使用。<br>
-                                        <strong>操作：</strong>选择优化模式 → 点击「执行优化」→ 查看优化结果和建议权重。<br>
-                                        <strong>注意：</strong>优化后的参数会自动保存，可在「优化历史」中查看历次记录。
+                                        &nbsp;&nbsp;• <strong>标准优化（推荐新手）</strong>：网格搜索 + 贝叶斯优化，全面调优，适合定期使用。<br>
+                                        &nbsp;&nbsp;• <strong>在线学习</strong>：用最新数据快速微调，适合每日收盘后使用。<br>
+                                        &nbsp;&nbsp;• <strong>自适应优化</strong>：根据市场状态（牛市/震荡/熊市）动态调整，市场风格变化时使用。<br>
+                                        <strong>操作：</strong>选择模式 → 点击「执行优化」→ 等待完成 → 查看优化效果 → 点击「应用优化参数」。<br>
+                                        <strong>注意：</strong>优化完成后请务必点击「应用优化参数」才会生效。优化记录会保存在下方「优化历史」中。
                                     </div>
                                 </div>
                                 
-                                <!-- 功能3：回测验证 -->
+                                <!-- 功能3：再次回测验证 -->
                                 <div style="margin-bottom: 14px; padding: 12px; background: #fff0f3; border-radius: 8px; border-left: 4px solid #e91e63;">
-                                    <div style="font-weight: 600; color: #e91e63; margin-bottom: 6px; font-size: 13px;">🔬 第三步：回测验证</div>
+                                    <div style="font-weight: 600; color: #e91e63; margin-bottom: 6px; font-size: 13px;">🔬 第三步：再次回测 — 验证优化是否有效</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>用历史预测数据模拟真实交易，验证当前参数的盈亏表现。<br>
-                                        <strong>操作：</strong>选择日期范围（建议 ≥ 14天）→ 设置初始资金 → 点击「执行回测」。<br>
-                                        <strong>交易规则：</strong>预测上涨且置信度 ≥ 55% 时买入（单只最多 30% 仓位），预测下跌或盈利 ≥ 8% 止盈、亏损 ≥ 5% 止损时卖出。<br>
-                                        <strong>关注指标：</strong>总收益率（正 = 赚钱）、胜率（> 50% 为好）、最大回撤（越小越安全）、夏普比率（> 1 表示风险调整后收益较好）。<br>
-                                        <strong>最佳实践：</strong>优化参数前回测一次 → 优化后再回测一次 → 对比确认效果提升。
+                                        <strong>作用：</strong>应用新参数后，用同样的日期范围再跑一次回测，对比收益率变化。<br>
+                                        <strong>怎么对比：</strong>记住第一步的收益率 → 优化后用相同日期和资金再回测 → 收益率提升说明优化有效。<br>
+                                        <strong>如果效果没提升：</strong>说明当前数据量不足或市场波动较大，可以换一个时间段试试，或等积累更多数据后再优化。
                                     </div>
                                 </div>
                                 
-                                <!-- 功能4：定时任务 -->
+                                <!-- 功能4：性能评估（辅助功能） -->
                                 <div style="margin-bottom: 14px; padding: 12px; background: #f0faf0; border-radius: 8px; border-left: 4px solid #4CAF50;">
-                                    <div style="font-weight: 600; color: #4CAF50; margin-bottom: 6px; font-size: 13px;">⏰ 第四步：定时自动化任务</div>
+                                    <div style="font-weight: 600; color: #4CAF50; margin-bottom: 6px; font-size: 13px;">📊 辅助功能：性能评估 — 看预测准确率</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>设置定期自动执行评估/优化/回测，无需手动操作。<br>
-                                        <strong>推荐配置：</strong><br>
-                                        &nbsp;&nbsp;• <strong>模型评估</strong>：每日收盘后（15:30）自动运行，持续监控准确率。<br>
-                                        &nbsp;&nbsp;• <strong>参数优化</strong>：每周末（周六 20:00）自动优化，避免交易日干扰。<br>
-                                        &nbsp;&nbsp;• <strong>回测分析</strong>：每月末（22:00）深度回测，全面检视模型表现。<br>
-                                        <strong>操作：</strong>选择任务类型 → 设置执行时间（Cron 表达式）→ 添加任务。
+                                        <strong>作用：</strong>从"预测准不准"的角度评估模型，与回测（"赚不赚钱"）互为补充。<br>
+                                        <strong>操作：</strong>选择时间段 → 点击「基础评估」看方向准确率；「综合评估」看多维度分析。<br>
+                                        <strong>如何判断：</strong>方向准确率 > 55% 为良好，> 65% 为优秀；低于 50% 说明急需优化。
                                     </div>
                                 </div>
                                 
-                                <!-- 功能5：优化历史 -->
-                                <div style="padding: 12px; background: #fff8f0; border-radius: 8px; border-left: 4px solid #FF9800;">
-                                    <div style="font-weight: 600; color: #FF9800; margin-bottom: 6px; font-size: 13px;">📋 优化历史</div>
+                                <!-- 功能5：定时任务 -->
+                                <div style="margin-bottom: 14px; padding: 12px; background: #fef9f0; border-radius: 8px; border-left: 4px solid #FF9800;">
+                                    <div style="font-weight: 600; color: #FF9800; margin-bottom: 6px; font-size: 13px;">⏰ 第四步：定时自动化 — 设好后省心</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>作用：</strong>查看所有历次优化记录，包括时间、参数变化、优化效果。可用于追溯和对比不同版本参数的表现。
+                                        <strong>作用：</strong>让系统定期自动执行评估/优化/回测，无需每次手动操作。<br>
+                                        <strong>推荐配置：</strong><br>
+                                        &nbsp;&nbsp;• <strong>模型评估</strong>：每日收盘后（15:30）自动运行<br>
+                                        &nbsp;&nbsp;• <strong>参数优化</strong>：每周末（周六 20:00）自动优化<br>
+                                        &nbsp;&nbsp;• <strong>回测分析</strong>：每月末（22:00）深度回测
+                                    </div>
+                                </div>
+                                
+                                <!-- 功能6：优化历史 -->
+                                <div style="padding: 12px; background: #fff8f0; border-radius: 8px; border-left: 4px solid #9E9E9E;">
+                                    <div style="font-weight: 600; color: #666; margin-bottom: 6px; font-size: 13px;">📋 优化历史 — 追溯记录</div>
+                                    <div style="font-size: 12px; color: #555; line-height: 1.8;">
+                                        <strong>作用：</strong>查看所有历次优化记录，对比不同版本参数的表现，方便回退。
                                     </div>
                                 </div>
                             </div>
@@ -1868,24 +1954,24 @@
                                             <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">建议操作</th>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
-                                            <td style="padding: 8px; color: #333; font-weight: 500;">刚开始使用系统</td>
-                                            <td style="padding: 8px;">先运行几天积累预测数据 → 性能评估了解基准 → 设置定时任务自动优化</td>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">刚开始使用</td>
+                                            <td style="padding: 8px;">先运行几天积累预测数据 → 回测看看默认参数效果 → 执行标准优化 → 再回测对比</td>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
-                                            <td style="padding: 8px; color: #333; font-weight: 500;">发现预测不准</td>
-                                            <td style="padding: 8px;">性能评估（找到哪个指标差）→ 参数优化（标准模式）→ 回测验证效果</td>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">回测亏钱了</td>
+                                            <td style="padding: 8px;">先用「标准优化」自动搜索更优参数 → 应用参数 → 同时间段再回测 → 对比改善情况</td>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">市场风格突变</td>
-                                            <td style="padding: 8px;">自适应优化（自动识别市场状态）→ 回测对比调整前后</td>
+                                            <td style="padding: 8px;">使用「自适应优化」→ 回测对比调整前后效果</td>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">日常维护</td>
-                                            <td style="padding: 8px;">设好定时任务即可，系统自动评估 + 优化 + 记录，异常会告警</td>
+                                            <td style="padding: 8px;">设好定时任务即可，系统自动优化 + 记录，无需手动操作</td>
                                         </tr>
                                         <tr>
-                                            <td style="padding: 8px; color: #333; font-weight: 500;">手动调参后验证</td>
-                                            <td style="padding: 8px;">在「参数设置」页修改权重 → 回到本页回测 → 对比收益率、胜率、最大回撤、夏普比率变化</td>
+                                            <td style="padding: 8px; color: #333; font-weight: 500;">手动调参验证</td>
+                                            <td style="padding: 8px;">在「参数设置」页手动修改参数 → 回到本页回测 → 对比收益率、胜率、最大回撤变化</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -1893,10 +1979,249 @@
                         </div>
                     </div>
                     
-                    <!-- 性能评估区域（合并了综合评估） -->
+                    <!-- ====== 第①步：回测分析 ====== -->
                     <div class="form-section" style="margin-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>📊 性能评估</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="display: flex; align-items: center; gap: 10px;">
+                                <span style="background: #667eea; color: white; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold;">1</span>
+                                🔬 回测分析 — 看当前参数效果
+                            </h3>
+                        </div>
+                        <div style="font-size: 12px; color: #666; margin-bottom: 15px; padding: 10px 14px; background: #f0f4ff; border-radius: 8px; border-left: 3px solid #667eea;">
+                            用历史预测数据模拟真实买卖，查看当前参数能赚多少钱。<strong>不需要手动选股票</strong>，系统自动使用该时间段内所有股票的预测记录。<br>
+                            <span style="color: #999;">建议：先记住这次的收益率，然后去下方「参数优化」自动调参，再回来重新回测对比效果。</span>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 15px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">开始日期</label>
+                                <input type="date" id="backtestStartDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">结束日期</label>
+                                <input type="date" id="backtestEndDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                            </div>
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
+                                <label style="font-size: 12px; color: #666; margin-bottom: 4px; width: 100%;">快捷</label>
+                                <button type="button" onclick="setBacktestDateRange(7)" style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer;">7天</button>
+                                <button type="button" onclick="setBacktestDateRange(30)" style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer;">30天</button>
+                                <button type="button" onclick="setBacktestDateRange(90)" style="padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer;">90天</button>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">初始资金</label>
+                                <input type="number" id="backtestCapital" value="1000000" min="10000" step="10000" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px; width: 130px;">
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 5px; padding-bottom: 4px; font-size: 13px; cursor: pointer;">
+                                <input type="checkbox" id="backtestVisualize" checked style="cursor: pointer;">
+                                生成可视化报告
+                            </label>
+                            <button class="btn btn-primary" onclick="runBacktest()" id="backtestRunBtn">
+                                🔬 执行回测
+                            </button>
+                        </div>
+                        
+                        <div id="backtestLoading" style="display: none; text-align: center; padding: 30px;">
+                            <div style="font-size: 16px; color: #667eea;">正在执行回测，请稍候...</div>
+                        </div>
+                        
+                        <div id="backtestResults" style="display: none;">
+                            <!-- 回测结果将在这里显示 -->
+                        </div>
+                    </div>
+                    
+                    <!-- ====== 第②步：参数优化 ====== -->
+                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="display: flex; align-items: center; gap: 10px;">
+                                <span style="background: #764ba2; color: white; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold;">2</span>
+                                ⚙️ 参数优化 — 自动搜索最优交易参数
+                            </h3>
+                        </div>
+                        <div style="font-size: 12px; color: #666; margin-bottom: 15px; padding: 10px 14px; background: #f5f0ff; border-radius: 8px; border-left: 3px solid #764ba2;">
+                            系统自动尝试不同的交易参数组合（买卖阈值、止盈止损、仓位比例等），找到历史收益最高的一套参数。<br>
+                            <span style="color: #999;">优化完成后，点击「应用优化参数」使其生效，然后回到上方「回测」用相同日期再跑一次对比效果。</span>
+                        </div>
+                        
+                        <!-- 优化方式选择 -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                            <button class="btn opt-mode-btn active" id="optModeStandard" onclick="switchOptMode('standard')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #667eea; color: white; border: none;">
+                                📐 标准优化（推荐）
+                            </button>
+                            <button class="btn opt-mode-btn" id="optModeOnline" onclick="switchOptMode('online')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
+                                🔄 在线学习
+                            </button>
+                            <button class="btn opt-mode-btn" id="optModeAdaptive" onclick="switchOptMode('adaptive')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
+                                🎯 自适应优化
+                            </button>
+                        </div>
+                        
+                        <!-- 标准优化控制区 -->
+                        <div id="optPanelStandard">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                                <select id="optimizeTimePeriod" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                    <option value="30" selected>最近30天</option>
+                                    <option value="60">最近60天</option>
+                                    <option value="90">最近90天</option>
+                                </select>
+                                <input type="number" id="autoApplyThreshold" value="5.0" min="0" max="100" step="0.1" 
+                                       style="padding: 8px; border: 2px solid #ddd; border-radius: 5px; width: 120px;"
+                                       placeholder="自动应用阈值" title="改进百分比超过此值时自动应用优化参数">
+                                <button class="btn btn-primary" onclick="runParameterOptimization()">
+                                    ⚙️ 执行优化
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                基于历史表现自动搜索最优交易参数（买卖阈值/止盈止损/仓位），改进超过阈值（默认5%）时自动应用
+                            </div>
+                        </div>
+                        
+                        <!-- 在线学习控制区 -->
+                        <div id="optPanelOnline" style="display: none;">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                                <select id="onlineLearningDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                    <option value="7" selected>最近7天</option>
+                                    <option value="14">最近14天</option>
+                                    <option value="30">最近30天</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="runOnlineLearning()">
+                                    🔄 执行在线学习
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                根据最新预测结果快速微调参数，适合每日收盘后使用
+                            </div>
+                        </div>
+                        
+                        <!-- 自适应优化控制区 -->
+                        <div id="optPanelAdaptive" style="display: none;">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                                <select id="adaptiveBaseDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                    <option value="7" selected>基础频率7天</option>
+                                    <option value="14">基础频率14天</option>
+                                    <option value="30">基础频率30天</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="runAdaptiveOptimization()">
+                                    🎯 执行自适应优化
+                                </button>
+                                <button class="btn" onclick="checkTriggerLearning()" style="background: #f0f0f0;">
+                                    🔍 检查触发条件
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
+                                根据市场状态（牛市/震荡/熊市）自动调整优化策略，市场风格变化时使用
+                            </div>
+                        </div>
+                        
+                        <!-- 优化进度显示 -->
+                        <div id="optimizationProgress" style="display: none; background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h4 style="margin-bottom: 15px;">优化进度</h4>
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                    <span id="progressMessage" style="font-size: 14px; color: #666;">正在初始化...</span>
+                                    <span id="progressPercentage" style="font-size: 14px; font-weight: bold; color: #667eea;">0%</span>
+                                </div>
+                                <div style="background: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden;">
+                                    <div id="progressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
+                                        <span id="progressText">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="font-size: 12px; color: #999; margin-top: 10px;">
+                                <div>当前: <span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
+                                <div id="progressBestScore" style="margin-top: 5px; display: none;">最佳评分: <span id="progressBestScoreValue">-</span></div>
+                            </div>
+                        </div>
+                        
+                        <div id="optimizationResults" style="display: none;">
+                            <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                    <div>
+                                        <div style="font-size: 14px; color: #666; margin-bottom: 5px;">优化前评分</div>
+                                        <div id="opt-old-score" style="font-size: 24px; font-weight: bold; color: #666;">-</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 14px; color: #666; margin-bottom: 5px;">优化后评分</div>
+                                        <div id="opt-new-score" style="font-size: 24px; font-weight: bold; color: #667eea;">-</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">改进百分比</div>
+                                    <div id="opt-improvement" style="font-size: 28px; font-weight: bold; color: #43e97b;">-</div>
+                                </div>
+                            </div>
+                            
+                            <!-- 参数对比表格 -->
+                            <div id="weightComparisonTable" style="display: none; margin-top: 20px; background: white; padding: 20px; border-radius: 10px;">
+                                <h4 style="margin-bottom: 15px;">参数对比</h4>
+                                <div style="overflow-x: auto;">
+                                    <table style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="background: #f5f5f5;">
+                                                <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">参数</th>
+                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">优化前</th>
+                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">优化后</th>
+                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">变化</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="weightComparisonTableBody">
+                                            <!-- 参数对比数据将在这里显示 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top: 20px;">
+                                <button class="btn btn-primary" onclick="applyOptimizedParameters()" id="applyOptBtn">
+                                    ✅ 应用优化参数
+                                </button>
+                                <span style="font-size: 12px; color: #e91e63; margin-left: 8px;">← 点击后参数才会生效，然后回到上方回测验证</span>
+                                <button class="btn" onclick="viewOptimizationDetails()" style="background: #f0f0f0; margin-left: 10px;">
+                                    📋 查看详情
+                                </button>
+                                <button class="btn" onclick="toggleWeightComparison()" id="toggleWeightBtn" style="background: #f0f0f0; display: none;">
+                                    📊 显示参数对比
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="optimizationLoading" style="display: none; text-align: center; padding: 40px;">
+                            <div style="font-size: 18px; color: #667eea; font-weight: 600;">正在优化参数...</div>
+                            <div style="margin: 15px auto; width: 200px; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;">
+                                <div style="width: 30%; height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 2px; animation: optLoadingBar 2s ease-in-out infinite;"></div>
+                            </div>
+                            <div id="optLoadingTimer" style="margin-top: 8px; color: #999; font-size: 14px;">已运行 0 秒，请耐心等待...</div>
+                            <div style="margin-top: 6px; color: #bbb; font-size: 12px;">系统正在尝试不同参数组合（网格搜索 + 贝叶斯优化），通常需要 1~5 分钟</div>
+                            <style>
+                                @keyframes optLoadingBar {
+                                    0% { margin-left: 0; width: 30%; }
+                                    50% { margin-left: 70%; width: 30%; }
+                                    100% { margin-left: 0; width: 30%; }
+                                }
+                            </style>
+                        </div>
+                    </div>
+                    
+                    <!-- 在线学习和自适应优化的结果/加载区域 -->
+                    <div id="onlineLearningResults" style="display: none;">
+                        <!-- 在线学习结果将在这里显示 -->
+                    </div>
+                    <div id="onlineLearningLoading" style="display: none; text-align: center; padding: 40px;">
+                        <div style="font-size: 18px; color: #667eea;">正在执行在线学习...</div>
+                    </div>
+                    <div id="adaptiveResults" style="display: none;">
+                        <!-- 自适应优化结果将在这里显示 -->
+                    </div>
+                    <div id="adaptiveLoading" style="display: none; text-align: center; padding: 40px;">
+                        <div style="font-size: 18px; color: #667eea;">正在执行自适应优化...</div>
+                    </div>
+                    
+                    <!-- ====== 辅助功能：性能评估 ====== -->
+                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="display: flex; align-items: center; gap: 10px;">
+                                📊 性能评估 — 看预测准确率
+                                <span style="font-size: 11px; background: #f0f0f0; color: #888; padding: 2px 8px; border-radius: 10px;">辅助</span>
+                            </h3>
                             <div style="display: flex; gap: 10px; align-items: center;">
                                 <select id="evalTimePeriod" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
                                     <option value="7">最近7天</option>
@@ -1911,8 +2236,8 @@
                                 </button>
                             </div>
                         </div>
-                        <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
-                            基础评估：方向准确率、收益率等核心指标 | 综合评估：多指标、分市场状态、置信度校准
+                        <div style="font-size: 12px; color: #666; margin-bottom: 10px; padding: 10px 14px; background: #f0faf0; border-radius: 8px; border-left: 3px solid #4CAF50;">
+                            从"预测准不准"的角度评估模型，与回测（"赚不赚钱"）互为补充。方向准确率 > 55% 为良好，> 65% 为优秀。
                         </div>
                         
                         <div id="performanceResults" style="display: none;">
@@ -1966,199 +2291,6 @@
                         </div>
                     </div>
                     
-                    <!-- 参数/权重优化区域（合并了在线学习、自适应优化） -->
-                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h3>⚙️ 参数/权重优化</h3>
-                        </div>
-                        
-                        <!-- 优化方式选择 -->
-                        <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
-                            <button class="btn opt-mode-btn active" id="optModeStandard" onclick="switchOptMode('standard')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #667eea; color: white; border: none;">
-                                📐 标准优化
-                            </button>
-                            <button class="btn opt-mode-btn" id="optModeOnline" onclick="switchOptMode('online')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
-                                🔄 在线学习
-                            </button>
-                            <button class="btn opt-mode-btn" id="optModeAdaptive" onclick="switchOptMode('adaptive')" style="padding: 8px 16px; font-size: 13px; border-radius: 20px; background: #f0f0f0; color: #666; border: 1px solid #ddd;">
-                                🎯 自适应优化
-                            </button>
-                        </div>
-                        
-                        <!-- 标准优化控制区 -->
-                        <div id="optPanelStandard">
-                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
-                                <select id="optimizeTimePeriod" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="30" selected>最近30天</option>
-                                    <option value="60">最近60天</option>
-                                    <option value="90">最近90天</option>
-                                </select>
-                                <input type="number" id="autoApplyThreshold" value="5.0" min="0" max="100" step="0.1" 
-                                       style="padding: 8px; border: 2px solid #ddd; border-radius: 5px; width: 120px;"
-                                       placeholder="自动应用阈值" title="改进百分比超过此值时自动应用优化参数">
-                                <button class="btn btn-primary" onclick="runParameterOptimization()">
-                                    ⚙️ 执行优化
-                                </button>
-                            </div>
-                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
-                                基于历史表现自动搜索最优权重参数，自动应用阈值默认5.0%
-                            </div>
-                        </div>
-                        
-                        <!-- 在线学习控制区 -->
-                        <div id="optPanelOnline" style="display: none;">
-                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-                                <select id="onlineLearningDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="7" selected>最近7天</option>
-                                    <option value="14">最近14天</option>
-                                    <option value="30">最近30天</option>
-                                </select>
-                                <button class="btn btn-primary" onclick="runOnlineLearning()">
-                                    🔄 执行在线学习
-                                </button>
-                            </div>
-                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
-                                根据最新预测结果批量更新权重，快速适应近期市场变化
-                            </div>
-                        </div>
-                        
-                        <!-- 自适应优化控制区 -->
-                        <div id="optPanelAdaptive" style="display: none;">
-                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-                                <select id="adaptiveBaseDays" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                                    <option value="7" selected>基础频率7天</option>
-                                    <option value="14">基础频率14天</option>
-                                    <option value="30">基础频率30天</option>
-                                </select>
-                                <button class="btn btn-primary" onclick="runAdaptiveOptimization()">
-                                    🎯 执行自适应优化
-                                </button>
-                                <button class="btn" onclick="checkTriggerLearning()" style="background: #f0f0f0;">
-                                    🔍 检查触发条件
-                                </button>
-                            </div>
-                            <div style="font-size: 12px; color: #999; margin-bottom: 10px;">
-                                根据市场波动率自动调整优化频率和参数，高波动时更频繁优化
-                            </div>
-                        </div>
-                        
-                        <!-- 优化进度显示 -->
-                        <div id="optimizationProgress" style="display: none; background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
-                            <h4 style="margin-bottom: 15px;">优化进度</h4>
-                            <div style="margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                    <span id="progressMessage" style="font-size: 14px; color: #666;">正在初始化...</span>
-                                    <span id="progressPercentage" style="font-size: 14px; font-weight: bold; color: #667eea;">0%</span>
-                                </div>
-                                <div style="background: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden;">
-                                    <div id="progressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
-                                        <span id="progressText">0%</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="font-size: 12px; color: #999; margin-top: 10px;">
-                                <div>当前: <span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
-                                <div id="progressBestScore" style="margin-top: 5px; display: none;">最佳评分: <span id="progressBestScoreValue">-</span></div>
-                            </div>
-                        </div>
-                        
-                        <div id="optimizationResults" style="display: none;">
-                            <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                                    <div>
-                                        <div style="font-size: 14px; color: #666; margin-bottom: 5px;">优化前评分</div>
-                                        <div id="opt-old-score" style="font-size: 24px; font-weight: bold; color: #666;">-</div>
-                                    </div>
-                                    <div>
-                                        <div style="font-size: 14px; color: #666; margin-bottom: 5px;">优化后评分</div>
-                                        <div id="opt-new-score" style="font-size: 24px; font-weight: bold; color: #667eea;">-</div>
-                                    </div>
-                                </div>
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">改进百分比</div>
-                                    <div id="opt-improvement" style="font-size: 28px; font-weight: bold; color: #43e97b;">-</div>
-                                </div>
-                            </div>
-                            
-                            <!-- 权重对比表格 -->
-                            <div id="weightComparisonTable" style="display: none; margin-top: 20px; background: white; padding: 20px; border-radius: 10px;">
-                                <h4 style="margin-bottom: 15px;">权重对比</h4>
-                                <div style="overflow-x: auto;">
-                                    <table style="width: 100%; border-collapse: collapse;">
-                                        <thead>
-                                            <tr style="background: #f5f5f5;">
-                                                <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">因子</th>
-                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">优化前</th>
-                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">优化后</th>
-                                                <th style="padding: 10px; text-align: right; border: 1px solid #ddd;">变化</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="weightComparisonTableBody">
-                                            <!-- 权重对比数据将在这里显示 -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            
-                            <div style="margin-top: 20px;">
-                                <button class="btn btn-primary" onclick="applyOptimizedParameters()" id="applyOptBtn">
-                                    ✅ 应用优化参数
-                                </button>
-                                <button class="btn" onclick="viewOptimizationDetails()" style="background: #f0f0f0;">
-                                    📋 查看详情
-                                </button>
-                                <button class="btn" onclick="toggleWeightComparison()" id="toggleWeightBtn" style="background: #f0f0f0; display: none;">
-                                    📊 显示权重对比
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div id="optimizationLoading" style="display: none; text-align: center; padding: 40px;">
-                            <div style="font-size: 18px; color: #667eea;">正在优化参数，这可能需要几分钟...</div>
-                            <div style="margin-top: 10px; color: #999; font-size: 14px;">请不要关闭页面</div>
-                        </div>
-                    </div>
-                    
-                    <!-- 回测分析区域 -->
-                    <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h3>🔬 回测分析</h3>
-                        </div>
-                        <div style="font-size: 12px; color: #999; margin-bottom: 15px;">
-                            使用历史预测数据模拟交易，评估当前参数的实际收益和风险表现
-                        </div>
-                        
-                        <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 15px;">
-                            <div>
-                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">开始日期</label>
-                                <input type="date" id="backtestStartDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                            </div>
-                            <div>
-                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">结束日期</label>
-                                <input type="date" id="backtestEndDate" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
-                            </div>
-                            <div>
-                                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">初始资金</label>
-                                <input type="number" id="backtestCapital" value="1000000" min="10000" step="10000" style="padding: 8px; border: 2px solid #ddd; border-radius: 5px; width: 130px;">
-                            </div>
-                            <label style="display: flex; align-items: center; gap: 5px; padding-bottom: 4px; font-size: 13px; cursor: pointer;">
-                                <input type="checkbox" id="backtestVisualize" checked style="cursor: pointer;">
-                                生成可视化报告
-                            </label>
-                            <button class="btn btn-primary" onclick="runBacktest()" id="backtestRunBtn">
-                                🔬 执行回测
-                            </button>
-                        </div>
-                        
-                        <div id="backtestLoading" style="display: none; text-align: center; padding: 30px;">
-                            <div style="font-size: 16px; color: #667eea;">正在执行回测，请稍候...</div>
-                        </div>
-                        
-                        <div id="backtestResults" style="display: none;">
-                            <!-- 回测结果将在这里显示 -->
-                        </div>
-                    </div>
-                    
                     <!-- 优化历史 -->
                     <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -2173,34 +2305,23 @@
                         </div>
                     </div>
                     
-                    <!-- 在线学习和自适应优化的结果/加载区域（内嵌在参数优化区域之后） -->
-                    <div id="onlineLearningResults" style="display: none;">
-                        <!-- 在线学习结果将在这里显示 -->
-                    </div>
-                    <div id="onlineLearningLoading" style="display: none; text-align: center; padding: 40px;">
-                        <div style="font-size: 18px; color: #667eea;">正在执行在线学习...</div>
-                    </div>
-                    <div id="adaptiveResults" style="display: none;">
-                        <!-- 自适应优化结果将在这里显示 -->
-                    </div>
-                    <div id="adaptiveLoading" style="display: none; text-align: center; padding: 40px;">
-                        <div style="font-size: 18px; color: #667eea;">正在执行自适应优化...</div>
-                    </div>
-                    
-                    <!-- 定时学习任务 -->
+                    <!-- ====== 第④步：定时学习任务 ====== -->
                     <div class="form-section" style="margin-top: 30px; border-top: 2px solid #e0e0e0; padding-top: 30px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>⏰ 定时学习任务</h3>
+                            <h3 style="display: flex; align-items: center; gap: 10px;">
+                                <span style="background: #4CAF50; color: white; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold;">4</span>
+                                ⏰ 定时学习任务 — 自动化省心
+                            </h3>
                             <button class="btn btn-primary" onclick="showCreateModelLearningTaskModal()">
                                 ➕ 创建定时任务
                             </button>
                         </div>
                         
-                        <div class="help-text" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
-                            <p style="margin: 0 0 10px 0;"><strong>定时学习任务说明：</strong></p>
+                        <div class="help-text" style="margin-bottom: 20px; padding: 15px; background: #f0faf0; border-radius: 8px; border-left: 3px solid #4CAF50;">
+                            <p style="margin: 0 0 10px 0;"><strong>设好定时任务后，系统会自动执行评估/优化/回测，无需每次手动操作：</strong></p>
                             <ul style="margin: 0; padding-left: 20px; color: #666; font-size: 13px;">
                                 <li><strong>模型评估任务</strong>：定期评估模型性能，建议每天收盘后（15:30）执行</li>
-                                <li><strong>参数优化任务</strong>：定期优化权重参数，建议每周日晚上（20:00）执行</li>
+                                <li><strong>参数优化任务</strong>：定期优化交易参数，建议每周日晚上（20:00）执行</li>
                                 <li><strong>回测分析任务</strong>：定期进行回测分析，建议每月最后一天（22:00）执行</li>
                             </ul>
                         </div>
@@ -2314,19 +2435,23 @@
                 </div>
                 <div class="help-item">
                     <strong>历史数据训练（基础模型）</strong>
-                    <p>使用历史股票数据训练基础模型，建立稳定的预测基础。建议首次部署后训练一次，之后每3-6个月重新训练一次以适应市场变化。训练时间通常需要30分钟到2小时。</p>
+                    <p>使用历史股票数据训练基础模型，建立稳定的预测基础。建议首次部署后训练一次，之后每 1～3 个月重新训练一次以适应市场变化。训练时间视数据量而定，通常 5 分钟～2 小时。</p>
                 </div>
                 <div class="help-item">
                     <strong>预测数据训练（微调模型）</strong>
-                    <p>基于实际预测效果微调已有模型，使用较小的学习率和较少的迭代次数，快速适应最新数据。适合在基础模型训练后进行定期微调。</p>
+                    <p>基于实际预测效果微调已有模型，使用较小的学习率和较少的迭代次数，快速适应最新数据。需至少 1000 条有实际结果的预测记录；适合在基础模型训练后进行定期微调。</p>
+                </div>
+                <div class="help-item">
+                    <strong>因子质量优化是什么？</strong>
+                    <p>对全部因子做重要性分析，筛掉低重要性因子并保存为 selected_features.pkl，后续训练与预测只使用筛选后的因子。建议在首次做历史数据训练之前运行一次。</p>
                 </div>
                 <div class="help-item">
                     <strong>如何激活训练好的模型？</strong>
-                    <p>训练完成后，在"已训练模型列表"中找到要使用的模型，点击"激活"按钮。激活的模型会自动应用到股票预测中，权重为35%（可根据模型性能在10%~50%间动态调整）。</p>
+                    <p>训练完成后，在「已训练模型列表」中找到要使用的模型，点击「激活」按钮。只有激活的模型才会被用于预测，权重默认约 35%（系统可能根据模型表现动态调整）。</p>
                 </div>
                 <div class="help-item">
                     <strong>训练数据时间范围如何选择？</strong>
-                    <p>建议使用10年历史数据（2014-2024），分为训练集（2014-2022）、验证集（2023）、测试集（2024）。数据量越大，模型学习效果越好，但训练时间也会更长。</p>
+                    <p>页面只需填训练集与验证集。建议使用最近 3～5 年数据，如训练集 2021-2023、验证集 2024。数据量越大训练越久，但过久远的数据可能引入噪声。</p>
                 </div>
             </div>
             
@@ -2393,6 +2518,76 @@
             
             <div id="logUpdateContent" class="help-section">
                 <div class="log-entry">
+                    <div class="log-date">2026-02-22 (日)</div>
+                    <ul class="log-items">
+                        <li>【设置页-模型训练】使用流程与功能说明优化：推荐流程增加「因子质量优化(可选)」步骤并说明单任务并发限制；各功能说明新增因子质量优化块，修正已训练模型列表为需手动「激活」才用于预测；常见问题补充「已有任务正在运行」及激活/权重表述；说明弹窗与帮助文档统一训练时间与数据范围建议，新增因子质量优化说明</li>
+                        <li>【设置页-模型训练/股票数据】修复：股票数据获取任务分页变量提前声明避免 TDZ 报错；补全缺失的 startFactorQualityOptimization() 使「运行因子质量优化」按钮可用</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-21 (六)</div>
+                    <ul class="log-items">
+                        <li>【ML因子增强】新增约22个机构级增强因子：横截面排名(return_5d/20d_rank_all、volume/turnover/amount_rank_all)、相对强弱(relative_strength_5d/20d/60d)、Delta因子(rsi/macd_hist/volume_ratio等_change_5d)、突破因子(is_20d_high/is_60d_high/is_volume_breakout)、市场环境(index_return_1d/5d/20d、index_volatility_20d)，无未来函数，Loader与prepare_features协同实现，详见《ML增强因子可行性分析报告.md》</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-13 (四)</div>
+                    <ul class="log-items">
+                        <li>【主页审查】完成第一轮主页逻辑审查，发现17个问题（2个高优先级XSS安全风险、8个中优先级数据逻辑问题、7个低优先级性能/代码质量问题），已记录到《主页逻辑审查问题汇总.md》</li>
+                        <li>【高优修复】参数优化前后端协议统一：前端改为轮询progress_id获取优化结果，新增进度查询API，优化完成后可正常显示结果并应用参数</li>
+                        <li>【高优修复】权重引导文案与后端校验统一：前端文案改为"传统因子权重合计应为1.0"，一键平衡和校验逻辑统一为1.0标准，与后端校验一致</li>
+                        <li>【高优修复】修复0值被覆盖问题：所有数值加载/保存改用安全函数(_safeGetNumber/safeNumber)，支持合法0值不被默认值替换</li>
+                        <li>【高优修复】performance分类读取：get_config()添加performance分类，性能参数可正常保存和读取</li>
+                        <li>【中优修复】max_position_pct单位统一：前端统一按百分数显示(30表示30%)，保存时自动转换为比例格式(0.3)存储</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-12 (三)</div>
+                    <ul class="log-items">
+                        <li>【致命修复】回测引擎与参数优化器交易逻辑统一：backtest_predictions不再硬编码止盈8%/止损-5%/仓位30%，改为从数据库配置读取交易参数，优化结果可直接体现在回测中</li>
+                        <li>【高优修复】风控检查价格偏差：日切时先预加载当天所有股票的实际价格再执行止盈/止损判断，不再用前一天旧价格做风控</li>
+                        <li>【高优修复】贝叶斯优化交叉验证bug：验证集回测传参从未定义变量normalized_params改为正确的params，修复交叉验证必崩溃问题</li>
+                        <li>【中优修复】优化器基线对比：current_prediction_config在回测前补全交易参数默认值，确保优化前后对比公平准确</li>
+                        <li>【致命修复】用户管理-管理员自我保护：禁止管理员降级自己角色、禁用自己账户，禁止删除最后一个活跃管理员</li>
+                        <li>【致命修复】新闻任务delete/update同步scheduled_tasks表：修改和删除新闻任务时同步更新/删除统一调度表记录，防止数据不一致</li>
+                        <li>【严重修复】备份管理ID生成+扫描备份可操作：ID改用max(id)+1防删除后冲突，扫描到的备份写入metadata使其可删除/恢复</li>
+                        <li>【高优修复】模型训练并发控制+任务清理：同一时刻只允许一个训练任务运行(409拒绝)，自动清理超过20条的已完成历史任务防内存泄漏</li>
+                        <li>【中优修复】自适应优化改用贝叶斯：execute_adaptive_optimization优先调用bayesian优化(效率更高)，不可用时回退grid_search</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-12 (二)</div>
+                    <ul class="log-items">
+                        <li>【模型学习页面重构】调整功能区域顺序为：回测(①) → 参数优化(②) → 再回测验证(③) → 定时任务(④)，更符合新手操作逻辑</li>
+                        <li>【模型学习页面】各区域新增步骤编号徽标和引导说明，明确告诉用户每一步该做什么、下一步去哪里</li>
+                        <li>【模型学习页面】修正所有"权重参数"描述为"交易参数"（买卖阈值/止盈止损/仓位），与实际优化内容一致</li>
+                        <li>【模型学习页面】更新使用指南中的推荐流程和场景表格，与新布局匹配</li>
+                        <li>【ML1修复】创建定时学习任务时星期参数(schedule_weekdays)改为顶级字段传递，修复每周任务星期配置丢失</li>
+                        <li>【ML2修复】参数优化增加运行计时器和动画进度条，用户可实时看到已运行时间，不再以为卡死</li>
+                        <li>【ML3修复】综合评估结果渲染全部数值计算加安全转换防NaN；全部子评估无数据时显示兜底提示</li>
+                        <li>【ML4修复】5个异步操作按钮（基础评估/综合评估/标准优化/在线学习/自适应优化）全部加防重复点击，运行时禁用并变更文字</li>
+                        <li>【ML5修复】性能评估指标卡片字号在"无数据→有数据"切换时正确恢复为32px</li>
+                        <li>【ML7修复】定时学习任务列表所有用户可控字段（任务名/执行消息等）加HTML转义防XSS</li>
+                        <li>【ML8修复】定时任务状态显示改为：启用/停用状态独立显示，上次运行结果（成功/失败）作为附属信息</li>
+                        <li>【ML10修复】后端性能评估和综合评估API的days参数增加类型检查和范围限制（1~365）</li>
+                        <li>【ML12修复】模型学习所有fetch调用统一使用_fetchApi封装，自动检查HTTP状态码并抛出友好错误</li>
+                        <li>【ML13修复】应用优化参数后保留结果展示，按钮改为"已应用"禁用状态，并提示用户回测验证</li>
+                        <li>【ML14修复】性能评估后端SQL查询增加LIMIT 10000防止大数据量内存溢出</li>
+                        <li>【ML15修复】model_performance_evaluator.py所有float()转换替换为_safe_float()安全函数，单条异常不中断整体评估</li>
+                        <li>【ML16修复】日期解析裸except改为except (ValueError, TypeError)，不再误捕KeyboardInterrupt等</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-12</div>
+                    <ul class="log-items">
+                        <li>【回测引擎重构】修复持仓卖出完全依赖预测记录的致命缺陷，新增每日自动风控检查（止盈/止损/超时），不再出现持仓"卡住"永不卖出的情况</li>
+                        <li>【回测引擎】新增最大持仓天数限制（默认10天），超时自动强制平仓；回测结束时强制平仓所有剩余持仓，消除"纸面盈亏"失真</li>
+                        <li>【回测引擎】买入价格从 current_price（T-1）统一为 actual_price（T日实际价格），消除买卖价格不对称问题</li>
+                        <li>【回测前端】回测结果新增数据覆盖率显示（有效交易日/自然日）；交易记录表新增盈亏%和卖出原因列</li>
+                        <li>【参数优化修复】修复web_app和贝叶斯优化仍传入旧权重搜索空间的问题，现在统一使用交易参数（买卖阈值/止盈止损/仓位）作为搜索空间，优化结果真正影响回测表现</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
                     <div class="log-date">2026-02-11</div>
                     <ul class="log-items">
                         <li>【性能评估修复】修复API在评估无数据时仍返回成功的BUG，现在会正确提示"没有找到评估数据"；前端不再显示NaN，无数据时显示"无数据"</li>
@@ -2434,8 +2629,8 @@
                                 <li>⚠️ <strong>不建议频繁训练</strong>：历史数据相对稳定，频繁训练可能导致过拟合</li>
                             </ul>
                         </li>
-                        <li><strong>训练时间</strong>：根据数据量，通常需要30分钟到2小时</li>
-                        <li><strong>模型影响</strong>：训练好的模型权重为35%，会自动应用到所有股票预测中</li>
+                        <li><strong>训练时间</strong>：根据数据量，通常 5 分钟～2 小时；数据量较小时约 5～30 分钟</li>
+                        <li><strong>模型影响</strong>：训练完成后需在「已训练模型列表」中点击「激活」才会用于预测；预测时 ML 默认约占 35% 权重，系统可能根据表现动态调整</li>
                     </ul>
                 </div>
                 
@@ -2618,6 +2813,13 @@
     <script>
         let currentTaskId = null;
         let socket = null;
+        
+        // 股票数据获取任务分页（提前声明，避免在 refreshStockDataTasks 调用时出现 TDZ）
+        let stockDataTasksCurrentPage = 1;
+        let stockDataTasksTotalPages = 1;
+        let stockDataHistoryCurrentPage = 1;
+        let stockDataHistoryTotalPages = 1;
+        let currentStockDataTaskId = null;
         
         // 统一日期格式：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，不使用 GMT 等格式
         function formatDateTimeDisplay(str) {
@@ -3510,6 +3712,24 @@
         
         // ========== 预测参数配置相关函数 ==========
         
+        // R6-3修复：安全获取数值，避免合法0值被覆盖
+        function safeNumber(value, defaultValue) {
+            if (value === null || value === undefined || value === '') {
+                return defaultValue;
+            }
+            const num = typeof value === 'number' ? value : parseFloat(value);
+            return isNaN(num) ? defaultValue : num;
+        }
+        
+        // R6-3修复：安全获取整数
+        function safeInt(value, defaultValue) {
+            if (value === null || value === undefined || value === '') {
+                return defaultValue;
+            }
+            const num = typeof value === 'number' ? value : parseInt(value);
+            return isNaN(num) ? defaultValue : num;
+        }
+        
         let currentConfigId = null;  // 当前编辑的配置ID
         
         // 加载当前激活的配置
@@ -3547,15 +3767,16 @@
             }
         }
         
-        // 加载默认配置（从config.py）
+            // 加载默认配置（从config.py）
         function loadDefaultConfig() {
             // 默认值来自config.py
-            // 传统因子权重（合计65%，与config.py PREDICTION_CONFIG一致）
+            // R6-2修复：传统因子权重合计应为1.0（与后端校验一致）
+            // 注意：虽然config.py中传统因子合计0.65，但配置中需要存储为1.0，ML权重在预测时动态计算
             setWeightValue('technical_weight', 0.20);   // 技术指标
             setWeightValue('news_weight', 0.16);        // 新闻情感
             setWeightValue('capital_flow_weight', 0.13); // 资金流向
             setWeightValue('market_weight', 0.11);      // 市场情绪
-            setWeightValue('history_weight', 0.05);     // 历史模式
+            setWeightValue('history_weight', 0.40);     // 历史模式（调整为使总和为1.0）
             // 【已优化移除】以下三个因子已从预测模型中移除
             // setWeightValue('sector_rotation_weight', 0.05);
             // setWeightValue('us_sector_weight', 0.05);
@@ -3622,7 +3843,8 @@
             document.getElementById('trailing_stop_pct').value = 3.0;
             document.getElementById('chase_high_threshold').value = 5.0;
             document.getElementById('catch_low_threshold').value = -5.0;
-            document.getElementById('max_position_pct').value = 30.0;
+                // R6-5修复：默认值统一为百分数格式（30表示30%）
+                document.getElementById('max_position_pct').value = 30.0;
             document.getElementById('max_total_position_pct').value = 80.0;
             document.getElementById('position_step').value = 10.0;
             document.getElementById('max_correlation').value = 0.8;
@@ -3636,91 +3858,94 @@
             // 加载预测权重
             if (values.prediction) {
                 const pred = values.prediction;
-                setWeightValue('news_weight', pred.news_weight || 0);
-                setWeightValue('capital_flow_weight', pred.capital_flow_weight || 0);
-                setWeightValue('market_weight', pred.market_weight || 0);
-                setWeightValue('technical_weight', pred.technical_weight || 0);
+                // R6-3修复：使用safeNumber避免合法0值被覆盖
+                setWeightValue('news_weight', safeNumber(pred.news_weight, 0));
+                setWeightValue('capital_flow_weight', safeNumber(pred.capital_flow_weight, 0));
+                setWeightValue('market_weight', safeNumber(pred.market_weight, 0));
+                setWeightValue('technical_weight', safeNumber(pred.technical_weight, 0));
                 // 【已优化移除】以下三个因子已从预测模型中移除，加载时忽略
-                // setWeightValue('sector_rotation_weight', pred.sector_rotation_weight || 0);
-                // setWeightValue('us_sector_weight', pred.us_sector_weight || 0);
-                // setWeightValue('valuation_weight', pred.valuation_weight || 0);
-                setWeightValue('history_weight', pred.history_weight || 0);
-                document.getElementById('min_confidence').value = pred.min_confidence || 0.5;
-                document.getElementById('lookback_days').value = pred.lookback_days || 60;
+                setWeightValue('history_weight', safeNumber(pred.history_weight, 0));
+                document.getElementById('min_confidence').value = safeNumber(pred.min_confidence, 0.5);
+                document.getElementById('lookback_days').value = safeInt(pred.lookback_days, 60);
                 
                 // 加载ML模型动态权重参数（ML占35%，与config.py一致）
-                document.getElementById('ml_default_weight').value = pred.ml_default_weight || 0.35;
-                document.getElementById('ml_min_weight').value = pred.ml_min_weight || 0.10;
-                document.getElementById('ml_max_weight').value = pred.ml_max_weight || 0.50;
-                document.getElementById('ml_high_accuracy_threshold').value = pred.ml_high_accuracy_threshold || 0.60;
-                document.getElementById('ml_medium_accuracy_threshold').value = pred.ml_medium_accuracy_threshold || 0.50;
+                document.getElementById('ml_default_weight').value = safeNumber(pred.ml_default_weight, 0.35);
+                document.getElementById('ml_min_weight').value = safeNumber(pred.ml_min_weight, 0.10);
+                document.getElementById('ml_max_weight').value = safeNumber(pred.ml_max_weight, 0.50);
+                document.getElementById('ml_high_accuracy_threshold').value = safeNumber(pred.ml_high_accuracy_threshold, 0.60);
+                document.getElementById('ml_medium_accuracy_threshold').value = safeNumber(pred.ml_medium_accuracy_threshold, 0.50);
                 
                 // 加载异常检测参数
-                document.getElementById('st_stock_confidence_reduction').value = pred.st_stock_confidence_reduction || 0.20;
-                document.getElementById('limit_up_down_confidence_reduction').value = pred.limit_up_down_confidence_reduction || 0.10;
+                document.getElementById('st_stock_confidence_reduction').value = safeNumber(pred.st_stock_confidence_reduction, 0.20);
+                document.getElementById('limit_up_down_confidence_reduction').value = safeNumber(pred.limit_up_down_confidence_reduction, 0.10);
                 document.getElementById('suspended_stock_action').value = pred.suspended_stock_action || 'skip_prediction';
             }
             
             // 加载技术指标参数
             if (values.indicator) {
                 const ind = values.indicator;
-                document.getElementById('ma_short').value = ind.ma_short || 5;
-                document.getElementById('ma_long').value = ind.ma_long || 20;
-                document.getElementById('rsi_period').value = ind.rsi_period || 14;
-                document.getElementById('rsi_short').value = ind.rsi_short || 6;
-                document.getElementById('rsi_mid').value = ind.rsi_mid || 12;
-                document.getElementById('macd_fast').value = ind.macd_fast || 12;
-                document.getElementById('macd_slow').value = ind.macd_slow || 26;
-                document.getElementById('macd_signal').value = ind.macd_signal || 9;
-                document.getElementById('kdj_period').value = ind.kdj_period || 9;
-                document.getElementById('kdj_k_period').value = ind.kdj_k_period || 3;
-                document.getElementById('kdj_d_period').value = ind.kdj_d_period || 3;
-                document.getElementById('cci_period').value = ind.cci_period || 14;
+                // R6-3修复：使用safeInt避免合法0值被覆盖
+                document.getElementById('ma_short').value = safeInt(ind.ma_short, 5);
+                document.getElementById('ma_long').value = safeInt(ind.ma_long, 20);
+                document.getElementById('rsi_period').value = safeInt(ind.rsi_period, 14);
+                document.getElementById('rsi_short').value = safeInt(ind.rsi_short, 6);
+                document.getElementById('rsi_mid').value = safeInt(ind.rsi_mid, 12);
+                document.getElementById('macd_fast').value = safeInt(ind.macd_fast, 12);
+                document.getElementById('macd_slow').value = safeInt(ind.macd_slow, 26);
+                document.getElementById('macd_signal').value = safeInt(ind.macd_signal, 9);
+                document.getElementById('kdj_period').value = safeInt(ind.kdj_period, 9);
+                document.getElementById('kdj_k_period').value = safeInt(ind.kdj_k_period, 3);
+                document.getElementById('kdj_d_period').value = safeInt(ind.kdj_d_period, 3);
+                document.getElementById('cci_period').value = safeInt(ind.cci_period, 14);
                 
                 // 加载X2指标参数
-                document.getElementById('x2_overbought_threshold').value = ind.x2_overbought_threshold || 80;
-                document.getElementById('x2_oversold_threshold').value = ind.x2_oversold_threshold || 20;
-                document.getElementById('x2_high_threshold').value = ind.x2_high_threshold || 60;
-                document.getElementById('x2_low_threshold').value = ind.x2_low_threshold || 40;
-                document.getElementById('x2_overbought_score').value = ind.x2_overbought_score || -0.15;
-                document.getElementById('x2_oversold_score').value = ind.x2_oversold_score || 0.15;
-                document.getElementById('x2_high_score').value = ind.x2_high_score || -0.05;
-                document.getElementById('x2_low_score').value = ind.x2_low_score || 0.05;
+                document.getElementById('x2_overbought_threshold').value = safeInt(ind.x2_overbought_threshold, 80);
+                document.getElementById('x2_oversold_threshold').value = safeInt(ind.x2_oversold_threshold, 20);
+                document.getElementById('x2_high_threshold').value = safeInt(ind.x2_high_threshold, 60);
+                document.getElementById('x2_low_threshold').value = safeInt(ind.x2_low_threshold, 40);
+                document.getElementById('x2_overbought_score').value = safeNumber(ind.x2_overbought_score, -0.15);
+                document.getElementById('x2_oversold_score').value = safeNumber(ind.x2_oversold_score, 0.15);
+                document.getElementById('x2_high_score').value = safeNumber(ind.x2_high_score, -0.05);
+                document.getElementById('x2_low_score').value = safeNumber(ind.x2_low_score, 0.05);
             }
             
             // 加载性能优化参数
             if (values.performance) {
                 const perf = values.performance;
-                document.getElementById('analysis_max_workers').value = perf.analysis_max_workers || 3;
+                // R6-3修复：使用safeInt避免合法0值被覆盖
+                document.getElementById('analysis_max_workers').value = safeInt(perf.analysis_max_workers, 3);
                 document.getElementById('analysis_enable_parallel').value = perf.analysis_enable_parallel ? 'true' : 'false';
-                document.getElementById('before_close_max_workers').value = perf.before_close_max_workers || 5;
-                document.getElementById('prediction_cache_min_duration').value = perf.prediction_cache_min_duration || 5;
-                document.getElementById('prediction_cache_max_duration').value = perf.prediction_cache_max_duration || 15;
-                document.getElementById('realtime_data_cache_duration').value = perf.realtime_data_cache_duration || 10;
+                document.getElementById('before_close_max_workers').value = safeInt(perf.before_close_max_workers, 5);
+                document.getElementById('prediction_cache_min_duration').value = safeInt(perf.prediction_cache_min_duration, 5);
+                document.getElementById('prediction_cache_max_duration').value = safeInt(perf.prediction_cache_max_duration, 15);
+                document.getElementById('realtime_data_cache_duration').value = safeInt(perf.realtime_data_cache_duration, 10);
             }
             
             // 加载实时交易策略配置
             if (values.trading) {
                 const trading = values.trading;
-                document.getElementById('buy_signal_threshold').value = trading.buy_signal_threshold || 0.65;
-                document.getElementById('strong_buy_threshold').value = trading.strong_buy_threshold || 0.75;
-                document.getElementById('sell_signal_threshold').value = trading.sell_signal_threshold || 0.60;
-                document.getElementById('strong_sell_threshold').value = trading.strong_sell_threshold || 0.70;
-                document.getElementById('trading_min_confidence').value = trading.min_confidence || 0.55;
-                document.getElementById('high_confidence').value = trading.high_confidence || 0.70;
-                document.getElementById('trading_capital_flow_weight').value = trading.capital_flow_weight || 0.25;
-                document.getElementById('trading_bid_ask_weight').value = trading.bid_ask_weight || 0.15;
-                document.getElementById('trading_intraday_weight').value = trading.intraday_weight || 0.10;
-                document.getElementById('stop_loss_pct').value = trading.stop_loss_pct || -5.0;
-                document.getElementById('take_profit_pct').value = trading.take_profit_pct || 8.0;
-                document.getElementById('trailing_stop_pct').value = trading.trailing_stop_pct || 3.0;
-                document.getElementById('chase_high_threshold').value = trading.chase_high_threshold || 5.0;
-                document.getElementById('catch_low_threshold').value = trading.catch_low_threshold || -5.0;
-                document.getElementById('max_position_pct').value = trading.max_position_pct || 30.0;
-                document.getElementById('max_total_position_pct').value = trading.max_total_position_pct || 80.0;
-                document.getElementById('position_step').value = trading.position_step || 10.0;
-                document.getElementById('max_correlation').value = trading.max_correlation || 0.8;
-                document.getElementById('monitor_interval').value = trading.monitor_interval || 60;
+                // R6-3修复：使用safeNumber避免合法0值被覆盖（注意：某些阈值可能允许为0）
+                document.getElementById('buy_signal_threshold').value = safeNumber(trading.buy_signal_threshold, 0.65);
+                document.getElementById('strong_buy_threshold').value = safeNumber(trading.strong_buy_threshold, 0.75);
+                document.getElementById('sell_signal_threshold').value = safeNumber(trading.sell_signal_threshold, 0.60);
+                document.getElementById('strong_sell_threshold').value = safeNumber(trading.strong_sell_threshold, 0.70);
+                document.getElementById('trading_min_confidence').value = safeNumber(trading.min_confidence, 0.55);
+                document.getElementById('high_confidence').value = safeNumber(trading.high_confidence, 0.70);
+                document.getElementById('trading_capital_flow_weight').value = safeNumber(trading.capital_flow_weight, 0.25);
+                document.getElementById('trading_bid_ask_weight').value = safeNumber(trading.bid_ask_weight, 0.15);
+                document.getElementById('trading_intraday_weight').value = safeNumber(trading.intraday_weight, 0.10);
+                document.getElementById('stop_loss_pct').value = safeNumber(trading.stop_loss_pct, -5.0);
+                document.getElementById('take_profit_pct').value = safeNumber(trading.take_profit_pct, 8.0);
+                document.getElementById('trailing_stop_pct').value = safeNumber(trading.trailing_stop_pct, 3.0);
+                document.getElementById('chase_high_threshold').value = safeNumber(trading.chase_high_threshold, 5.0);
+                document.getElementById('catch_low_threshold').value = safeNumber(trading.catch_low_threshold, -5.0);
+                // R6-5修复：max_position_pct需要统一单位处理（如果后端存储为比例0.3，前端显示为30%）
+                const maxPosPct = safeNumber(trading.max_position_pct, 30.0);
+                document.getElementById('max_position_pct').value = maxPosPct > 1 ? maxPosPct : maxPosPct * 100;
+                document.getElementById('max_total_position_pct').value = safeNumber(trading.max_total_position_pct, 80.0);
+                document.getElementById('position_step').value = safeNumber(trading.position_step, 10.0);
+                document.getElementById('max_correlation').value = safeNumber(trading.max_correlation, 0.8);
+                document.getElementById('monitor_interval').value = safeInt(trading.monitor_interval, 60);
                 document.getElementById('enable_risk_control').checked = trading.enable_risk_control !== false;
                 document.getElementById('alert_on_signal_change').checked = trading.alert_on_signal_change !== false;
             }
@@ -3755,7 +3980,7 @@
             updateWeightSum();
         }
         
-        // 更新权重总和（传统因子合计应为0.65，ML模型占0.35，总计1.00）
+        // 更新权重总和（传统因子合计应为1.0，与后端校验一致）
         function updateWeightSum() {
             const weights = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
@@ -3774,8 +3999,8 @@
             const sumElement = document.getElementById('weightSum');
             if (sumElement) {
                 sumElement.textContent = sum.toFixed(2);
-                // 传统因子合计应为0.65（+ ML 0.35 = 1.00）
-                if (Math.abs(sum - 0.65) <= 0.01) {
+                // R6-2修复：传统因子合计应为1.0（允许±0.01误差，与后端校验一致）
+                if (Math.abs(sum - 1.0) <= 0.01) {
                     sumElement.style.color = '#4caf50';
                 } else {
                     sumElement.style.color = '#f44336';
@@ -3783,7 +4008,7 @@
             }
         }
         
-        // 一键平衡权重（传统因子合计0.65，ML模型占0.35）
+        // 一键平衡权重（传统因子合计1.0，与后端校验一致）
         function balanceWeights() {
             const weights = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
@@ -3807,14 +4032,14 @@
                 return;
             }
             
-            // 按比例调整，使传统因子总和为0.65（ML占0.35）
+            // R6-2修复：按比例调整，使传统因子总和为1.0（与后端校验一致）
             weights.forEach(key => {
-                const adjustedValue = (currentValues[key] / sum) * 0.65;
+                const adjustedValue = (currentValues[key] / sum) * 1.0;
                 setWeightValue(key, adjustedValue);
             });
             
             updateWeightSum();
-            alert('传统因子权重已平衡为总和0.65（+ ML 0.35 = 1.00）');
+            alert('传统因子权重已平衡为总和1.0');
         }
         
         // 获取当前表单配置值
@@ -3835,23 +4060,24 @@
             weightKeys.forEach(key => {
                 const input = document.getElementById(key + '_value');
                 if (input) {
-                    values.prediction[key] = parseFloat(input.value) || 0;
+                    // R6-3修复：使用safeNumber避免合法0值被覆盖
+                    values.prediction[key] = safeNumber(parseFloat(input.value), 0);
                 }
             });
             
-            values.prediction.min_confidence = parseFloat(document.getElementById('min_confidence').value) || 0.5;
-            values.prediction.lookback_days = parseInt(document.getElementById('lookback_days').value) || 60;
+            values.prediction.min_confidence = safeNumber(parseFloat(document.getElementById('min_confidence').value), 0.5);
+            values.prediction.lookback_days = safeInt(parseInt(document.getElementById('lookback_days').value), 60);
             
             // 获取ML模型动态权重参数（ML占35%，与config.py一致）
-            values.prediction.ml_default_weight = parseFloat(document.getElementById('ml_default_weight').value) || 0.35;
-            values.prediction.ml_min_weight = parseFloat(document.getElementById('ml_min_weight').value) || 0.10;
-            values.prediction.ml_max_weight = parseFloat(document.getElementById('ml_max_weight').value) || 0.50;
-            values.prediction.ml_high_accuracy_threshold = parseFloat(document.getElementById('ml_high_accuracy_threshold').value) || 0.60;
-            values.prediction.ml_medium_accuracy_threshold = parseFloat(document.getElementById('ml_medium_accuracy_threshold').value) || 0.50;
+            values.prediction.ml_default_weight = safeNumber(parseFloat(document.getElementById('ml_default_weight').value), 0.35);
+            values.prediction.ml_min_weight = safeNumber(parseFloat(document.getElementById('ml_min_weight').value), 0.10);
+            values.prediction.ml_max_weight = safeNumber(parseFloat(document.getElementById('ml_max_weight').value), 0.50);
+            values.prediction.ml_high_accuracy_threshold = safeNumber(parseFloat(document.getElementById('ml_high_accuracy_threshold').value), 0.60);
+            values.prediction.ml_medium_accuracy_threshold = safeNumber(parseFloat(document.getElementById('ml_medium_accuracy_threshold').value), 0.50);
             
             // 获取异常检测参数
-            values.prediction.st_stock_confidence_reduction = parseFloat(document.getElementById('st_stock_confidence_reduction').value) || 0.20;
-            values.prediction.limit_up_down_confidence_reduction = parseFloat(document.getElementById('limit_up_down_confidence_reduction').value) || 0.10;
+            values.prediction.st_stock_confidence_reduction = safeNumber(parseFloat(document.getElementById('st_stock_confidence_reduction').value), 0.20);
+            values.prediction.limit_up_down_confidence_reduction = safeNumber(parseFloat(document.getElementById('limit_up_down_confidence_reduction').value), 0.10);
             values.prediction.suspended_stock_action = document.getElementById('suspended_stock_action').value || 'skip_prediction';
             
             // 获取技术指标参数
@@ -3864,14 +4090,18 @@
             indicatorKeys.forEach(key => {
                 const input = document.getElementById(key);
                 if (input) {
-                    values.indicator[key] = parseInt(input.value) || 0;
+                    // R6-3修复：使用safeInt避免合法0值被覆盖
+                    values.indicator[key] = safeInt(parseInt(input.value), 0);
                 }
             });
             
             // 获取实时交易策略配置
+            // R6-3修复：getElementValue支持0值
             const getElementValue = (id, defaultValue, parseFunc = parseFloat) => {
                 const elem = document.getElementById(id);
-                return elem ? (parseFunc(elem.value) || defaultValue) : defaultValue;
+                if (!elem) return defaultValue;
+                const val = parseFunc(elem.value);
+                return isNaN(val) ? defaultValue : val;  // 支持0值，只有NaN时才用默认值
             };
             const getElementChecked = (id, defaultValue = true) => {
                 const elem = document.getElementById(id);
@@ -3892,7 +4122,9 @@
             values.trading.trailing_stop_pct = getElementValue('trailing_stop_pct', 3.0);
             values.trading.chase_high_threshold = getElementValue('chase_high_threshold', 5.0);
             values.trading.catch_low_threshold = getElementValue('catch_low_threshold', -5.0);
-            values.trading.max_position_pct = getElementValue('max_position_pct', 30.0);
+            // R6-5修复：max_position_pct统一保存为比例格式（前端输入30%保存为0.3）
+            const maxPosPctRaw = getElementValue('max_position_pct', 30.0);
+            values.trading.max_position_pct = maxPosPctRaw > 1 ? maxPosPctRaw / 100.0 : maxPosPctRaw;
             values.trading.max_total_position_pct = getElementValue('max_total_position_pct', 80.0);
             values.trading.position_step = getElementValue('position_step', 10.0);
             values.trading.max_correlation = getElementValue('max_correlation', 0.8);
@@ -3900,14 +4132,14 @@
             values.trading.enable_risk_control = getElementChecked('enable_risk_control', true);
             values.trading.alert_on_signal_change = getElementChecked('alert_on_signal_change', true);
             
-            // 获取性能优化参数
+            // 获取性能优化参数（R6-3：使用 getElementValue 支持 0 值，避免 || 覆盖）
             values.performance = {};
-            values.performance.analysis_max_workers = parseInt(document.getElementById('analysis_max_workers')?.value) || 3;
+            values.performance.analysis_max_workers = getElementValue('analysis_max_workers', 3, parseInt);
             values.performance.analysis_enable_parallel = document.getElementById('analysis_enable_parallel')?.value === 'true';
-            values.performance.before_close_max_workers = parseInt(document.getElementById('before_close_max_workers')?.value) || 5;
-            values.performance.prediction_cache_min_duration = parseInt(document.getElementById('prediction_cache_min_duration')?.value) || 5;
-            values.performance.prediction_cache_max_duration = parseInt(document.getElementById('prediction_cache_max_duration')?.value) || 15;
-            values.performance.realtime_data_cache_duration = parseInt(document.getElementById('realtime_data_cache_duration')?.value) || 10;
+            values.performance.before_close_max_workers = getElementValue('before_close_max_workers', 5, parseInt);
+            values.performance.prediction_cache_min_duration = getElementValue('prediction_cache_min_duration', 5, parseInt);
+            values.performance.prediction_cache_max_duration = getElementValue('prediction_cache_max_duration', 15, parseInt);
+            values.performance.realtime_data_cache_duration = getElementValue('realtime_data_cache_duration', 10, parseInt);
             
             return values;
         }
@@ -7198,18 +7430,19 @@
             const days = document.getElementById('evalTimePeriod').value;
             const resultsDiv = document.getElementById('performanceResults');
             const loadingDiv = document.getElementById('performanceLoading');
+            // ML4修复：获取按钮并禁用
+            const btn = event && event.target ? event.target : document.querySelector('[onclick*="runPerformanceEvaluation"]');
+            if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = '⏳ 评估中...'; }
             
             resultsDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
             
             try {
-                const response = await fetch(`/api/model/evaluate?days=${days}`);
-                const result = await response.json();
+                const result = await _fetchApi(`/api/model/evaluate?days=${days}`);
                 
                 if (result.success) {
                     displayPerformanceResults(result.data);
                     resultsDiv.style.display = 'block';
-                    // 显示部分数据缺失的警告
                     if (result.data.warnings && result.data.warnings.length > 0) {
                         const warningMsg = result.data.warnings.join('\n');
                         alert('⚠️ 部分数据不可用：\n' + warningMsg + '\n\n已用默认值填充对应指标，请关注有数据的部分。');
@@ -7221,6 +7454,7 @@
                 alert('评估请求异常: ' + error.message);
             } finally {
                 loadingDiv.style.display = 'none';
+                if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '🔍 基础评估'; }
             }
         }
         
@@ -7236,58 +7470,40 @@
             const predAvail = data.prediction_available;
             const tradAvail = data.trading_available;
             
+            // ML5修复：统一字号设置辅助函数，有数据时恢复32px，无数据时缩小到20px
+            function setMetric(el, hasData, text, title) {
+                if (!el) return;
+                if (hasData) {
+                    el.textContent = text;
+                    el.style.fontSize = '32px';
+                    if (title) el.title = title;
+                } else {
+                    el.textContent = '无数据';
+                    el.style.fontSize = '20px';
+                    el.title = '';
+                }
+            }
+            
             // 方向准确率（来自预测评估）
             const accuracyEl = document.getElementById('metric-accuracy');
-            if (predAvail) {
-                const accuracy = (safeNum(data.direction_accuracy) * 100).toFixed(2);
-                accuracyEl.textContent = accuracy + '%';
-                const sampleInfo = data.sample_count ? ` (${data.sample_count}条)` : '';
-                accuracyEl.title = '基于' + sampleInfo + '预测记录';
-            } else {
-                accuracyEl.textContent = '无数据';
-                accuracyEl.style.fontSize = '20px';
-            }
+            const sampleInfo = data.sample_count ? ` (${data.sample_count}条)` : '';
+            setMetric(accuracyEl, predAvail, (safeNum(data.direction_accuracy) * 100).toFixed(2) + '%', '基于' + sampleInfo + '预测记录');
             
             // 总收益率（来自交易评估）
             const returnEl = document.getElementById('metric-return');
-            if (tradAvail) {
-                const returnValue = safeNum(data.total_return).toFixed(2);
-                returnEl.textContent = returnValue + '%';
-            } else {
-                returnEl.textContent = '无数据';
-                returnEl.style.fontSize = '20px';
-            }
+            setMetric(returnEl, tradAvail, safeNum(data.total_return).toFixed(2) + '%');
             
             // 胜率（来自交易评估）
             const winRateEl = document.getElementById('metric-winrate');
-            if (tradAvail) {
-                const winRate = (safeNum(data.win_rate) * 100).toFixed(2);
-                winRateEl.textContent = winRate + '%';
-            } else {
-                winRateEl.textContent = '无数据';
-                winRateEl.style.fontSize = '20px';
-            }
+            setMetric(winRateEl, tradAvail, (safeNum(data.win_rate) * 100).toFixed(2) + '%');
             
             // 最大回撤（来自交易评估）
             const drawdownEl = document.getElementById('metric-drawdown');
-            if (tradAvail) {
-                const drawdown = safeNum(data.max_drawdown).toFixed(2);
-                drawdownEl.textContent = drawdown + '%';
-            } else {
-                drawdownEl.textContent = '无数据';
-                drawdownEl.style.fontSize = '20px';
-            }
+            setMetric(drawdownEl, tradAvail, safeNum(data.max_drawdown).toFixed(2) + '%');
             
             // 夏普比率（来自交易评估）
             const sharpeEl = document.getElementById('metric-sharpe');
-            if (sharpeEl) {
-                if (tradAvail) {
-                    sharpeEl.textContent = safeNum(data.sharpe_ratio).toFixed(2);
-                } else {
-                    sharpeEl.textContent = '无数据';
-                    sharpeEl.style.fontSize = '20px';
-                }
-            }
+            setMetric(sharpeEl, tradAvail, safeNum(data.sharpe_ratio).toFixed(2));
             
             // 绘制性能趋势图表（仅在有数据时绘制）
             if (predAvail || tradAvail) {
@@ -7394,48 +7610,121 @@
         }
         
         // 执行参数优化
+        let _optTimerInterval = null;
+        let _optProgressInterval = null;
         async function runParameterOptimization() {
             const days = document.getElementById('optimizeTimePeriod').value;
             const autoApplyThreshold = parseFloat(document.getElementById('autoApplyThreshold').value) || 5.0;
             const resultsDiv = document.getElementById('optimizationResults');
             const loadingDiv = document.getElementById('optimizationLoading');
+            const runBtn = document.querySelector('#optPanelStandard .btn-primary');
             
-            if (!confirm('参数优化可能需要较长时间，是否继续？')) {
+            if (!confirm('参数优化可能需要较长时间（1~5分钟），是否继续？')) {
                 return;
             }
             
             resultsDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
+            // ML4修复：禁用按钮防重复点击
+            if (runBtn) { runBtn.disabled = true; runBtn.textContent = '⏳ 优化中...'; }
+            
+            // ML2修复：启动计时器
+            let elapsed = 0;
+            const timerEl = document.getElementById('optLoadingTimer');
+            if (_optTimerInterval) clearInterval(_optTimerInterval);
+            _optTimerInterval = setInterval(() => {
+                elapsed++;
+                if (timerEl) timerEl.textContent = `已运行 ${elapsed} 秒，请耐心等待...`;
+            }, 1000);
             
             try {
                 const endDate = new Date().toISOString().split('T')[0];
                 const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                 
-                const response = await fetch('/api/model/optimize', {
+                // R6-1修复：启动优化，获取progress_id
+                const startResult = await _fetchApi('/api/model/optimize', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        start_date: startDate,
-                        end_date: endDate,
-                        auto_apply_threshold: autoApplyThreshold
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start_date: startDate, end_date: endDate, auto_apply_threshold: autoApplyThreshold })
                 });
                 
-                const result = await response.json();
-                
-                if (result.success) {
-                    currentOptimizationId = result.optimization_id;
-                    displayOptimizationResults(result);
-                    resultsDiv.style.display = 'block';
-                } else {
-                    alert('优化失败: ' + result.message);
+                if (!startResult.success) {
+                    alert('启动优化失败: ' + startResult.message);
+                    return;
                 }
+                
+                const progressId = startResult.progress_id;
+                if (!progressId) {
+                    alert('未获取到进度ID');
+                    return;
+                }
+                
+                // 开始轮询进度
+                _optProgressInterval = setInterval(async () => {
+                    try {
+                        const progressResult = await _fetchApi(`/api/model/optimize/progress/${progressId}`);
+                        if (!progressResult.success || !progressResult.data) {
+                            return; // 进度不存在，继续等待
+                        }
+                        
+                        const progress = progressResult.data;
+                        
+                        // 更新进度显示
+                        if (progress.percentage !== undefined) {
+                            const progressBar = document.getElementById('optimizationProgressBar');
+                            if (progressBar) {
+                                progressBar.style.width = progress.percentage + '%';
+                            }
+                        }
+                        
+                        // 如果完成或失败，停止轮询并显示结果
+                        if (progress.status === 'completed') {
+                            clearInterval(_optProgressInterval);
+                            _optProgressInterval = null;
+                            
+                            // 获取完整结果
+                            const result = progress.result || {
+                                optimization_id: null,
+                                best_score: progress.best_score || 0,
+                                current_score: progress.current_score || 0,
+                                improvement_pct: progress.improvement_pct || 0,
+                                is_auto_applied: false
+                            };
+                            
+                            currentOptimizationId = result.optimization_id;
+                            displayOptimizationResults(result);
+                            resultsDiv.style.display = 'block';
+                            loadingDiv.style.display = 'none';
+                            
+                            // 恢复按钮
+                            if (runBtn) { runBtn.disabled = false; runBtn.textContent = '⚙️ 执行优化'; }
+                            // 清除计时器
+                            if (_optTimerInterval) { clearInterval(_optTimerInterval); _optTimerInterval = null; }
+                        } else if (progress.status === 'failed') {
+                            clearInterval(_optProgressInterval);
+                            _optProgressInterval = null;
+                            
+                            alert('优化失败: ' + (progress.message || progress.error || '未知错误'));
+                            loadingDiv.style.display = 'none';
+                            
+                            // 恢复按钮
+                            if (runBtn) { runBtn.disabled = false; runBtn.textContent = '⚙️ 执行优化'; }
+                            // 清除计时器
+                            if (_optTimerInterval) { clearInterval(_optTimerInterval); _optTimerInterval = null; }
+                        }
+                    } catch (error) {
+                        console.error('查询进度失败:', error);
+                    }
+                }, 2000); // 每2秒轮询一次
+                
             } catch (error) {
                 alert('优化失败: ' + error.message);
-            } finally {
                 loadingDiv.style.display = 'none';
+                // 恢复按钮
+                if (runBtn) { runBtn.disabled = false; runBtn.textContent = '⚙️ 执行优化'; }
+                // 清除计时器和轮询
+                if (_optTimerInterval) { clearInterval(_optTimerInterval); _optTimerInterval = null; }
+                if (_optProgressInterval) { clearInterval(_optProgressInterval); _optProgressInterval = null; }
             }
         }
         
@@ -7481,16 +7770,18 @@
             }
             
             try {
-                const response = await fetch(`/api/model/apply-optimization/${currentOptimizationId}`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
+                const result = await _fetchApi(`/api/model/apply-optimization/${currentOptimizationId}`, { method: 'POST' });
                 
                 if (result.success) {
-                    alert('参数已成功应用！');
+                    alert('参数已成功应用！现在可以回到上方「回测分析」用相同日期再跑一次，对比优化效果。');
+                    // ML13修复：保留结果展示，仅禁用应用按钮并标记已应用
+                    const applyBtn = document.getElementById('applyOptBtn');
+                    if (applyBtn) {
+                        applyBtn.disabled = true;
+                        applyBtn.textContent = '✅ 已应用';
+                        applyBtn.style.background = '#ccc';
+                    }
                     currentOptimizationId = null;
-                    document.getElementById('optimizationResults').style.display = 'none';
                     // 刷新参数设置面板的配置
                     if (document.getElementById('panel-params').classList.contains('active')) {
                         loadActiveConfig();
@@ -7537,6 +7828,17 @@
             const endEl = document.getElementById('backtestEndDate');
             if (startEl && !startEl.value) startEl.value = fmt(startDate);
             if (endEl && !endEl.value) endEl.value = fmt(endDate);
+        }
+        // R7-2：回测日期快捷选择（最近 N 天）
+        function setBacktestDateRange(days) {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            const fmt = d => d.toISOString().split('T')[0];
+            const startEl = document.getElementById('backtestStartDate');
+            const endEl = document.getElementById('backtestEndDate');
+            if (startEl) startEl.value = fmt(startDate);
+            if (endEl) endEl.value = fmt(endDate);
         }
         // 页面加载后初始化日期
         document.addEventListener('DOMContentLoaded', initBacktestDates);
@@ -7639,6 +7941,29 @@
                     <div style="font-size: 20px; font-weight: bold; color: #7B1FA2;">${totalTrades}</div>
                 </div>`;
             }
+            // R7-3：首屏展示夏普、年化、盈亏比
+            const sharpe = metrics != null && metrics.sharpe_ratio != null ? Number(metrics.sharpe_ratio) : null;
+            const annualRet = metrics != null && metrics.annual_return != null ? Number(metrics.annual_return) : null;
+            const plRatio = metrics != null && metrics.profit_loss_ratio != null ? Number(metrics.profit_loss_ratio) : null;
+            if (sharpe !== null) {
+                html += `<div style="background: #E8EAF6; border: 1px solid #9FA8DA; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">夏普比率</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #3949AB;">${sharpe.toFixed(2)}</div>
+                </div>`;
+            }
+            if (annualRet !== null) {
+                const ac = annualRet >= 0 ? '#4CAF50' : '#F44336';
+                html += `<div style="background: #E3F2FD; border: 1px solid #64B5F6; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">年化收益率</div>
+                    <div style="font-size: 20px; font-weight: bold; color: ${ac};">${annualRet.toFixed(2)}%</div>
+                </div>`;
+            }
+            if (plRatio !== null) {
+                html += `<div style="background: #FFF8E1; border: 1px solid #FFE082; border-radius: 8px; padding: 12px; text-align: center;">
+                    <div style="font-size: 11px; color: #999;">盈亏比</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #F9A825;">${plRatio.toFixed(2)}</div>
+                </div>`;
+            }
             
             // 资金信息
             if (btData.initial_capital || btData.final_value) {
@@ -7652,15 +7977,36 @@
             
             html += '</div>';
             
-            // 回测期间
+            // 回测期间 + 数据覆盖密度
             if (btData.start_date || btData.end_date) {
-                html += `<div style="font-size: 12px; color: #888; margin-bottom: 12px;">回测期间：${btData.start_date || ''} 至 ${btData.end_date || ''}</div>`;
+                let periodInfo = `回测期间：${btData.start_date || ''} 至 ${btData.end_date || ''}`;
+                if (btData.data_coverage) {
+                    const cov = btData.data_coverage;
+                    periodInfo += ` | 有效交易日 ${cov.trading_days_with_data || '-'} 天 / 自然日 ${cov.total_natural_days || '-'} 天（覆盖率 ${cov.coverage_ratio || '-'}%）`;
+                }
+                html += `<div style="font-size: 12px; color: #888; margin-bottom: 12px;">${periodInfo}</div>`;
             }
             
-            // 详细指标（如果有更多）
+            // R7-1：本次回测使用的交易参数（便于用户确认“用的就是当前配置”）
+            if (btData.parameters && typeof btData.parameters === 'object') {
+                const p = btData.parameters;
+                const maxPos = p.max_position_pct != null ? (p.max_position_pct <= 1 ? (p.max_position_pct * 100).toFixed(0) : p.max_position_pct) : '-';
+                html += '<details style="margin-bottom: 12px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">📋 本次回测使用的交易参数</summary>';
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 8px; font-size: 12px;">';
+                html += `<div style="color: #666;">买入阈值</div><div style="font-weight: bold;">${(p.buy_threshold != null ? Number(p.buy_threshold) : '-').toString()}</div>`;
+                html += `<div style="color: #666;">卖出阈值</div><div style="font-weight: bold;">${(p.sell_threshold != null ? Number(p.sell_threshold) : '-').toString()}</div>`;
+                html += `<div style="color: #666;">最小置信度</div><div style="font-weight: bold;">${(p.min_confidence != null ? Number(p.min_confidence) : '-').toString()}</div>`;
+                html += `<div style="color: #666;">止损</div><div style="font-weight: bold;">${(p.stop_loss_pct != null ? p.stop_loss_pct + '%' : '-')}</div>`;
+                html += `<div style="color: #666;">止盈</div><div style="font-weight: bold;">${(p.take_profit_pct != null ? p.take_profit_pct + '%' : '-')}</div>`;
+                html += `<div style="color: #666;">单只仓位</div><div style="font-weight: bold;">${maxPos}%</div>`;
+                html += `<div style="color: #666;">最大持仓天数</div><div style="font-weight: bold;">${(p.max_holding_days != null ? p.max_holding_days : '-').toString()}</div>`;
+                html += '</div></details>';
+            }
+            
+            // 详细指标（如果有更多，排除已在首屏展示的）
             if (metrics && typeof metrics === 'object') {
                 const extraKeys = Object.keys(metrics).filter(k => 
-                    !['total_return', 'total_profit_pct', 'win_rate', 'max_drawdown', 'total_trades', 'success'].includes(k)
+                    !['total_return', 'total_profit_pct', 'win_rate', 'max_drawdown', 'total_trades', 'success', 'sharpe_ratio', 'annual_return', 'profit_loss_ratio'].includes(k)
                 );
                 if (extraKeys.length > 0) {
                     html += '<details style="margin-bottom: 15px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">展开详细指标</summary>';
@@ -7676,18 +8022,24 @@
             
             // 交易记录
             if (btData.trades && Array.isArray(btData.trades) && btData.trades.length > 0) {
-                const showTrades = btData.trades.slice(-15);
-                html += `<details style="margin-bottom: 15px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">交易记录（最近 ${showTrades.length} 条 / 共 ${btData.trades.length} 条）</summary>`;
+                const showTrades = btData.trades.slice(-30);
+                html += `<details style="margin-bottom: 15px;"><summary style="cursor: pointer; font-size: 13px; color: #667eea; font-weight: bold;">交易记录（最近 ${showTrades.length} 条 / 共 ${btData.trades_count || btData.trades.length} 笔）</summary>`;
                 html += '<div style="overflow-x: auto; margin-top: 8px;"><table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
-                html += '<tr style="background: #f5f5f5;"><th style="padding: 6px; text-align: left;">日期</th><th>股票</th><th>方向</th><th>价格</th><th>盈亏</th></tr>';
+                html += '<tr style="background: #f5f5f5;"><th style="padding: 6px; text-align: left;">日期</th><th>股票</th><th>方向</th><th>价格</th><th>盈亏</th><th>盈亏%</th><th>原因</th></tr>';
                 showTrades.forEach(t => {
-                    const profitColor = (t.profit || 0) >= 0 ? '#4CAF50' : '#F44336';
+                    const isSell = (t.action || t.direction || '') === 'SELL';
+                    const profitColor = !isSell ? '#666' : ((t.profit || 0) >= 0 ? '#4CAF50' : '#F44336');
+                    const profitText = isSell && t.profit != null ? t.profit.toFixed(2) : '-';
+                    const profitPctText = isSell && t.profit_pct != null ? t.profit_pct.toFixed(2) + '%' : '-';
+                    const reasonText = t.reason || (isSell ? '' : '-');
                     html += `<tr style="border-bottom: 1px solid #eee;">
                         <td style="padding: 6px;">${t.date || t.trade_date || '-'}</td>
                         <td style="padding: 6px;">${t.stock_code || t.symbol || '-'}</td>
-                        <td style="padding: 6px;">${t.direction || t.action || '-'}</td>
-                        <td style="padding: 6px;">${t.price ? t.price.toFixed(2) : '-'}</td>
-                        <td style="padding: 6px; color: ${profitColor}; font-weight: bold;">${t.profit ? t.profit.toFixed(2) : '-'}</td>
+                        <td style="padding: 6px; color: ${isSell ? '#F44336' : '#4CAF50'}; font-weight: bold;">${t.direction || t.action || '-'}</td>
+                        <td style="padding: 6px;">${t.price ? Number(t.price).toFixed(2) : '-'}</td>
+                        <td style="padding: 6px; color: ${profitColor}; font-weight: bold;">${profitText}</td>
+                        <td style="padding: 6px; color: ${profitColor};">${profitPctText}</td>
+                        <td style="padding: 6px; font-size: 11px; color: #888;">${reasonText}</td>
                     </tr>`;
                 });
                 html += '</table></div></details>';
@@ -7717,8 +8069,7 @@
             listDiv.innerHTML = '<div class="empty-state">正在加载优化历史...</div>';
             
             try {
-                const response = await fetch('/api/model/optimization-history?limit=20');
-                const result = await response.json();
+                const result = await _fetchApi('/api/model/optimization-history?limit=20');
                 
                 if (result.success && result.data && result.data.length > 0) {
                     renderOptimizationHistory(result.data);
@@ -7799,11 +8150,7 @@
             }
             
             try {
-                const response = await fetch(`/api/model/apply-optimization/${optimizationId}`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
+                const result = await _fetchApi(`/api/model/apply-optimization/${optimizationId}`, { method: 'POST' });
                 
                 if (result.success) {
                     alert('参数已成功应用！');
@@ -8123,22 +8470,19 @@
             const days = document.getElementById('evalTimePeriod').value;
             const resultsDiv = document.getElementById('comprehensiveResults');
             const loadingDiv = document.getElementById('comprehensiveLoading');
+            // ML4修复：禁用按钮
+            const btn = event && event.target ? event.target : document.querySelector('[onclick*="runComprehensiveEvaluation"]');
+            if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = '⏳ 评估中...'; }
             
             resultsDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
             
             try {
-                const response = await fetch('/api/model/comprehensive-evaluation', {
+                const result = await _fetchApi('/api/model/comprehensive-evaluation', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        days: parseInt(days)
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: parseInt(days) })
                 });
-                
-                const result = await response.json();
                 
                 if (result.success) {
                     displayComprehensiveResults(result);
@@ -8150,27 +8494,46 @@
                 alert('综合评估失败: ' + error.message);
             } finally {
                 loadingDiv.style.display = 'none';
+                if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '📈 综合评估'; }
             }
         }
         
         // 显示综合评估结果
+        // ML3修复：安全数值转换辅助函数
+        function _safePercent(val) { return ((parseFloat(val) || 0) * 100).toFixed(2); }
+        function _safeFixed(val, digits) { return (parseFloat(val) || 0).toFixed(digits || 2); }
+        
+        // ML12修复：带HTTP状态码检查的fetch封装
+        async function _fetchApi(url, options) {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                let errMsg = '请求失败 (' + response.status + ')';
+                try { const body = await response.json(); if (body.message) errMsg = body.message; } catch(e) {}
+                throw new Error(errMsg);
+            }
+            return await response.json();
+        }
+        
         function displayComprehensiveResults(data) {
             const resultsDiv = document.getElementById('comprehensiveResults');
             let html = '<div style="background: white; padding: 20px; border-radius: 10px;">';
+            let hasAnyData = false;
             
             // 多指标综合评估
             if (data.comprehensive_evaluation && data.comprehensive_evaluation.success) {
+                hasAnyData = true;
                 const comp = data.comprehensive_evaluation;
                 html += '<h4 style="margin-top: 0;">多指标综合评估</h4>';
                 html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">';
-                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">方向准确率</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${(comp.direction_accuracy * 100).toFixed(2)}%</div></div>`;
-                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">幅度准确率</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${(comp.magnitude_accuracy * 100).toFixed(2)}%</div></div>`;
+                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">方向准确率</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${_safePercent(comp.direction_accuracy)}%</div></div>`;
+                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">幅度准确率</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${_safePercent(comp.magnitude_accuracy)}%</div></div>`;
                 html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">样本数</div><div style="font-size: 24px; font-weight: bold; color: #333;">${comp.sample_count || 0}</div></div>`;
                 html += '</div>';
             }
             
             // 分市场状态评估
-            if (data.market_state_evaluation && data.market_state_evaluation.success) {
+            if (data.market_state_evaluation && data.market_state_evaluation.success && data.market_state_evaluation.evaluation_by_state) {
+                hasAnyData = true;
                 const market = data.market_state_evaluation.evaluation_by_state;
                 html += '<h4>分市场状态评估</h4>';
                 html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;">';
@@ -8179,8 +8542,8 @@
                     html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;">`;
                     html += `<div style="font-size: 14px; font-weight: bold; margin-bottom: 10px;">${stateName}</div>`;
                     html += `<div style="font-size: 12px; color: #666;">样本数: ${eval_data.sample_count || 0}</div>`;
-                    html += `<div style="font-size: 12px; color: #666;">准确率: ${(eval_data.direction_accuracy * 100).toFixed(2)}%</div>`;
-                    html += `<div style="font-size: 12px; color: #666;">平均置信度: ${(eval_data.avg_confidence * 100).toFixed(2)}%</div>`;
+                    html += `<div style="font-size: 12px; color: #666;">准确率: ${_safePercent(eval_data.direction_accuracy)}%</div>`;
+                    html += `<div style="font-size: 12px; color: #666;">平均置信度: ${_safePercent(eval_data.avg_confidence)}%</div>`;
                     html += `</div>`;
                 }
                 html += '</div>';
@@ -8188,12 +8551,18 @@
             
             // 置信度校准评估
             if (data.confidence_calibration && data.confidence_calibration.success) {
+                hasAnyData = true;
                 const cal = data.confidence_calibration;
                 html += '<h4>置信度校准评估</h4>';
                 html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
-                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">ECE (期望校准误差)</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${(cal.ece || 0).toFixed(4)}</div></div>`;
-                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">MCE (最大校准误差)</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${(cal.mce || 0).toFixed(4)}</div></div>`;
+                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">ECE (期望校准误差)</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${_safeFixed(cal.ece, 4)}</div></div>`;
+                html += `<div style="padding: 15px; background: #f5f5f5; border-radius: 5px;"><div style="font-size: 12px; color: #666;">MCE (最大校准误差)</div><div style="font-size: 24px; font-weight: bold; color: #667eea;">${_safeFixed(cal.mce, 4)}</div></div>`;
                 html += '</div>';
+            }
+            
+            // ML6修复：全部子评估无数据时显示提示
+            if (!hasAnyData) {
+                html += '<div style="text-align: center; padding: 30px; color: #999;"><div style="font-size: 16px; margin-bottom: 8px;">暂无足够数据进行综合评估</div><div style="font-size: 13px;">请先积累一段时间的预测记录，再执行综合评估。</div></div>';
             }
             
             html += '</div>';
@@ -8204,47 +8573,29 @@
         
         // 执行在线学习（确保在全局作用域）
         window.runOnlineLearning = async function runOnlineLearning() {
+            // ML4修复：禁用按钮
+            const btn = document.querySelector('[onclick*="runOnlineLearning"]');
             try {
-                console.log('runOnlineLearning 函数被调用');
                 const days = document.getElementById('onlineLearningDays');
-                if (!days) {
-                    alert('无法找到时间范围选择器');
-                    return;
-                }
+                if (!days) { alert('无法找到时间范围选择器'); return; }
                 
                 const resultsDiv = document.getElementById('onlineLearningResults');
                 const loadingDiv = document.getElementById('onlineLearningLoading');
-                
-                if (!resultsDiv || !loadingDiv) {
-                    alert('无法找到结果显示区域');
-                    return;
-                }
+                if (!resultsDiv || !loadingDiv) { alert('无法找到结果显示区域'); return; }
                 
                 const daysValue = days.value;
-                console.log('选择的天数:', daysValue);
                 
-                if (!confirm('在线学习将批量更新权重，是否继续？')) {
-                    console.log('用户取消了操作');
-                    return;
-                }
+                if (!confirm('在线学习将批量更新参数，是否继续？')) { return; }
                 
+                if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = '⏳ 学习中...'; }
                 resultsDiv.style.display = 'none';
                 loadingDiv.style.display = 'block';
                 
-                console.log('开始调用API...');
-                const response = await fetch('/api/model/online-learning', {
+                const result = await _fetchApi('/api/model/online-learning', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        days: parseInt(daysValue)
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: parseInt(daysValue) })
                 });
-                
-                console.log('API响应状态:', response.status);
-                const result = await response.json();
-                console.log('API返回结果:', result);
                 
                 if (result.success) {
                     displayOnlineLearningResults(result);
@@ -8257,9 +8608,8 @@
                 alert('在线学习失败: ' + error.message);
             } finally {
                 const loadingDiv = document.getElementById('onlineLearningLoading');
-                if (loadingDiv) {
-                    loadingDiv.style.display = 'none';
-                }
+                if (loadingDiv) { loadingDiv.style.display = 'none'; }
+                if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '🔄 执行在线学习'; }
             }
         };
         
@@ -8410,26 +8760,23 @@
             const baseDays = document.getElementById('adaptiveBaseDays').value;
             const resultsDiv = document.getElementById('adaptiveResults');
             const loadingDiv = document.getElementById('adaptiveLoading');
+            // ML4修复：禁用按钮
+            const btn = document.querySelector('[onclick*="runAdaptiveOptimization"]');
             
             if (!confirm('自适应优化将根据市场状态自动调整学习频率和范围，是否继续？')) {
                 return;
             }
             
+            if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = '⏳ 优化中...'; }
             resultsDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
             
             try {
-                const response = await fetch('/api/model/adaptive-optimization', {
+                const result = await _fetchApi('/api/model/adaptive-optimization', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        base_frequency_days: parseInt(baseDays)
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_frequency_days: parseInt(baseDays) })
                 });
-                
-                const result = await response.json();
                 
                 if (result.success) {
                     displayAdaptiveResults(result);
@@ -8441,6 +8788,7 @@
                 alert('自适应优化失败: ' + error.message);
             } finally {
                 loadingDiv.style.display = 'none';
+                if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '🎯 执行自适应优化'; }
             }
         }
         
@@ -8486,8 +8834,7 @@
         // 检查触发条件
         async function checkTriggerLearning() {
             try {
-                const response = await fetch('/api/model/check-trigger');
-                const result = await response.json();
+                const result = await _fetchApi('/api/model/check-trigger');
                 
                 if (result.success && result.data) {
                     const data = result.data;
@@ -8522,13 +8869,6 @@
         }
         
         // ========== 股票数据获取任务管理 ==========
-        
-        // 分页变量
-        let stockDataTasksCurrentPage = 1;
-        let stockDataTasksTotalPages = 1;
-        let stockDataHistoryCurrentPage = 1;
-        let stockDataHistoryTotalPages = 1;
-        let currentStockDataTaskId = null;
         
         // 刷新股票数据获取任务列表
         async function refreshStockDataTasks(page = 1) {
@@ -10300,6 +10640,12 @@
          */
         
         // 加载定时学习任务列表
+        // ML7修复：HTML转义函数防XSS
+        function _escHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+        
         async function loadModelLearningTasks() {
             const container = document.getElementById('modelLearningTasksList');
             if (!container) return;
@@ -10314,54 +10660,55 @@
                     let html = '<div style="display: grid; gap: 15px;">';
                     
                     result.data.forEach(task => {
-                        const isActive = task.is_active == 1;
+                        // ML8修复：统一用 is_active 判断启停状态，兼容布尔和整数
+                        const isActive = task.is_active === true || task.is_active === 1 || task.is_active === '1';
                         const taskTypeMap = {
                             'model_evaluation': '模型评估',
                             'model_optimization': '参数优化',
                             'model_backtest': '回测分析'
                         };
                         
-                        const statusMap = {
-                            'active': '运行中',
-                            'inactive': '已停止',
-                            'running': '执行中'
-                        };
+                        // ML8修复：启停状态和上次运行结果分别显示
+                        const activeStatusText = isActive ? '已启用' : '已停用';
+                        const activeStatusColor = isActive ? '#43e97b' : '#999';
                         
-                        const statusColorMap = {
-                            'active': '#43e97b',
-                            'inactive': '#999',
-                            'running': '#667eea'
-                        };
+                        const lastRunMap = { 'success': '成功', 'failed': '失败', 'running': '执行中', 'timeout': '超时' };
+                        const lastRunColorMap = { 'success': '#43e97b', 'failed': '#ff6b6b', 'running': '#667eea', 'timeout': '#FF9800' };
+                        const lastRunText = lastRunMap[task.last_run_status] || '';
+                        const lastRunColor = lastRunColorMap[task.last_run_status] || '#999';
+                        
+                        // ML7修复：所有用户可控字段使用 _escHtml 转义
+                        const safeName = _escHtml(task.task_name) || '未命名任务';
+                        const safeMessage = _escHtml(task.last_run_message);
                         
                         html += `
                             <div style="background: white; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
                                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
                                     <div>
-                                        <h4 style="margin: 0 0 5px 0;">${task.task_name || '未命名任务'}</h4>
+                                        <h4 style="margin: 0 0 5px 0;">${safeName}</h4>
                                         <div style="color: #666; font-size: 13px;">
                                             <span style="background: #f0f0f0; padding: 2px 8px; border-radius: 3px; margin-right: 10px;">
-                                                ${taskTypeMap[task.task_type] || task.task_type}
+                                                ${taskTypeMap[task.task_type] || _escHtml(task.task_type)}
                                             </span>
-                                            <span style="color: ${statusColorMap[task.last_run_status] || '#999'};">
-                                                ${statusMap[task.last_run_status] || '未知'}
-                                            </span>
+                                            <span style="color: ${activeStatusColor}; font-weight: 500;">${activeStatusText}</span>
+                                            ${lastRunText ? `<span style="margin-left: 8px; color: ${lastRunColor};">（上次: ${lastRunText}）</span>` : ''}
                                         </div>
                                     </div>
                                     <div style="display: flex; gap: 5px;">
                                         ${isActive ? 
-                                            `<button class="btn" onclick="stopModelLearningTask(${task.id})" style="background: #f0f0f0; padding: 5px 15px; font-size: 12px;">停止</button>` :
-                                            `<button class="btn btn-primary" onclick="startModelLearningTask(${task.id})" style="padding: 5px 15px; font-size: 12px;">启动</button>`
+                                            `<button class="btn" onclick="stopModelLearningTask(${parseInt(task.id)})" style="background: #f0f0f0; padding: 5px 15px; font-size: 12px;">停止</button>` :
+                                            `<button class="btn btn-primary" onclick="startModelLearningTask(${parseInt(task.id)})" style="padding: 5px 15px; font-size: 12px;">启动</button>`
                                         }
-                                        <button class="btn" onclick="editScheduledTask(${task.id}, ${isActive ? 'true' : 'false'})" style="background: #ffffff; border: 1px solid #ddd; padding: 5px 15px; font-size: 12px;">编辑</button>
-                                        <button class="btn" onclick="deleteModelLearningTask(${task.id})" style="background: #ff6b6b; color: white; padding: 5px 15px; font-size: 12px;">删除</button>
+                                        <button class="btn" onclick="editScheduledTask(${parseInt(task.id)}, ${isActive ? 'true' : 'false'})" style="background: #ffffff; border: 1px solid #ddd; padding: 5px 15px; font-size: 12px;">编辑</button>
+                                        <button class="btn" onclick="deleteModelLearningTask(${parseInt(task.id)})" style="background: #ff6b6b; color: white; padding: 5px 15px; font-size: 12px;">删除</button>
                                     </div>
                                 </div>
                                 <div style="color: #666; font-size: 12px; line-height: 1.8;">
-                                    <div>调度方式: ${task.schedule_type === 'daily' ? '每日' : task.schedule_type === 'weekly' ? '每周' : task.schedule_type === 'monthly' ? '每月' : task.schedule_type}</div>
-                                    ${task.schedule_time ? `<div>执行时间: ${task.schedule_time}</div>` : ''}
+                                    <div>调度方式: ${task.schedule_type === 'daily' ? '每日' : task.schedule_type === 'weekly' ? '每周' : task.schedule_type === 'monthly' ? '每月' : _escHtml(task.schedule_type)}</div>
+                                    ${task.schedule_time ? `<div>执行时间: ${_escHtml(task.schedule_time)}</div>` : ''}
                                     ${task.last_run_time ? `<div>上次执行: ${formatDateTimeDisplay(task.last_run_time)}</div>` : '<div>上次执行: 从未执行</div>'}
                                     ${task.next_run_time ? `<div>下次执行: ${formatDateTimeDisplay(task.next_run_time)}</div>` : ''}
-                                    ${task.last_run_message ? `<div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; font-size: 11px;">${task.last_run_message}</div>` : ''}
+                                    ${safeMessage ? `<div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; font-size: 11px;">${safeMessage}</div>` : ''}
                                 </div>
                             </div>
                         `;
@@ -10373,13 +10720,14 @@
                     container.innerHTML = '<div class="empty-state">暂无定时学习任务，点击"创建定时任务"按钮创建</div>';
                 }
             } catch (error) {
-                container.innerHTML = `<div class="empty-state" style="color: #ff6b6b;">加载失败: ${error.message}</div>`;
+                container.innerHTML = '<div class="empty-state" style="color: #ff6b6b;">加载失败: ' + _escHtml(error.message) + '</div>';
             }
         }
         
         // 显示创建定时学习任务模态框
         function showCreateModelLearningTaskModal() {
             const modal = document.createElement('div');
+            modal.id = 'mlTaskModal';
             modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
             modal.innerHTML = `
                 <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
@@ -10394,7 +10742,7 @@
                         <label>任务类型</label>
                         <select id="mlTaskType" style="width: 100%; padding: 8px; box-sizing: border-box;">
                             <option value="model_evaluation">模型评估（评估预测准确率和交易收益）</option>
-                            <option value="model_optimization">参数优化（优化权重参数）</option>
+                            <option value="model_optimization">参数优化（优化交易参数：买卖阈值/止盈止损等）</option>
                             <option value="model_backtest">回测分析（使用历史数据模拟交易）</option>
                         </select>
                     </div>
@@ -10452,8 +10800,12 @@
             
             try {
                 const taskConfig = {};
+                // ML1修复：将weekdays同时作为顶级字段传递给后端
+                let weekdaysStr = '';
                 if (scheduleWeekdays) {
-                    taskConfig.weekdays = scheduleWeekdays.split(',').map(w => parseInt(w.trim())).filter(w => w >= 1 && w <= 7);
+                    const parsed = scheduleWeekdays.split(',').map(w => parseInt(w.trim())).filter(w => w >= 1 && w <= 7);
+                    taskConfig.weekdays = parsed;
+                    weekdaysStr = parsed.join(',');
                 }
                 
                 const response = await fetch('/api/scheduled/tasks', {
@@ -10466,6 +10818,7 @@
                         task_type: taskType,
                         schedule_type: scheduleType,
                         schedule_time: scheduleTime,
+                        schedule_weekdays: weekdaysStr || undefined,
                         task_config: taskConfig,
                         is_active: true
                     })
@@ -10475,7 +10828,9 @@
                 
                 if (result.success) {
                     alert('定时学习任务创建成功');
-                    document.querySelector('div[style*="position: fixed"]').remove();
+                    // ML9修复：精确关闭当前模态框
+                    const modal = document.getElementById('mlTaskModal');
+                    if (modal) modal.remove();
                     loadModelLearningTasks();
                 } else {
                     alert('创建失败: ' + result.message);
@@ -10843,6 +11198,46 @@
             }
         }
         
+        // 运行因子质量优化
+        async function startFactorQualityOptimization() {
+            const trainStart = document.getElementById('factorOptTrainStart')?.value;
+            const trainEnd = document.getElementById('factorOptTrainEnd')?.value;
+            const valStart = document.getElementById('factorOptValStart')?.value;
+            const valEnd = document.getElementById('factorOptValEnd')?.value;
+            if (!trainStart || !trainEnd || !valStart || !valEnd) {
+                showError('请填写因子质量优化的训练集与验证集日期');
+                return;
+            }
+            const btn = document.getElementById('factorOptBtn');
+            setLoading(btn, true);
+            try {
+                const response = await fetch('/api/ml/optimize-factor-quality', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        train_start_date: trainStart,
+                        train_end_date: trainEnd,
+                        val_start_date: valStart,
+                        val_end_date: valEnd
+                    })
+                });
+                const result = await response.json();
+                if (result.success && result.data && result.data.task_id) {
+                    showSuccess('因子质量优化任务已启动');
+                    const progressDiv = document.getElementById('factorOptProgress');
+                    if (progressDiv) progressDiv.style.display = 'block';
+                    pollTrainingProgress(result.data.task_id, 'factor_optimize');
+                } else {
+                    showError(result.message || '启动因子质量优化失败');
+                }
+            } catch (error) {
+                console.error('启动因子质量优化失败:', error);
+                showError('启动因子质量优化失败: ' + error.message);
+            } finally {
+                setLoading(btn, false);
+            }
+        }
+        
         // 轮询训练进度
         let progressPollInterval = null;
         function pollTrainingProgress(taskId, type) {
@@ -10853,22 +11248,22 @@
             
             const progressDiv = type === 'history' ? 
                 document.getElementById('historyTrainingProgress') : 
-                document.getElementById('fineTuneTrainingProgress');
+                (type === 'factor_optimize' ? document.getElementById('factorOptProgress') : document.getElementById('fineTuneTrainingProgress'));
             const progressBar = type === 'history' ? 
                 document.getElementById('historyProgressBar') : 
-                document.getElementById('fineTuneProgressBar');
+                (type === 'factor_optimize' ? document.getElementById('factorOptProgressBar') : document.getElementById('fineTuneProgressBar'));
             const progressText = type === 'history' ? 
                 document.getElementById('historyProgressText') : 
-                document.getElementById('fineTuneProgressText');
+                (type === 'factor_optimize' ? document.getElementById('factorOptProgressText') : document.getElementById('fineTuneProgressText'));
             const progressMessage = type === 'history' ? 
                 document.getElementById('historyProgressMessage') : 
-                document.getElementById('fineTuneProgressMessage');
+                (type === 'factor_optimize' ? document.getElementById('factorOptProgressMessage') : document.getElementById('fineTuneProgressMessage'));
             const progressPercentage = type === 'history' ? 
                 document.getElementById('historyProgressPercentage') : 
-                document.getElementById('fineTuneProgressPercentage');
+                (type === 'factor_optimize' ? document.getElementById('factorOptProgressPercentage') : document.getElementById('fineTuneProgressPercentage'));
             const progressLog = type === 'history' ? 
                 document.getElementById('historyTrainingLog') : 
-                document.getElementById('fineTuneTrainingLog');
+                (type === 'factor_optimize' ? document.getElementById('factorOptLog') : document.getElementById('fineTuneTrainingLog'));
             
             // 立即获取一次进度
             fetchTrainingProgress(taskId, progressBar, progressText, progressMessage, progressPercentage, progressLog);

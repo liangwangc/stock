@@ -26,6 +26,42 @@ class ModelParameterUpdater:
         self.db = DatabaseConnection()
         self.logger = logger
         self.config_manager = PredictionConfigManager()
+
+    def _extract_trading_params(self, parameters: Dict) -> Dict:
+        """
+        从参数字典中提取并标准化交易参数。
+        兼容新旧键名，并统一仓位单位为比例（0-1）。
+        """
+        if not isinstance(parameters, dict):
+            return {}
+
+        alias_map = {
+            'buy_threshold': ['buy_threshold', 'buy_signal_threshold'],
+            'sell_threshold': ['sell_threshold', 'sell_signal_threshold'],
+            'min_confidence': ['min_confidence', 'trading_min_confidence', 'confidence_threshold'],
+            'stop_loss_pct': ['stop_loss_pct'],
+            'take_profit_pct': ['take_profit_pct'],
+            'max_position_pct': ['max_position_pct', 'max_single_position_pct'],
+            'max_holding_days': ['max_holding_days'],
+        }
+
+        extracted = {}
+        for target_key, aliases in alias_map.items():
+            for key in aliases:
+                if key in parameters and parameters[key] is not None:
+                    try:
+                        extracted[target_key] = float(parameters[key])
+                    except (TypeError, ValueError):
+                        continue
+                    break
+
+        # 统一单位与方向
+        if 'max_position_pct' in extracted and extracted['max_position_pct'] > 1:
+            extracted['max_position_pct'] = extracted['max_position_pct'] / 100.0
+        if 'stop_loss_pct' in extracted and extracted['stop_loss_pct'] > 0:
+            extracted['stop_loss_pct'] = -abs(extracted['stop_loss_pct'])
+
+        return extracted
     
     def apply_optimized_parameters(self, optimization_id: int, 
                                   user_id: Optional[int] = None,
@@ -99,15 +135,36 @@ class ModelParameterUpdater:
             config_name = f"优化配置_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             description = f"通过{record.get('optimization_method')}优化，改进{improvement_pct:.2f}%"
             
+            # 构造新配置：
+            # - prediction 保留现有权重与预测参数，避免触发权重校验冲突
+            # - trading 写入优化后的交易参数（这是优化器真实输出）
+            current_prediction = (active_config.get('prediction') or {}).copy()
+            current_trading = (active_config.get('trading') or {}).copy()
+            optimized_trading = self._extract_trading_params(new_parameters)
+
+            if not optimized_trading:
+                return {
+                    'success': False,
+                    'message': '优化记录中未找到可应用的交易参数'
+                }
+
+            new_trading = current_trading.copy()
+            new_trading.update(optimized_trading)
+
+            # 兼容历史读取路径：同步一份到 prediction，防止旧逻辑读不到
+            for key in ['buy_threshold', 'sell_threshold', 'min_confidence', 'stop_loss_pct', 'take_profit_pct', 'max_position_pct', 'max_holding_days']:
+                if key in optimized_trading:
+                    current_prediction[key] = optimized_trading[key]
+
             # 创建新配置
             new_config_id = self.config_manager.create_config(
                 config_name=config_name,
                 description=description,
                 values={
-                    'prediction': new_parameters,
+                    'prediction': current_prediction,
                     'indicator': active_config.get('indicator', {}),
                     'news': active_config.get('news', {}),
-                    'trading': active_config.get('trading', {})
+                    'trading': new_trading
                 },
                 user_id=user_id,
                 is_default=False
@@ -206,18 +263,31 @@ class ModelParameterUpdater:
                     'message': '无法获取当前激活的配置'
                 }
             
-            # 创建回滚配置
+            # 创建回滚配置：
+            # - prediction 保留当前预测权重结构，避免校验冲突
+            # - trading 回滚到 old_parameters 中的交易参数
             config_name = f"回滚配置_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             description = f"回滚到优化记录ID {optimization_id} 之前的状态"
+
+            current_prediction = (active_config.get('prediction') or {}).copy()
+            current_trading = (active_config.get('trading') or {}).copy()
+            rollback_trading = self._extract_trading_params(old_parameters)
+
+            if rollback_trading:
+                current_trading.update(rollback_trading)
+                # 兼容历史读取路径：同步关键交易参数到 prediction
+                for key in ['buy_threshold', 'sell_threshold', 'min_confidence', 'stop_loss_pct', 'take_profit_pct', 'max_position_pct', 'max_holding_days']:
+                    if key in rollback_trading:
+                        current_prediction[key] = rollback_trading[key]
             
             new_config_id = self.config_manager.create_config(
                 config_name=config_name,
                 description=description,
                 values={
-                    'prediction': old_parameters,
+                    'prediction': current_prediction,
                     'indicator': active_config.get('indicator', {}),
                     'news': active_config.get('news', {}),
-                    'trading': active_config.get('trading', {})
+                    'trading': current_trading
                 },
                 user_id=user_id,
                 is_default=False

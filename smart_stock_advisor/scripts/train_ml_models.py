@@ -6,6 +6,7 @@
 """
 import sys
 import os
+import pickle
 from datetime import datetime, timedelta
 
 # 添加项目根目录到路径
@@ -13,6 +14,9 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from utils.logger import get_logger
+
+# 因子筛选结果路径（与 optimize_factor_quality.py 一致）
+SELECTED_FEATURES_PATH = os.path.join(project_root, 'models', 'selected_features.pkl')
 from utils.ml_data_loader import MLDataLoader
 from utils.ml_feature_engineering import MLFeatureEngineering
 from utils.ml_model_trainer import MLModelTrainer
@@ -87,6 +91,11 @@ def train_models(train_start_date: str = '2014-01-01',
         logger.info(f"训练数据加载完成：{len(train_df)} 条样本")
         logger.info(f"验证数据加载完成：{len(val_df)} 条样本")
         
+        # 3.5 按时间排序（TimeSeriesSplit 要求训练数据按 target_date 有序）
+        if 'target_date' in train_df.columns:
+            train_df = train_df.sort_values('target_date').reset_index(drop=True)
+            logger.info("训练数据已按 target_date 排序")
+        
         # 4. 准备特征和标签
         logger.info("准备特征和标签...")
         X_train, y_train, feature_names = feature_engineering.prepare_features(
@@ -100,6 +109,20 @@ def train_models(train_start_date: str = '2014-01-01',
         X_val, y_val, _ = feature_engineering.prepare_features(
             val_df, label_column='label_up'
         )
+        
+        # 4.5 若存在筛选后的因子列表，则仅使用 selected_features（与预测一致）
+        if os.path.isfile(SELECTED_FEATURES_PATH):
+            try:
+                with open(SELECTED_FEATURES_PATH, 'rb') as f:
+                    selected_features = pickle.load(f)
+                available = [c for c in selected_features if c in X_train.columns]
+                if available:
+                    X_train = X_train[available].copy()
+                    X_val = X_val.reindex(columns=available, fill_value=0.0)
+                    feature_names = available
+                    logger.info(f"已加载因子筛选结果：使用 {len(feature_names)} 个筛选因子（selected_features.pkl）")
+            except Exception as e:
+                logger.warning(f"加载 selected_features.pkl 失败，使用全部特征: {e}")
         
         # 5. 特征标准化（可选）
         # X_train, X_val, _ = feature_engineering.normalize_features(
@@ -121,15 +144,15 @@ def train_models(train_start_date: str = '2014-01-01',
                 
                 model = None
                 metrics = {}
-                model_feature_names = feature_names
+                model_feature_names = feature_names  # 回归器等非 CV 路径使用
                 
                 if model_type == 'xgb_classifier':
-                    model, metrics = model_trainer.train_xgb_classifier(
-                        X_train, y_train, X_val, y_val
+                    model, metrics, model_feature_names = model_trainer.train_xgb_classifier_timeseries_cv(
+                        X_train, y_train, X_val=X_val, y_val=y_val, n_splits=5
                     )
                 elif model_type == 'lgb_classifier':
-                    model, metrics = model_trainer.train_lgb_classifier(
-                        X_train, y_train, X_val, y_val
+                    model, metrics, model_feature_names = model_trainer.train_lgb_classifier_timeseries_cv(
+                        X_train, y_train, X_val=X_val, y_val=y_val, n_splits=5
                     )
                 elif model_type == 'xgb_regressor':
                     # 使用涨跌幅作为标签（需要重新准备特征）

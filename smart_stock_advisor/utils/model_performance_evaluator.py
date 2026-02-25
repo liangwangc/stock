@@ -18,6 +18,14 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _safe_float(val, default=0.0):
+    """ML15修复：安全的float转换，避免非数字字符串导致整个评估失败"""
+    try:
+        return float(val) if val is not None else default
+    except (ValueError, TypeError):
+        return default
+
+
 class ModelPerformanceEvaluator:
     """模型性能评估器"""
     
@@ -58,6 +66,7 @@ class ModelPerformanceEvaluator:
                   AND sp.actual_price IS NOT NULL
                   AND sp.prediction_hit IS NOT NULL
                 ORDER BY sp.target_date DESC
+                LIMIT 10000
             """
             
             results = self.db.execute_query(sql, (start_date, end_date))
@@ -80,32 +89,35 @@ class ModelPerformanceEvaluator:
             magnitude_errors = []
             for r in results:
                 if r.get('actual_change_pct') is not None:
-                    # 优先使用存储的绝对偏差值
-                    if r.get('absolute_deviation_pct') is not None:
-                        error = float(r.get('absolute_deviation_pct', 0))
-                        magnitude_errors.append(error)
-                    # 其次使用存储的偏差值
-                    elif r.get('deviation_pct') is not None:
-                        error = abs(float(r.get('deviation_pct', 0)))
-                        magnitude_errors.append(error)
-                    # 如果都没有，使用实际的predicted_change_pct计算
-                    elif r.get('predicted_change_pct') is not None:
-                        predicted_change = float(r.get('predicted_change_pct', 0))
-                        actual_change = float(r.get('actual_change_pct', 0))
-                        error = abs(predicted_change - actual_change)
-                        magnitude_errors.append(error)
-                    # 最后才使用简化的估算方法（向后兼容）
-                    else:
-                        if r.get('prediction') == '上涨':
-                            predicted_change = r.get('up_probability', 0.5) * 5.0  # 简化估算
-                        elif r.get('prediction') == '下跌':
-                            predicted_change = -r.get('down_probability', 0.5) * 5.0
+                    try:
+                        # 优先使用存储的绝对偏差值
+                        if r.get('absolute_deviation_pct') is not None:
+                            error = _safe_float(r.get('absolute_deviation_pct'))
+                            magnitude_errors.append(error)
+                        # 其次使用存储的偏差值
+                        elif r.get('deviation_pct') is not None:
+                            error = abs(_safe_float(r.get('deviation_pct')))
+                            magnitude_errors.append(error)
+                        # 如果都没有，使用实际的predicted_change_pct计算
+                        elif r.get('predicted_change_pct') is not None:
+                            predicted_change = _safe_float(r.get('predicted_change_pct'))
+                            actual_change = _safe_float(r.get('actual_change_pct'))
+                            error = abs(predicted_change - actual_change)
+                            magnitude_errors.append(error)
+                        # 最后才使用简化的估算方法（向后兼容）
                         else:
-                            predicted_change = 0.0
-                        
-                        actual_change = float(r.get('actual_change_pct', 0))
-                        error = abs(predicted_change - actual_change)
-                        magnitude_errors.append(error)
+                            if r.get('prediction') == '上涨':
+                                predicted_change = _safe_float(r.get('up_probability', 0.5)) * 5.0
+                            elif r.get('prediction') == '下跌':
+                                predicted_change = -_safe_float(r.get('down_probability', 0.5)) * 5.0
+                            else:
+                                predicted_change = 0.0
+                            
+                            actual_change = _safe_float(r.get('actual_change_pct'))
+                            error = abs(predicted_change - actual_change)
+                            magnitude_errors.append(error)
+                    except Exception:
+                        continue  # 跳过单条异常记录，不中断整个评估
             
             magnitude_mae = sum(magnitude_errors) / len(magnitude_errors) if magnitude_errors else 0.0
             
@@ -118,7 +130,7 @@ class ModelPerformanceEvaluator:
             }
             
             for r in results:
-                confidence = float(r.get('confidence', 0))
+                confidence = _safe_float(r.get('confidence', 0))
                 is_hit = r.get('prediction_hit') == '命中'
                 
                 if confidence >= 0.7:
@@ -230,7 +242,7 @@ class ModelPerformanceEvaluator:
                 symbol = decision.get('symbol', '')
                 decision_date = decision.get('date')
                 action = decision.get('action', '')
-                current_price = float(decision.get('current_price', 0))
+                current_price = _safe_float(decision.get('current_price', 0))
                 
                 if not symbol or not decision_date or current_price <= 0:
                     continue
@@ -246,7 +258,7 @@ class ModelPerformanceEvaluator:
                             evaluation_date = (datetime.strptime(decision_date, '%Y-%m-%d').date() + timedelta(days=evaluation_days))
                         else:
                             continue
-                    except:
+                    except (ValueError, TypeError):
                         continue
                 
                 # 获取评估日期的价格（从stock_history_data表）
@@ -275,7 +287,7 @@ class ModelPerformanceEvaluator:
                 if not price_result:
                     continue
                 
-                future_price = float(price_result[0].get('close_price', 0))
+                future_price = _safe_float(price_result[0].get('close_price', 0))
                 if future_price <= 0:
                     continue
                 
@@ -434,8 +446,8 @@ class ModelPerformanceEvaluator:
             for factor_name in factor_names:
                 score_key = f'{factor_name}_score'
                 
-                hit_scores = [float(f.get(score_key, 0)) for f in hit_factors if f.get(score_key) is not None]
-                miss_scores = [float(f.get(score_key, 0)) for f in miss_factors if f.get(score_key) is not None]
+                hit_scores = [_safe_float(f.get(score_key, 0)) for f in hit_factors if f.get(score_key) is not None]
+                miss_scores = [_safe_float(f.get(score_key, 0)) for f in miss_factors if f.get(score_key) is not None]
                 
                 if hit_scores and miss_scores:
                     hit_avg = sum(hit_scores) / len(hit_scores)
@@ -468,7 +480,7 @@ class ModelPerformanceEvaluator:
             
             # 简单判断：根据trend和score判断市场状态
             trends = [r.get('trend', 'neutral') for r in results]
-            scores = [float(r.get('score', 0)) for r in results if r.get('score') is not None]
+            scores = [_safe_float(r.get('score', 0)) for r in results if r.get('score') is not None]
             
             if scores:
                 avg_score = sum(scores) / len(scores)
@@ -691,15 +703,15 @@ class ModelPerformanceEvaluator:
                 magnitude_errors = []
                 for r in state_results:
                     if r.get('predicted_change_pct') is not None and r.get('actual_change_pct') is not None:
-                        predicted_change = float(r.get('predicted_change_pct', 0))
-                        actual_change = float(r.get('actual_change_pct', 0))
+                        predicted_change = _safe_float(r.get('predicted_change_pct', 0))
+                        actual_change = _safe_float(r.get('actual_change_pct', 0))
                         error = abs(predicted_change - actual_change)
                         magnitude_errors.append(error)
                 
                 magnitude_mae = sum(magnitude_errors) / len(magnitude_errors) if magnitude_errors else 0.0
                 
                 # 计算置信度分布
-                confidences = [float(r.get('confidence', 0)) for r in state_results if r.get('confidence') is not None]
+                confidences = [_safe_float(r.get('confidence', 0)) for r in state_results if r.get('confidence') is not None]
                 avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
                 
                 evaluation_by_state[state] = {
@@ -764,7 +776,7 @@ class ModelPerformanceEvaluator:
                 }
             
             # 将置信度分箱
-            confidences = [float(r.get('confidence', 0)) for r in results]
+            confidences = [_safe_float(r.get('confidence', 0)) for r in results]
             min_conf = min(confidences) if confidences else 0
             max_conf = max(confidences) if confidences else 1
             
@@ -784,7 +796,7 @@ class ModelPerformanceEvaluator:
             
             # 分配预测到各个箱
             for r in results:
-                confidence = float(r.get('confidence', 0))
+                confidence = _safe_float(r.get('confidence', 0))
                 is_hit = (r.get('prediction_hit') == '命中')
                 
                 # 找到对应的箱
