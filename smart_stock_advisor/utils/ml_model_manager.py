@@ -98,18 +98,26 @@ class MLModelManager:
                 )
             
             # 使用execute_update方法执行插入（使用类方法调用）
-            DatabaseConnection.execute_update(sql, params)
+            affected_rows = DatabaseConnection.execute_update(sql, params)
+            if affected_rows <= 0:
+                self.logger.error(
+                    f"模型信息 INSERT 未影响任何行 (affected_rows={affected_rows})，请检查："
+                    " 1) config_db 中 USE_DATABASE 是否为 True；2) 数据库连接是否正常；3) trained_models 表是否存在"
+                )
+                return 0
             
-            # 获取刚插入的记录ID
+            # 获取刚插入的记录ID（必须在同一连接上立即查询）
             sql2 = "SELECT LAST_INSERT_ID() as id"
             results = DatabaseConnection.execute_query(sql2)
             if results:
                 model_id = results[0].get('id')
-                self.logger.info(f"模型信息保存成功: {model_name} v{model_version} (ID: {model_id})")
-                return model_id
+                if model_id:
+                    self.logger.info(f"模型信息保存成功: {model_name} v{model_version} (ID: {model_id})")
+                    return int(model_id)
+                self.logger.warning(f"LAST_INSERT_ID() 返回空: {model_name} v{model_version}")
             else:
-                self.logger.warning(f"模型信息保存成功，但无法获取ID: {model_name} v{model_version}")
-                return 0
+                self.logger.warning(f"模型信息 INSERT 已执行但无法获取ID (LAST_INSERT_ID 查询无结果): {model_name} v{model_version}")
+            return 0
             
         except Exception as e:
             self.logger.error(f"保存模型信息失败: {str(e)}")

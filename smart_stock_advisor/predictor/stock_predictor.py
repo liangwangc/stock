@@ -3299,6 +3299,10 @@ class StockPredictor:
         # 科创板：688开头，20%
         if symbol.startswith('688'):
             return 20.0
+
+        # 北交所：.BJ 结尾，30%
+        if symbol.endswith('.BJ'):
+            return 30.0
         
         # 主板：600/000/001开头，10%
         if symbol.startswith(('600', '000', '001')):
@@ -3513,9 +3517,13 @@ class StockPredictor:
     def _calculate_predicted_price_optimized(self, symbol: str, stock_name: str,
                                              current_price: float, up_probability: float,
                                              down_probability: float, confidence: float,
-                                             data: pd.DataFrame) -> Dict[str, float]:
+                                             data: pd.DataFrame,
+                                             ml_predicted_return: Optional[float] = None,
+                                             ml_breakout_score: Optional[float] = None) -> Dict[str, float]:
         """
-        优化后的预测价格计算（增强版：过滤干扰因子，考虑支撑阻力位）
+        优化后的预测价格计算（增强版：过滤干扰因子，考虑支撑阻力位）。
+        若提供 ml_predicted_return（回归模型预测的涨跌幅小数），则直接以其为基准，
+        在动态涨跌停限制范围内进行裁剪；若 ML 爆发评分较高，则在裁剪前对回归振幅进行适度放大。
         
         Args:
             symbol: 股票代码
@@ -3525,6 +3533,8 @@ class StockPredictor:
             down_probability: 下跌概率
             confidence: 置信度
             data: 股票历史数据
+            ml_predicted_return: 可选，ML 回归模型预测的未来涨跌幅（小数，如 0.05 表示 5%）
+            ml_breakout_score: 可选，ML 爆发评分（0-1），用于识别涨停启动/主升浪/高爆发信号
         
         Returns:
             {
@@ -3533,7 +3543,9 @@ class StockPredictor:
                 'max_change_pct': 使用的最大涨跌幅,
                 'volatility_coefficient': 使用的波动率系数,
                 'trend_adjustment': 趋势调整因子,
-                'support_resistance_adjustment': 支撑阻力位调整因子
+                'support_resistance_adjustment': 支撑阻力位调整因子,
+                'ml_boost_factor': ML 爆发放大因子（无增强时为1.0）,
+                'ml_boosted_return': ML 放大后的回归涨跌幅小数（无增强时为None或与原值接近）
             }
         """
         # 1. 获取股票特性相关的最大涨跌幅
@@ -3564,85 +3576,123 @@ class StockPredictor:
             data, current_price, max_change_pct
         )
         
-        # 6. 计算概率差异
-        probability_diff = up_probability - down_probability
-        
-        # 7. 使用调整后的系数计算基础涨跌幅（考虑所有调整因子）
-        base_predicted_change_pct = (
-            np.tanh(probability_diff * volatility_coefficient) * 
-            max_change_pct * 
-            confidence * 
-            trend_adjustment *
-            support_resistance_adjustment
-        )
-        
-        # 7.1 计算激进度评分（0-100）和轻微调整系数（0.9-1.1）
-        aggressiveness_score = 50.0
-        
-        # 波动率相对市场平均的倍数（约 2% 为基准）
-        try:
-            base_vol = 0.02
-            vol_ratio = 0.0
-            if 'change_pct' in data.columns and len(data) >= 20:
-                last_changes = data['change_pct'].tail(20).values / 100.0
-                vol = float(np.std(last_changes)) if len(last_changes) > 0 else 0.0
-                if vol > 0:
-                    vol_ratio = vol / base_vol
-            # 高波动：最多 +20 分，低波动：最多 -15 分
-            if vol_ratio > 1.0:
-                aggressiveness_score += min((vol_ratio - 1.0) * 15.0, 20.0)
-            elif vol_ratio < 1.0 and vol_ratio > 0:
-                aggressiveness_score -= min((1.0 - vol_ratio) * 15.0, 15.0)
-        except Exception:
-            pass
-        
-        # 长期趋势：明显上涨则略偏激进，明显下跌则略偏保守
-        try:
-            if trend_adjustment > 1.05:
-                aggressiveness_score += min((trend_adjustment - 1.0) * 20.0, 10.0)
-            elif trend_adjustment < 0.95:
-                aggressiveness_score -= min((1.0 - trend_adjustment) * 20.0, 10.0)
-        except Exception:
-            pass
-        
-        # 置信度：高置信度略偏激进，低置信度略偏保守
-        try:
-            if confidence > 0.7:
-                aggressiveness_score += (confidence - 0.7) * 40.0  # 最高 +12 分
-            elif confidence < 0.4:
-                aggressiveness_score -= (0.4 - confidence) * 40.0  # 最高 -16 分
-        except Exception:
-            pass
-        
-        # 涨跌停等异常因子：即使 can_predict=True，也适当保守
-        try:
-            anomalies = anomaly_info.get('anomalies', []) or []
-            if 'limit_up' in anomalies or 'limit_down' in anomalies:
-                aggressiveness_score -= 10.0
-        except Exception:
-            pass
-        
-        # 将评分限制在 0-100
-        aggressiveness_score = max(0.0, min(100.0, aggressiveness_score))
-        
-        # 根据评分映射到轻微调整系数 A（0.9-1.1）
-        if aggressiveness_score <= 35:
-            adjust_factor = 0.9
-        elif aggressiveness_score >= 65:
-            adjust_factor = 1.1
+        # 6. 涨幅计算：
+        #    - 若提供 ML 回归预测涨跌幅，则在动态涨跌停范围内裁剪；
+        #      若 ML 爆发评分较高，则对回归输出进行适度放大（boost）
+        #    - 否则使用基于波动率的估计（乘以置信度、趋势、支撑阻力等）
+        ml_boost_factor = 1.0
+        ml_boosted_return = None
+        if ml_predicted_return is not None:
+            base_return = float(ml_predicted_return)
+            # 动态涨跌停限制（百分比 -> 小数）
+            stock_limit_pct = max_change_pct
+            stock_limit_decimal = stock_limit_pct / 100.0
+            # ML 爆发评分：用于识别高爆发/主升浪场景
+            breakout_score = float(ml_breakout_score) if ml_breakout_score is not None else 0.0
+            ml_boost_factor = 1.0
+            if breakout_score > 0.7:
+                # 当 breakout_score > 0.7 时，按线性方式放大回归振幅，最大增强约 +2.5 倍
+                ml_boost_factor = 1.0 + (breakout_score - 0.7) * 3.0
+            # 全局上限保护：boost 不超过 2.5 倍
+            ml_boost_factor = max(1.0, min(ml_boost_factor, 2.5))
+            ml_boosted_return = base_return * ml_boost_factor
+
+            # 按股票类型裁剪回归振幅
+            clamped_return = max(min(ml_boosted_return, stock_limit_decimal), -stock_limit_decimal)
+            predicted_change_pct = clamped_return * 100.0  # 小数 -> 百分比
+            base_predicted_change_pct = predicted_change_pct
+            aggressiveness_score = 50.0
+            adjust_factor = 1.0
+            # 记录一次振幅修复信息（便于诊断）
+            self.logger.debug(
+                "ML regression amplitude fix applied | "
+                f"stock_code={symbol}, stock_name={stock_name}, "
+                f"limit_used={stock_limit_pct:.1f}%, "
+                f"ml_predicted_return={base_return:.4f}, "
+                f"ml_breakout_score={breakout_score:.3f}, "
+                f"ml_boost_factor={ml_boost_factor:.3f}, "
+                f"ml_boosted_return={ml_boosted_return:.4f}, "
+                f"final_predicted_change_pct={predicted_change_pct:.2f}%"
+            )
+            # 动态 clamp 成功应用（便于统一检索）
+            self.logger.debug("Dynamic clamp applied successfully")
         else:
-            # 在 35-65 之间线性插值 0.9-1.1
-            ratio = (aggressiveness_score - 35.0) / 30.0  # 0~1
-            adjust_factor = 0.9 + ratio * (1.1 - 0.9)
+            ml_strength = (up_probability - 0.5) * 2.0  # [-1, 1]
+            ml_amplification = 1.0 + ml_strength * 2.5  # 强烈看涨时放大，强烈看跌时缩小
+            volatility_pct = (
+                max_change_pct *
+                (volatility_coefficient / 3.0) *
+                confidence *
+                trend_adjustment *
+                support_resistance_adjustment
+            )
         
-        # 应用轻微调整后的预测涨跌幅
-        predicted_change_pct = base_predicted_change_pct * adjust_factor
-        
-        # 8. 过滤极端预测值（超过最大涨跌幅的90%）
-        max_allowed_change = max_change_pct * 0.9
-        if abs(predicted_change_pct) > max_allowed_change:
-            predicted_change_pct = np.sign(predicted_change_pct) * max_allowed_change
-            self.logger.debug(f"预测涨跌幅 {predicted_change_pct:.2f}% 超过限制，调整为 {max_allowed_change:.2f}%")
+        if ml_predicted_return is None:
+            # 7. 波动率项（不含 ML）
+            volatility_pct = (
+                max_change_pct *
+                (volatility_coefficient / 3.0) *
+                confidence *
+                trend_adjustment *
+                support_resistance_adjustment
+            )
+            # 7.1 计算激进度评分（0-100）和轻微调整系数（0.9-1.1）
+            aggressiveness_score = 50.0
+            try:
+                base_vol = 0.02
+                vol_ratio = 0.0
+                if 'change_pct' in data.columns and len(data) >= 20:
+                    last_changes = data['change_pct'].tail(20).values / 100.0
+                    vol = float(np.std(last_changes)) if len(last_changes) > 0 else 0.0
+                    if vol > 0:
+                        vol_ratio = vol / base_vol
+                if vol_ratio > 1.0:
+                    aggressiveness_score += min((vol_ratio - 1.0) * 15.0, 20.0)
+                elif vol_ratio < 1.0 and vol_ratio > 0:
+                    aggressiveness_score -= min((1.0 - vol_ratio) * 15.0, 15.0)
+            except Exception:
+                pass
+            try:
+                if trend_adjustment > 1.05:
+                    aggressiveness_score += min((trend_adjustment - 1.0) * 20.0, 10.0)
+                elif trend_adjustment < 0.95:
+                    aggressiveness_score -= min((1.0 - trend_adjustment) * 20.0, 10.0)
+            except Exception:
+                pass
+            try:
+                if confidence > 0.7:
+                    aggressiveness_score += (confidence - 0.7) * 40.0
+                elif confidence < 0.4:
+                    aggressiveness_score -= (0.4 - confidence) * 40.0
+            except Exception:
+                pass
+            try:
+                anomalies = anomaly_info.get('anomalies', []) or []
+                if 'limit_up' in anomalies or 'limit_down' in anomalies:
+                    aggressiveness_score -= 10.0
+            except Exception:
+                pass
+            aggressiveness_score = max(0.0, min(100.0, aggressiveness_score))
+            if aggressiveness_score <= 35:
+                adjust_factor = 0.9
+            elif aggressiveness_score >= 65:
+                adjust_factor = 1.1
+            else:
+                ratio = (aggressiveness_score - 35.0) / 30.0
+                adjust_factor = 0.9 + ratio * 0.2
+            base_predicted_change_pct = volatility_pct * ml_amplification
+            predicted_change_pct = base_predicted_change_pct * adjust_factor
+            # 波动率分支：同样使用动态涨跌停限制（max_change_pct）
+            predicted_change_pct = max(min(predicted_change_pct, max_change_pct), -max_change_pct)
+        else:
+            # 回归分支：已用 ml_predicted_return 计算，使用动态涨跌停限制（max_change_pct）
+            predicted_change_pct = max(min(predicted_change_pct, max_change_pct), -max_change_pct)
+        # 当预测值接近或达到动态上限时，输出调试日志
+        limit_for_log = max_change_pct
+        if abs(predicted_change_pct) >= limit_for_log:
+            self.logger.debug(
+                f"预测涨跌幅已限制在动态上限: {predicted_change_pct:.2f}% (limit={limit_for_log:.1f}%)"
+            )
         
         # 9. 计算预测收盘价
         predicted_close_price = current_price * (1 + predicted_change_pct / 100.0)
@@ -3665,6 +3715,8 @@ class StockPredictor:
             'aggressiveness_score': float(aggressiveness_score),
             'aggressiveness_adjust_factor': float(adjust_factor),
             'base_predicted_change_pct': float(base_predicted_change_pct),
+            'ml_boost_factor': float(ml_boost_factor),
+            'ml_boosted_return': float(ml_boosted_return) if ml_boosted_return is not None else None,
         }
     
     def _calculate_support_resistance_adjustment(self, data: pd.DataFrame, 
@@ -4471,12 +4523,12 @@ class StockPredictor:
         if optimized_weights and not is_new_stock_or_insufficient_data:
             # 使用优化后的权重
             base_weights_dict = {
-                'technical': optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20)),
-                'news': optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier,
-                'capital_flow': optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18)),
-                'market': optimized_weights.get('market_weight', self.config.get('market_weight', 0.17)),
+                'technical': optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.15)),
+                'news': optimized_weights.get('news_weight', self.config.get('news_weight', 0.08)) * news_weight_multiplier,
+                'capital_flow': optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.10)),
+                'market': optimized_weights.get('market_weight', self.config.get('market_weight', 0.07)),
                 'sector_rotation': optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.05)),
-                'history': optimized_weights.get('history_weight', self.config.get('history_weight', 0.08)),
+                'history': optimized_weights.get('history_weight', self.config.get('history_weight', 0.05)),
                 'valuation': optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.02)),
                 'us_sector': optimized_weights.get('us_sector_weight', self.config.get('us_sector_weight', 0.05))
             }
@@ -4491,12 +4543,12 @@ class StockPredictor:
             market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
             
             base_weights_dict = {
-                'technical': self.config.get('technical_weight', 0.20) * technical_multiplier,
-                'news': self.config['news_weight'] * news_multiplier,
-                'capital_flow': self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier,
-                'market': self.config.get('market_weight', 0.17) * market_multiplier,
+                'technical': self.config.get('technical_weight', 0.15) * technical_multiplier,
+                'news': self.config.get('news_weight', 0.08) * news_multiplier,
+                'capital_flow': self.config.get('capital_flow_weight', 0.10) * capital_flow_multiplier,
+                'market': self.config.get('market_weight', 0.07) * market_multiplier,
                 'sector_rotation': self.config.get('sector_rotation_weight', 0.05),
-                'history': self.config.get('history_weight', 0.08),
+                'history': self.config.get('history_weight', 0.05),
                 'valuation': self.config.get('valuation_weight', 0.02),
                 'us_sector': self.config.get('us_sector_weight', 0.05)
             }
@@ -4560,7 +4612,15 @@ class StockPredictor:
                 elif ml_model_type:
                     ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
                 else:
-                    ml_weight = 0.35  # 默认权重35%（ML模型为主导因子）
+                    ml_weight = self.config.get('ml_default_weight', 0.55)  # 默认权重55%（与配置一致）
+                # 下限保护：确保 ML 权重不会低于默认值（当前默认 0.55）
+                default_ml_weight = self.config.get('ml_default_weight', 0.55)
+                if ml_weight < default_ml_weight:
+                    ml_weight = default_ml_weight
+                # 下限保护：确保 ML 权重不会低于默认值（当前默认 0.55）
+                default_ml_weight = self.config.get('ml_default_weight', 0.55)
+                if ml_weight < default_ml_weight:
+                    ml_weight = default_ml_weight
                 
                 self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
                                f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
@@ -4829,8 +4889,9 @@ class StockPredictor:
         else:
             prediction = '震荡'
         
-        # 计算明日大概收盘价格和涨幅（优化版）
-        # 使用优化后的价格计算逻辑，考虑股票特性、历史波动率和价格趋势
+        # 计算明日大概收盘价格和涨幅（优化版）；若有 ML 回归预测涨跌幅则用于增强
+        ml_predicted_return = ml_prediction_result.get('ml_predicted_return') if ml_prediction_result else None
+        ml_breakout_score = ml_prediction_result.get('ml_breakout_score') if ml_prediction_result else None
         price_prediction_result = self._calculate_predicted_price_optimized(
             symbol=symbol,
             stock_name=stock_name,
@@ -4838,7 +4899,9 @@ class StockPredictor:
             up_probability=up_probability,
             down_probability=down_probability,
             confidence=confidence,
-            data=data
+            data=data,
+            ml_predicted_return=ml_predicted_return,
+            ml_breakout_score=ml_breakout_score
         )
         
         predicted_change_pct = price_prediction_result['predicted_change_pct']
@@ -4847,6 +4910,8 @@ class StockPredictor:
         volatility_coefficient = price_prediction_result['volatility_coefficient']
         trend_adjustment = price_prediction_result['trend_adjustment']
         support_resistance_adjustment = price_prediction_result.get('support_resistance_adjustment', 1.0)
+        ml_boost_factor = price_prediction_result.get('ml_boost_factor', 1.0)
+        ml_boosted_return = price_prediction_result.get('ml_boosted_return')
         
         self.logger.info(f"预测价格计算（优化版）: 当前价格={current_price:.2f}元, "
                         f"预期涨跌幅={predicted_change_pct:.2f}%, "
@@ -4855,6 +4920,15 @@ class StockPredictor:
                         f"波动率系数={volatility_coefficient:.2f}, "
                         f"趋势调整={trend_adjustment:.3f}, "
                         f"支撑阻力位调整={support_resistance_adjustment:.3f}")
+
+        # ML 爆发增强日志
+        breakout_for_log = float(ml_breakout_score) if ml_breakout_score is not None else 0.0
+        boost_factor_for_log = float(ml_boost_factor) if ml_boost_factor is not None else 1.0
+        self.logger.info(
+            f"ML breakout score: {breakout_for_log:.3f}, "
+            f"ML boost factor: {boost_factor_for_log:.3f}, "
+            f"ML boosted return: {ml_boosted_return if ml_boosted_return is not None else 'N/A'}"
+        )
         
         # 生成综合文字总结
         direction_text = {
@@ -4974,22 +5048,22 @@ class StockPredictor:
             factors_for_storage = {
                 'technical': {
                     'score': technical_score,
-                    'weight': self.config.get('technical_weight', 0.20),
+                    'weight': self.config.get('technical_weight', 0.15),
                     'trend': technical_result_dict.get('trend', 'neutral') if isinstance(technical_result_dict.get('trend'), str) else 'neutral'
                 },
                 'news': {
                     'score': news_score,
-                    'weight': self.config.get('news_weight', 0.25),
+                    'weight': self.config.get('news_weight', 0.08),
                     'sentiment': news_result_dict.get('sentiment', 'neutral') if isinstance(news_result_dict.get('sentiment'), str) else 'neutral'
                 },
                 'capital_flow': {
                     'score': capital_flow_score,
-                    'weight': self.config.get('capital_flow_weight', 0.18),
+                    'weight': self.config.get('capital_flow_weight', 0.10),
                     'trend': capital_flow_result_dict.get('trend', 'neutral') if isinstance(capital_flow_result_dict.get('trend'), str) else 'neutral'
                 },
                 'market': {
                     'score': market_score,
-                    'weight': self.config.get('market_weight', 0.17),
+                    'weight': self.config.get('market_weight', 0.07),
                     'trend': market_result_dict.get('trend', 'neutral') if isinstance(market_result_dict.get('trend'), str) else 'neutral'
                 },
                 # 【已注释】板块轮动因子已移除
@@ -5000,7 +5074,7 @@ class StockPredictor:
                 # },
                 'history': {
                     'score': history_score,
-                    'weight': self.config.get('history_weight', 0.08),
+                    'weight': self.config.get('history_weight', 0.05),
                     'pattern': history_result_dict.get('pattern', 'unknown') if isinstance(history_result_dict.get('pattern'), str) else 'unknown'
                 }
                 # 【已注释】估值指标和美股板块因子已移除
@@ -5060,7 +5134,13 @@ class StockPredictor:
             'up_probability': up_probability,
             'down_probability': down_probability,
             'confidence': confidence,
+            # ML 相关字段：同时提供整体 ML 结果与关键指标快照
             'ml_prediction': ml_prediction_result,  # ML模型预测结果（如果可用）
+            'ml_up_probability': ml_prediction_result.get('ml_up_probability') if ml_prediction_result else None,
+            'ml_predicted_return': ml_prediction_result.get('ml_predicted_return') if ml_prediction_result else None,
+            'ml_breakout_score': ml_prediction_result.get('ml_breakout_score') if ml_prediction_result else None,
+            'ml_boost_factor': ml_boost_factor,
+            'ml_boosted_return': ml_boosted_return,
             'final_score': final_score,
             'predicted_close_price': predicted_close_price,  # 明日大概收盘价格
             'predicted_change_pct': predicted_change_pct,  # 明日大概涨幅百分比
@@ -5086,13 +5166,13 @@ class StockPredictor:
             'factors': {
                 'technical': {
                     'score': technical_score,
-                    'weight': self.config['technical_weight'],
+                    'weight': self.config.get('technical_weight', 0.15),
                     'signals': technical_result['signals'],
                     'trend': technical_result['trend']
                 },
                 'news': {
                     'score': news_score,
-                    'weight': self.config.get('news_weight', 0.25),
+                    'weight': self.config.get('news_weight', 0.08),
                     'adjusted_weight': adjusted_news_weight,  # 调整后的权重
                     'weight_multiplier': news_weight_multiplier,  # 权重倍数
                     'sentiment': news_result['sentiment'],
@@ -5109,7 +5189,7 @@ class StockPredictor:
                 },
                 'capital_flow': {
                     'score': capital_flow_score,
-                    'weight': self.config.get('capital_flow_weight', 0.18),
+                    'weight': self.config.get('capital_flow_weight', 0.10),
                     'trend': capital_flow_result['trend'],
                     'north_bound_score': capital_flow_result.get('north_bound_score', 0.0),
                     'margin_score': capital_flow_result.get('margin_score', 0.0),
@@ -5129,12 +5209,12 @@ class StockPredictor:
                 # },
                 'market': {
                     'score': market_score,
-                    'weight': self.config.get('market_weight', 0.17),
+                    'weight': self.config.get('market_weight', 0.07),
                     'trend': market_result['trend']
                 },
                 'history': {
                     'score': history_score,
-                    'weight': self.config.get('history_weight', 0.08),
+                    'weight': self.config.get('history_weight', 0.05),
                     'pattern': history_result['pattern']
                 }
                 # 【已注释】以下三个因子已移除
@@ -5654,11 +5734,11 @@ class StockPredictor:
         # 【优化】已移除三个因子（valuation, us_sector, sector_rotation），将其权重重新分配给其他因子
         if optimized_weights and not is_new_stock_or_insufficient_data:
             # 使用优化后的权重（重新分配被移除因子的权重）
-            base_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
-            base_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
-            base_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.18))
-            base_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.17))
-            base_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.08))
+            base_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.15))
+            base_news_weight = optimized_weights.get('news_weight', self.config.get('news_weight', 0.08)) * news_weight_multiplier
+            base_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.10))
+            base_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.07))
+            base_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.05))
             
             # 获取被移除因子的权重（用于重新分配）
             removed_weights = (
@@ -5698,11 +5778,11 @@ class StockPredictor:
             market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
             
             # 基础权重（移除三个因子后重新分配）
-            base_technical = self.config.get('technical_weight', 0.20) * technical_multiplier
-            base_news = self.config['news_weight'] * news_multiplier
-            base_capital_flow = self.config.get('capital_flow_weight', 0.18) * capital_flow_multiplier
-            base_market = self.config.get('market_weight', 0.17) * market_multiplier
-            base_history = self.config.get('history_weight', 0.08)
+            base_technical = self.config.get('technical_weight', 0.15) * technical_multiplier
+            base_news = self.config.get('news_weight', 0.08) * news_multiplier
+            base_capital_flow = self.config.get('capital_flow_weight', 0.10) * capital_flow_multiplier
+            base_market = self.config.get('market_weight', 0.07) * market_multiplier
+            base_history = self.config.get('history_weight', 0.05)
             
             # 获取被移除因子的权重
             removed_weights = (
@@ -5799,7 +5879,7 @@ class StockPredictor:
                 elif ml_model_type:
                     ml_weight = performance_monitor.get_optimal_weight(model_type=ml_model_type)
                 else:
-                    ml_weight = 0.35  # 默认权重35%（ML模型为主导因子）
+                    ml_weight = self.config.get('ml_default_weight', 0.55)  # 默认权重55%（与配置一致）
                 
                 self.logger.info(f"ML模型预测: 得分 {ml_score:.2f}, 上涨概率 {ml_prediction_result.get('ml_up_probability', 0.5):.2%}, "
                                f"方向 {ml_prediction_result.get('ml_prediction', '震荡')}, "
@@ -6047,8 +6127,9 @@ class StockPredictor:
         else:
             prediction = '震荡'
         
-        # 计算明日大概收盘价格和涨幅（优化版）
-        # 使用优化后的价格计算逻辑，考虑股票特性、历史波动率和价格趋势
+        # 计算明日大概收盘价格和涨幅（优化版）；若有 ML 回归预测涨跌幅则用于增强
+        ml_predicted_return = ml_prediction_result.get('ml_predicted_return') if ml_prediction_result else None
+        ml_breakout_score = ml_prediction_result.get('ml_breakout_score') if ml_prediction_result else None
         price_prediction_result = self._calculate_predicted_price_optimized(
             symbol=symbol,
             stock_name=stock_name,
@@ -6056,11 +6137,15 @@ class StockPredictor:
             up_probability=up_probability,
             down_probability=down_probability,
             confidence=confidence,
-            data=data
+            data=data,
+            ml_predicted_return=ml_predicted_return,
+            ml_breakout_score=ml_breakout_score
         )
         
         predicted_change_pct = price_prediction_result['predicted_change_pct']
         predicted_close_price = price_prediction_result['predicted_close_price']
+        ml_boost_factor = price_prediction_result.get('ml_boost_factor', 1.0)
+        ml_boosted_return = price_prediction_result.get('ml_boosted_return')
         
         # 计算整体数据质量评分（新增：数据缺失处理优化）
         try:
@@ -6085,6 +6170,13 @@ class StockPredictor:
             'price_source': price_source,
             'predicted_close_price': predicted_close_price,
             'predicted_change_pct': predicted_change_pct,
+            # ML 相关字段快照（方便前端/诊断直接访问）
+            'ml_prediction': ml_prediction_result,
+            'ml_up_probability': ml_prediction_result.get('ml_up_probability') if ml_prediction_result else None,
+            'ml_predicted_return': ml_prediction_result.get('ml_predicted_return') if ml_prediction_result else None,
+            'ml_breakout_score': ml_prediction_result.get('ml_breakout_score') if ml_prediction_result else None,
+            'ml_boost_factor': ml_boost_factor,
+            'ml_boosted_return': ml_boosted_return,
             'target_date': target_date,
             'prediction_date': prediction_date,
             'prediction_type': 'before_close',
@@ -6470,10 +6562,10 @@ class StockPredictor:
         
         # 根据是否使用优化后的权重来设置权重值
         if optimized_weights and not is_new_stock_or_insufficient_data:
-            adjusted_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.20))
-            adjusted_news_weight = optimized_weights.get('news_weight', self.config['news_weight']) * news_weight_multiplier
-            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.13))
-            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.11))
+            adjusted_technical_weight = optimized_weights.get('technical_weight', self.config.get('technical_weight', 0.15))
+            adjusted_news_weight = optimized_weights.get('news_weight', self.config.get('news_weight', 0.08)) * news_weight_multiplier
+            adjusted_capital_flow_weight = optimized_weights.get('capital_flow_weight', self.config.get('capital_flow_weight', 0.10))
+            adjusted_market_weight = optimized_weights.get('market_weight', self.config.get('market_weight', 0.07))
             adjusted_sector_rotation_weight = optimized_weights.get('sector_rotation_weight', self.config.get('sector_rotation_weight', 0.0))
             adjusted_history_weight = optimized_weights.get('history_weight', self.config.get('history_weight', 0.05))
             adjusted_valuation_weight = optimized_weights.get('valuation_weight', self.config.get('valuation_weight', 0.0))
@@ -6484,10 +6576,10 @@ class StockPredictor:
             capital_flow_multiplier = weight_multipliers.get('capital_flow_weight_multiplier', 1.0)
             market_multiplier = weight_multipliers.get('market_weight_multiplier', 1.0)
             
-            adjusted_technical_weight = self.config.get('technical_weight', 0.20) * technical_multiplier
-            adjusted_news_weight = self.config['news_weight'] * news_multiplier
-            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.13) * capital_flow_multiplier
-            adjusted_market_weight = self.config.get('market_weight', 0.11) * market_multiplier
+            adjusted_technical_weight = self.config.get('technical_weight', 0.15) * technical_multiplier
+            adjusted_news_weight = self.config.get('news_weight', 0.08) * news_multiplier
+            adjusted_capital_flow_weight = self.config.get('capital_flow_weight', 0.10) * capital_flow_multiplier
+            adjusted_market_weight = self.config.get('market_weight', 0.07) * market_multiplier
             adjusted_sector_rotation_weight = self.config.get('sector_rotation_weight', 0.0)
             adjusted_history_weight = self.config.get('history_weight', 0.05)
             adjusted_valuation_weight = self.config.get('valuation_weight', 0.0)
@@ -6512,7 +6604,11 @@ class StockPredictor:
                 
                 # 获取动态权重（优化：传递配置管理器，支持热更新）
                 performance_monitor = MLModelPerformanceMonitor(config_manager=self._config_manager)
-                ml_weight = performance_monitor.get_optimal_weight(ml_model_id, ml_model_type) if ml_model_id else 0.35
+                ml_weight = performance_monitor.get_optimal_weight(ml_model_id, ml_model_type) if ml_model_id else self.config.get('ml_default_weight', 0.55)
+                # 下限保护：确保 ML 权重不会低于默认值（当前默认 0.55）
+                default_ml_weight = self.config.get('ml_default_weight', 0.55)
+                if ml_weight < default_ml_weight:
+                    ml_weight = default_ml_weight
                 
                 ml_prediction_result = {
                     'ml_score': ml_score,

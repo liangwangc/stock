@@ -257,118 +257,124 @@ class MLModelTrainer:
                             y_val: Optional[pd.Series] = None,
                             params: Optional[Dict] = None) -> Tuple[object, Dict]:
         """
-        训练LightGBM分类器
-        
-        Args:
-            X_train: 训练集特征
-            y_train: 训练集标签
-            X_val: 验证集特征（可选）
-            y_val: 验证集标签（可选）
-            params: 模型参数
-        
-        Returns:
-            (model, metrics)
+        训练 LightGBM（二分类），使用 LGBMClassifier + early stopping，降低过拟合。
         """
         try:
-            import lightgbm as lgb
-            
-            # 默认参数
-            default_params = {
-                'objective': 'binary',
-                'metric': 'binary_logloss',
-                'boosting_type': 'gbdt',
-                'num_leaves': 31,
-                'learning_rate': 0.1,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'verbose': -1,
-                'random_state': 42
-            }
-            n_pos = int((y_train == 1).sum())
-            n_neg = int((y_train == 0).sum())
-            if n_pos > 0:
-                default_params['scale_pos_weight'] = n_neg / n_pos
-            if params:
-                default_params.update(params)
-            
-            # 检查并移除object类型的列（LightGBM不支持）
-            # 注意：必须创建副本，确保drop操作生效
+            from lightgbm import LGBMClassifier
+            from sklearn.metrics import roc_auc_score
+
+            # 检查并移除 object 类型列（LightGBM 不支持）
             object_cols = X_train.select_dtypes(include=['object']).columns.tolist()
             if object_cols:
-                self.logger.warning(f"发现object类型列，将被排除: {object_cols}")
-                X_train = X_train.drop(columns=object_cols).copy()  # 创建副本确保操作生效
+                self.logger.warning(f"发现 object 类型列，将被排除: {object_cols}")
+                X_train = X_train.drop(columns=object_cols).copy()
                 if X_val is not None:
-                    X_val = X_val.drop(columns=object_cols).copy()  # 创建副本确保操作生效
-            
-            # 再次检查，确保没有遗漏
+                    X_val = X_val.drop(columns=object_cols).copy()
+
             remaining_object_cols = X_train.select_dtypes(include=['object']).columns.tolist()
             if remaining_object_cols:
-                self.logger.error(f"仍有object类型列未被移除: {remaining_object_cols}")
-                raise ValueError(f"无法移除object类型列: {remaining_object_cols}")
-            
-            # 创建数据集
-            train_data = lgb.Dataset(X_train, label=y_train)
-            
-            self.logger.info(f"开始训练LightGBM分类器...")
+                self.logger.error(f"仍有 object 类型列未被移除: {remaining_object_cols}")
+                raise ValueError(f"无法移除 object 类型列: {remaining_object_cols}")
+
+            n_pos = int((y_train == 1).sum())
+            n_neg = int((y_train == 0).sum())
+            scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
+
+            # 基础参数：使用你给出的配置，外加类不平衡处理
+            base_params = dict(
+                n_estimators=2000,
+                learning_rate=0.005,
+                max_depth=4,
+                num_leaves=16,
+                min_child_samples=120,
+                subsample=0.7,
+                colsample_bytree=0.7,
+                reg_alpha=0.5,
+                reg_lambda=0.5,
+                objective="binary",
+                subsample_freq=1,
+                random_state=42,
+                n_jobs=-1,
+                scale_pos_weight=scale_pos_weight,
+            )
+            if params:
+                base_params.update(params)
+
+            self.logger.info("开始训练 LightGBM (LGBMClassifier)...")
             self.logger.info(f"  训练集大小: {len(X_train):,} 条样本")
             if X_val is not None:
                 self.logger.info(f"  验证集大小: {len(X_val):,} 条样本")
             self.logger.info(f"  特征数量: {X_train.shape[1]}")
-            self.logger.info(f"  参数: num_boost_round=100, num_leaves={default_params['num_leaves']}, learning_rate={default_params['learning_rate']}")
-            
+            self.logger.info(
+                f"  关键参数: n_estimators={base_params['n_estimators']}, "
+                f"learning_rate={base_params['learning_rate']}, "
+                f"max_depth={base_params['max_depth']}, num_leaves={base_params['num_leaves']}"
+            )
+
             import time
             train_start_time = time.time()
-            
+
+            model = LGBMClassifier(**base_params)
+
             if X_val is not None and y_val is not None:
-                val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
-                model = lgb.train(
-                    default_params,
-                    train_data,
-                    valid_sets=[train_data, val_data],
-                    num_boost_round=100,
-                    callbacks=[
-                        lgb.early_stopping(stopping_rounds=10), 
-                        lgb.log_evaluation(10)  # 每10轮显示一次进度
-                    ]
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_train, y_train), (X_val, y_val)],
+                    eval_metric="auc",
+                    early_stopping_rounds=200,
+                    verbose=100,
                 )
             else:
-                model = lgb.train(
-                    default_params,
-                    train_data,
-                    num_boost_round=100,
-                    callbacks=[lgb.log_evaluation(10)]  # 每10轮显示一次进度
-                )
-            
+                model.fit(X_train, y_train)
+
             train_elapsed = time.time() - train_start_time
-            self.logger.info(f"LightGBM训练完成，耗时: {train_elapsed:.1f}秒 ({train_elapsed/60:.1f}分钟)")
-            
-            # 评估
-            train_pred_proba = model.predict(X_train, num_iteration=model.best_iteration if hasattr(model, 'best_iteration') else None)
-            train_pred = (train_pred_proba > 0.5).astype(int)
-            train_accuracy = np.mean(train_pred == y_train)
-            
-            metrics = {
-                'train_accuracy': float(train_accuracy),
-                'train_logloss': float(self._calculate_logloss(y_train, train_pred_proba))
+            self.logger.info(
+                f"LightGBM 训练完成，耗时: {train_elapsed:.1f}秒 ({train_elapsed/60:.1f}分钟)"
+            )
+
+            # 评估：训练准确率 / 验证准确率 / 验证 AUC
+            train_pred = model.predict(X_train)
+            train_pred_proba = model.predict_proba(X_train)[:, 1]
+            train_accuracy = float(np.mean(train_pred == y_train))
+
+            metrics: Dict[str, float] = {
+                "train_accuracy": train_accuracy,
+                "train_logloss": float(self._calculate_logloss(y_train, train_pred_proba)),
             }
-            
-            if X_val is not None and y_val is not None:
-                val_pred_proba = model.predict(X_val, num_iteration=model.best_iteration if hasattr(model, 'best_iteration') else None)
-                val_pred = (val_pred_proba > 0.5).astype(int)
-                val_accuracy = np.mean(val_pred == y_val)
-                metrics['val_accuracy'] = float(val_accuracy)
-                metrics['val_logloss'] = float(self._calculate_logloss(y_val, val_pred_proba))
-            
-            self.logger.info(f"LightGBM分类器训练完成：训练准确率 {train_accuracy:.4f}")
-            
+
+            val_accuracy = None
+            val_auc = None
+            if X_val is not None and y_val is not None and len(y_val) > 0:
+                val_pred = model.predict(X_val)
+                val_pred_proba = model.predict_proba(X_val)[:, 1]
+                val_accuracy = float(np.mean(val_pred == y_val))
+                try:
+                    val_auc = float(roc_auc_score(y_val, val_pred_proba))
+                except ValueError:
+                    val_auc = None
+
+                metrics["val_accuracy"] = val_accuracy
+                metrics["val_logloss"] = float(self._calculate_logloss(y_val, val_pred_proba))
+                if val_auc is not None:
+                    metrics["val_auc"] = val_auc
+
+            # 关键指标日志输出（满足你的要求）
+            if val_auc is not None and val_accuracy is not None:
+                self.logger.info(
+                    f"LightGBM 指标：训练准确率={train_accuracy:.4f}，"
+                    f"验证准确率={val_accuracy:.4f}，验证AUC={val_auc:.4f}"
+                )
+            else:
+                self.logger.info(f"LightGBM 指标：训练准确率={train_accuracy:.4f}")
+
             return model, metrics
-            
+
         except ImportError:
-            self.logger.error("LightGBM未安装，请运行: pip install lightgbm")
+            self.logger.error("LightGBM 未安装，请运行: pip install lightgbm")
             return None, {}
         except Exception as e:
-            self.logger.error(f"训练LightGBM分类器失败: {str(e)}")
+            self.logger.error(f"训练 LightGBM 分类器失败: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
             return None, {}
@@ -405,11 +411,16 @@ class MLModelTrainer:
                 'objective': 'binary',
                 'metric': 'binary_logloss',
                 'boosting_type': 'gbdt',
-                'num_leaves': 31,
-                'learning_rate': 0.1,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
+                # 对齐你给的 LightGBM 结构化参数，侧重泛化能力
+                'num_leaves': 16,
+                'learning_rate': 0.005,
+                'max_depth': 4,
+                'min_child_samples': 120,
+                'feature_fraction': 0.7,   # ≈ colsample_bytree
+                'bagging_fraction': 0.7,   # ≈ subsample
+                'bagging_freq': 1,
+                'lambda_l1': 0.5,
+                'lambda_l2': 0.5,
                 'verbose': -1,
                 'random_state': 42,
                 'scale_pos_weight': scale_pos_weight,
@@ -583,7 +594,88 @@ class MLModelTrainer:
             import traceback
             self.logger.error(traceback.format_exc())
             return None, {}
-    
+
+    def train_lgb_regressor_return(self,
+                                    X_train: pd.DataFrame,
+                                    y_train: pd.Series,
+                                    X_val: Optional[pd.DataFrame] = None,
+                                    y_val: Optional[pd.Series] = None,
+                                    params: Optional[Dict] = None) -> Tuple[object, Dict]:
+        """
+        训练 LightGBM 回归器，预测未来涨跌幅（future_return 小数）。
+        用于涨幅预测增强，与分类模型并存。
+        """
+        try:
+            from lightgbm import LGBMRegressor
+
+            object_cols = X_train.select_dtypes(include=['object']).columns.tolist()
+            if object_cols:
+                self.logger.warning(f"发现 object 类型列，将被排除: {object_cols}")
+                X_train = X_train.drop(columns=object_cols).copy()
+                if X_val is not None:
+                    X_val = X_val.drop(columns=object_cols).copy()
+            remaining = X_train.select_dtypes(include=['object']).columns.tolist()
+            if remaining:
+                raise ValueError(f"无法移除 object 类型列: {remaining}")
+
+            base_params = dict(
+                n_estimators=1500,
+                learning_rate=0.01,
+                max_depth=6,
+                num_leaves=32,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                min_child_samples=50,
+                reg_alpha=0.2,
+                reg_lambda=0.2,
+                random_state=42,
+                n_jobs=-1,
+                metric="rmse",
+            )
+            if params:
+                base_params.update(params)
+
+            self.logger.info("开始训练 LightGBM 回归器（涨跌幅预测）...")
+            self.logger.info(f"  训练集: {len(X_train):,} 条, 验证集: {len(X_val):,} 条, 特征数: {X_train.shape[1]}")
+
+            model = LGBMRegressor(**base_params)
+            if X_val is not None and y_val is not None:
+                # LightGBM 4.x 起 fit() 不再接受 early_stopping_rounds，改用 callbacks
+                try:
+                    from lightgbm import early_stopping, log_evaluation
+                    model.fit(
+                        X_train, y_train,
+                        eval_set=[(X_val, y_val)],
+                        callbacks=[early_stopping(100), log_evaluation(0)],
+                    )
+                except (ImportError, TypeError):
+                    # 旧版 LightGBM 仍用 fit 的 early_stopping_rounds
+                    model.fit(
+                        X_train, y_train,
+                        eval_set=[(X_val, y_val)],
+                        eval_metric="rmse",
+                        early_stopping_rounds=100,
+                    )
+            else:
+                model.fit(X_train, y_train)
+
+            train_pred = model.predict(X_train)
+            train_rmse = float(np.sqrt(np.mean((train_pred - y_train) ** 2)))
+            metrics = {'train_rmse': train_rmse}
+            if X_val is not None and y_val is not None:
+                val_pred = model.predict(X_val)
+                metrics['val_rmse'] = float(np.sqrt(np.mean((val_pred - y_val) ** 2)))
+            self.logger.info(f"LightGBM 回归器训练完成: 训练 RMSE={train_rmse:.4f}")
+            return model, metrics
+        except ImportError:
+            self.logger.error("LightGBM 未安装，请运行: pip install lightgbm")
+            return None, {}
+        except Exception as e:
+            self.logger.error(f"训练 LightGBM 回归器失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return None, {}
+
     def _calculate_logloss(self, y_true: pd.Series, y_pred_proba: np.ndarray) -> float:
         """计算对数损失"""
         from sklearn.metrics import log_loss

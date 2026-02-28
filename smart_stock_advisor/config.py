@@ -16,13 +16,13 @@ NEWS_SOURCES = [
 ]
 
 # 预测模型配置
-# 架构：ML模型主导（35%） + 传统因子辅助（65%） = 100%
+# 架构：六项权重合计 100%（默认 ML 55% + 技术 15% + 资金 10% + 新闻 8% + 市场 7% + 历史 5%）
 PREDICTION_CONFIG = {
-    # 传统因子权重（合计65%）
-    "technical_weight": 0.20,      # 技术指标权重（MACD、RSI、KDJ、MA、CCI、X2）
-    "news_weight": 0.16,           # 新闻情感权重（包含政策新闻）
-    "capital_flow_weight": 0.13,   # 资金流向权重（北向资金、融资融券、主力资金）
-    "market_weight": 0.11,         # 市场情绪权重（大盘指数影响）
+    # 五因子权重（合计 45%，与 ML 55% 合计 100%）
+    "technical_weight": 0.15,      # 技术指标权重（MACD、RSI、KDJ、MA、CCI、X2）
+    "news_weight": 0.08,           # 新闻情感权重（包含政策新闻）
+    "capital_flow_weight": 0.10,   # 资金流向权重（北向资金、融资融券、主力资金）
+    "market_weight": 0.07,         # 市场情绪权重（大盘指数影响）
     "history_weight": 0.05,        # 历史模式权重（历史相似模式识别）
     
     # 已移除的因子（保留配置兼容性）
@@ -30,10 +30,10 @@ PREDICTION_CONFIG = {
     "us_sector_weight": 0.0,       # 美股板块（已移除）
     "valuation_weight": 0.0,       # 估值指标（已移除）
     
-    # ML模型配置（默认占35%，根据模型性能动态调整）
-    "ml_default_weight": 0.35,     # ML模型默认权重（77%准确率，主导因子）
+    # ML模型配置（默认占 55%，根据模型性能动态调整）
+    "ml_default_weight": 0.55,     # ML模型默认权重（主导因子）
     "ml_min_weight": 0.10,         # ML模型最小权重（性能差时降低）
-    "ml_max_weight": 0.50,         # ML模型最大权重上限（性能好时提升）
+    "ml_max_weight": 0.70,         # ML模型最大权重上限（性能好时提升）
     "ml_high_accuracy_threshold": 0.60,   # 高准确率阈值
     "ml_medium_accuracy_threshold": 0.50, # 中等准确率阈值
     
@@ -45,8 +45,6 @@ PREDICTION_CONFIG = {
     # 其他配置
     "min_confidence": 0.5,         # 最小置信度
     "lookback_days": 60,           # 回看天数
-    
-    # 传统因子65% + ML模型35% = 100%
 }
 
 # 技术指标参数
@@ -85,7 +83,7 @@ TUSHARE_USERNAME = None  # Tushare账号（手机或邮箱）
 TUSHARE_PASSWORD = None  # Tushare密码
 
 # 日志配置
-LOG_LEVEL = "INFO"
+LOG_LEVEL = "DEBUG"
 LOG_FILE = "logs/app.log"  # 项目运行日志文件（增量追加，相对于项目根目录）
 
 # 默认股票代码（如果命令行未指定，将使用此代码）

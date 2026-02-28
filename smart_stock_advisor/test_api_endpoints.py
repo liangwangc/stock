@@ -131,11 +131,12 @@ def test_validate_config(session):
         valid_config = {
             'values': {
                 'prediction': {
-                    'news_weight': 0.25,
-                    'capital_flow_weight': 0.20,
-                    'market_weight': 0.20,
-                    'technical_weight': 0.20,
-                    'history_weight': 0.15
+                    'ml_default_weight': 0.55,
+                    'technical_weight': 0.15,
+                    'capital_flow_weight': 0.10,
+                    'news_weight': 0.08,
+                    'market_weight': 0.07,
+                    'history_weight': 0.05
                 },
                 'indicator': {
                     'ma_short': 5,
@@ -161,9 +162,9 @@ def test_validate_config(session):
                     'prediction': {
                         'news_weight': 0.30,
                         'capital_flow_weight': 0.30,
-                        'market_weight': 0.30,
-                        'technical_weight': 0.20,
-                        'history_weight': 0.20
+                        'market_weight': 0.20,
+                        'technical_weight': 0.15,
+                        'history_weight': 0.05
                     }
                 }
             }

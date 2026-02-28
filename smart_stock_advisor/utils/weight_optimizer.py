@@ -217,12 +217,12 @@ class WeightOptimizer:
             for factor_name, score in accuracy_scores.items():
                 optimal_weights[factor_name] = score / total_accuracy_score
         else:
-            # 如果所有因子准确率都很低，使用默认权重（对应config.py中的65%传统因子体系）
+            # 如果所有因子准确率都很低，使用默认权重（五因子合计 45%，与参数设置一致）
             default_weights = {
-                'technical': 0.20,
-                'news': 0.16,
-                'capital_flow': 0.13,
-                'market': 0.11,
+                'technical': 0.15,
+                'news': 0.08,
+                'capital_flow': 0.10,
+                'market': 0.07,
                 'history': 0.05,
             }
             return default_weights
@@ -242,12 +242,12 @@ class WeightOptimizer:
         """
         suggestions = []
         
-        # 当前默认权重（65%传统因子体系，与config.py一致）
+        # 当前默认权重（五因子，与参数设置一致）
         current_weights = {
-            'technical': 0.20,
-            'news': 0.16,
-            'capital_flow': 0.13,
-            'market': 0.11,
+            'technical': 0.15,
+            'news': 0.08,
+            'capital_flow': 0.10,
+            'market': 0.07,
             'history': 0.05,
             # 【已优化移除】sector_rotation、valuation、us_sector 已从预测模型中移除
         }
@@ -321,14 +321,14 @@ class WeightOptimizer:
                 if market_cap > 500:  # 大盘股（市值>500亿）
                     # 大盘股：增加资金流向权重，降低技术指标权重
                     # 【已优化移除】valuation_weight已从预测模型中移除
-                    adjusted_weights['capital_flow_weight'] = base_weights.get('capital_flow_weight', 0.20) * 1.3
-                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.22) * 0.9
+                    adjusted_weights['capital_flow_weight'] = base_weights.get('capital_flow_weight', 0.10) * 1.3
+                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.15) * 0.9
                     self.logger.debug(f"股票{symbol}识别为大盘股（市值{market_cap:.1f}亿），调整权重")
                 elif market_cap < 100:  # 小盘股（市值<100亿）
                     # 小盘股：增加技术指标和新闻权重
                     # 【已优化移除】valuation_weight已从预测模型中移除
-                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.22) * 1.2
-                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.28) * 1.15
+                    adjusted_weights['technical_weight'] = base_weights.get('technical_weight', 0.15) * 1.2
+                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.08) * 1.15
                     self.logger.debug(f"股票{symbol}识别为小盘股（市值{market_cap:.1f}亿），调整权重")
             
             # 根据股票类型调整权重（如果类型信息可用）
@@ -336,12 +336,12 @@ class WeightOptimizer:
                 if stock_type in ['成长股', 'growth', 'g']:
                     # 成长股：增加新闻权重
                     # 【已优化移除】sector_rotation_weight已从预测模型中移除
-                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.28) * 1.2
+                    adjusted_weights['news_weight'] = base_weights.get('news_weight', 0.08) * 1.2
                     self.logger.debug(f"股票{symbol}识别为成长股，调整权重")
                 elif stock_type in ['价值股', 'value', 'v']:
                     # 价值股：增加历史权重
                     # 【已优化移除】valuation_weight已从预测模型中移除
-                    adjusted_weights['history_weight'] = base_weights.get('history_weight', 0.11) * 1.3
+                    adjusted_weights['history_weight'] = base_weights.get('history_weight', 0.05) * 1.3
                     self.logger.debug(f"股票{symbol}识别为价值股，调整权重")
             
             # 归一化权重（确保总和为1）
@@ -378,25 +378,25 @@ class WeightOptimizer:
             # 应用权重倍数
             if 'technical_weight_multiplier' in multipliers:
                 adjusted_weights['technical_weight'] = (
-                    base_weights.get('technical_weight', 0.20) * 
+                    base_weights.get('technical_weight', 0.15) * 
                     multipliers['technical_weight_multiplier']
                 )
             
             if 'news_weight_multiplier' in multipliers:
                 adjusted_weights['news_weight'] = (
-                    base_weights.get('news_weight', 0.25) * 
+                    base_weights.get('news_weight', 0.08) * 
                     multipliers['news_weight_multiplier']
                 )
             
             if 'capital_flow_weight_multiplier' in multipliers:
                 adjusted_weights['capital_flow_weight'] = (
-                    base_weights.get('capital_flow_weight', 0.18) * 
+                    base_weights.get('capital_flow_weight', 0.10) * 
                     multipliers['capital_flow_weight_multiplier']
                 )
             
             if 'market_weight_multiplier' in multipliers:
                 adjusted_weights['market_weight'] = (
-                    base_weights.get('market_weight', 0.17) * 
+                    base_weights.get('market_weight', 0.07) * 
                     multipliers['market_weight_multiplier']
                 )
             
@@ -426,12 +426,12 @@ class WeightOptimizer:
         Returns:
             优化后的权重配置
         """
-        # 1. 获取基础权重（65%传统因子体系，与config.py一致）
+        # 1. 获取基础权重（五因子，与参数设置一致）
         base_weights = {
-            'technical_weight': 0.20,
-            'news_weight': 0.16,
-            'capital_flow_weight': 0.13,
-            'market_weight': 0.11,
+            'technical_weight': 0.15,
+            'news_weight': 0.08,
+            'capital_flow_weight': 0.10,
+            'market_weight': 0.07,
             'history_weight': 0.05,
             # 已移除：sector_rotation, valuation, us_sector
         }

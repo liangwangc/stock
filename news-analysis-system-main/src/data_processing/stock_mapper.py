@@ -457,14 +457,22 @@ class StockMapper:
                     })
             
             if relations:
-                relations_df = pd.DataFrame(relations)
-                relations_df.to_sql(
-                    name='news_stock_relation',
-                    con=cls_engine,
-                    if_exists='append',
-                    index=False
-                )
-                print(f"成功保存 {len(relations)} 条股票关联关系")
+                # 按 (news_id, symbol) 去重，并用 INSERT IGNORE 避免 uk_news_symbol 重复报错
+                seen = set()
+                unique_relations = []
+                for r in relations:
+                    key = (r['news_id'], r['symbol'])
+                    if key not in seen:
+                        seen.add(key)
+                        unique_relations.append(r)
+                insert_sql = text("""
+                    INSERT IGNORE INTO news_stock_relation (news_id, symbol, relevance_score, relation_type)
+                    VALUES (:news_id, :symbol, :relevance_score, :relation_type)
+                """)
+                with cls_engine.connect() as conn:
+                    conn.execute(insert_sql, unique_relations)
+                    conn.commit()
+                print(f"成功保存 {len(unique_relations)} 条股票关联关系")
         
         except Exception as e:
             print(f"保存股票关联关系失败: {str(e)}")

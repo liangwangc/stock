@@ -834,16 +834,21 @@ class MLDataLoader:
                                        end_date: str,
                                        symbols: Optional[List[str]] = None,
                                        min_history_days: int = 60,
-                                       lookahead_days: int = 1) -> pd.DataFrame:
+                                       lookahead_days: int = 5,
+                                       max_samples: Optional[int] = None) -> pd.DataFrame:
         """
         直接从stock_history_data表加载训练数据（全量数据）
+        
+        Target 定义：future_return_5d = close_price.shift(-5) / close_price - 1，
+        label_up = (future_return_5d > 0.02).astype(int)，并丢弃 -0.02 ~ 0.02 区间样本（降低噪声）。
         
         Args:
             start_date: 开始日期（YYYY-MM-DD）
             end_date: 结束日期（YYYY-MM-DD）
             symbols: 股票代码列表（None表示所有股票）
             min_history_days: 最少历史数据天数（用于构建特征）
-            lookahead_days: 预测未来多少天（默认1天，即明天）
+            lookahead_days: 预测未来多少天（默认5天，用于 future_return_5d 与 target）
+            max_samples: 最大样本数（None=不限制）。样本量极大时可设此值避免内存溢出，如 500000。
         
         Returns:
             包含特征和标签的DataFrame
@@ -902,10 +907,13 @@ class MLDataLoader:
             all_history = self.db.execute_query(sql, tuple(params))
             
             if not all_history:
-                self.logger.warning(f"没有找到 {start_date} 到 {end_date} 期间的历史数据")
+                self.logger.warning(
+                    f"没有找到 {start_date} 到 {end_date} 期间的历史数据。"
+                    "请检查：1) stock_history_data 表是否有数据；2) 日期范围是否在表内；3) period_type='daily' 是否有记录。"
+                )
                 return pd.DataFrame()
             
-            self.logger.info(f"找到 {len(all_history)} 条历史记录")
+            self.logger.info(f"找到 {len(all_history)} 条历史记录（{start_date} ~ {end_date}）")
             
             # 2. 按股票分组，构建训练样本
             from collections import defaultdict
@@ -1254,25 +1262,24 @@ class MLDataLoader:
                         else:
                             features['is_volume_breakout'] = 0
                         
-                        # 标签：涨跌幅
-                        change_pct = (future_price - current_price) / current_price * 100
+                        # Target：future_return_5d = close_price.shift(-5) / close_price - 1
+                        # label_up = (future_return_5d > 0.02)，并丢弃 -0.02 ~ 0.02 区间样本
+                        future_return_5d = (future_price / current_price) - 1.0
+                        # 删除噪声区间样本（-2%~+2%）
+                        if -0.02 <= future_return_5d <= 0.02:
+                            continue
+                        label_up = 1 if future_return_5d > 0.02 else 0
+                        change_pct = future_return_5d * 100.0  # 5日涨跌幅（%）
+                        direction = '上涨' if future_return_5d > 0.02 else '下跌'
                         
-                        # 标签：方向（上涨/下跌/震荡）
-                        if change_pct > 0.5:  # 涨幅超过0.5%算上涨
-                            direction = '上涨'
-                            label_up = 1
-                        elif change_pct < -0.5:  # 跌幅超过0.5%算下跌
-                            direction = '下跌'
-                            label_up = 0
-                        else:  # 震荡
-                            direction = '震荡'
-                            label_up = 0  # 震荡算作下跌（二分类）
-                        
-                        # 添加标签
+                        # 添加标签（分类用 label_up；回归用 future_return = (future_close - close) / close）
+                        features['future_return_5d'] = future_return_5d
+                        features['future_return'] = future_return_5d  # 回归 label：涨跌幅小数
                         features['label_direction'] = direction
                         features['label_change_pct'] = change_pct
                         features['label_up'] = label_up
-                        features['label_up_probability'] = 1.0 if change_pct > 0 else 0.0
+                        # 这里的 label_up_probability 仅作为简化占位（严格校准留给模型输出）
+                        features['label_up_probability'] = 1.0 if future_return_5d > 0.02 else 0.0
                         
                         # 添加元数据
                         features['symbol'] = symbol
@@ -1363,41 +1370,63 @@ class MLDataLoader:
                         )
             
             if not all_samples:
-                self.logger.warning("没有构建出有效的训练样本")
+                self.logger.warning(
+                    "没有构建出有效的训练样本（表内有记录但样本数为 0）。"
+                    "可能原因：每只股票需至少 60 日历史且存在 5 日后收盘价；或构建过程中发生异常，请查看上方日志。"
+                )
                 return pd.DataFrame()
+
+            # 可选：限制样本数（仅在显式传入 max_samples 时生效）
+            total_samples = len(all_samples)
+            if max_samples is not None and total_samples > max_samples:
+                self.logger.info(
+                    f"样本数 {total_samples:,} 超过 max_samples={max_samples:,}，截取前 {max_samples:,} 条"
+                )
+                all_samples = all_samples[:max_samples]
             
-            # 性能优化：转换为DataFrame时直接指定数据类型（比后续转换快）
-            # 4. 转换为DataFrame（性能优化：使用float32减少内存和提升计算速度）
-            if not all_samples:
-                self.logger.warning("没有构建出有效的训练样本")
-                return pd.DataFrame()
-            
-            # 性能优化：如果样本数量很大，分批转换（避免一次性创建大DataFrame）
-            # 但通常样本数量不会太大，直接转换即可
-            df = pd.DataFrame(all_samples)
-            
-            # 性能优化：批量转换数据类型，比逐列转换快
-            # 定义需要保持float64的大字段
-            large_fields = {'volume', 'amount', 'main_net_inflow', 'super_large_inflow', 
-                          'large_inflow', 'medium_inflow', 'small_inflow', 
-                          'margin_balance', 'short_balance', 'total_market_cap', 'float_market_cap'}
-            
-            # 性能优化：批量转换，只转换数值列且不在large_fields中的列
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            cols_to_convert = [col for col in numeric_cols if col not in large_fields]
-            if cols_to_convert:
+            # 4. 分块转换为 DataFrame，逐块合并避免一次性 concat 大列表导致 OOM（250+ MiB 分配失败）
+            # 每块构建后立即转为 float32（排除大字段），使合并时分配约减半
+            LARGE_FIELDS = {'volume', 'amount', 'main_net_inflow', 'super_large_inflow',
+                            'large_inflow', 'medium_inflow', 'small_inflow',
+                            'margin_balance', 'short_balance', 'total_market_cap', 'float_market_cap'}
+
+            def _downcast_numeric_chunk(d: pd.DataFrame) -> None:
+                numeric_cols = d.select_dtypes(include=[np.number]).columns
+                cols = [c for c in numeric_cols if c not in LARGE_FIELDS]
+                if not cols:
+                    return
                 try:
-                    # 批量转换，比循环快
-                    df[cols_to_convert] = df[cols_to_convert].astype('float32')
+                    d[cols] = d[cols].astype("float32")
                 except (ValueError, OverflowError):
-                    # 如果批量转换失败，逐列转换（降级处理）
-                    for col in cols_to_convert:
+                    for c in cols:
                         try:
-                            df[col] = df[col].astype('float32')
+                            d[c] = d[c].astype("float32")
                         except (ValueError, OverflowError):
                             pass
+
+            n_total = len(all_samples)
+            # 单块行数：50k 约 22 MiB（57 列 float64），避免 65+ MiB 分配失败
+            CHUNK_SIZE = 50_000
+            if n_total > CHUNK_SIZE:
+                self.logger.info(f"样本量较大（{n_total:,} 条），分块构建 DataFrame（块大小 {CHUNK_SIZE:,}）以降低内存占用")
+            # 第一块
+            df = pd.DataFrame(all_samples[0:min(CHUNK_SIZE, n_total)])
+            _downcast_numeric_chunk(df)
+            # 逐块追加，避免同时持有全部 chunk 列表再 concat
+            num_chunks = (n_total + CHUNK_SIZE - 1) // CHUNK_SIZE
+            for chunk_idx, start in enumerate(range(CHUNK_SIZE, n_total, CHUNK_SIZE), start=2):
+                end = min(start + CHUNK_SIZE, n_total)
+                chunk_df = pd.DataFrame(all_samples[start:end])
+                _downcast_numeric_chunk(chunk_df)
+                df = pd.concat([df, chunk_df], ignore_index=True, copy=False)
+                del chunk_df
+                if chunk_idx % 4 == 0 or chunk_idx == num_chunks:
+                    self.logger.info(f"分块构建进度: {chunk_idx}/{num_chunks} 块已合并")
+            # 释放 all_samples 以减轻内存（后续不再使用）
+            all_samples.clear()
+            all_samples = None
             
-            # 成功构建训练样本（减少日志输出）
+            self.logger.info(f"分块构建 DataFrame 完成，共 {len(df):,} 行 x {len(df.columns)} 列")
             
             # 5. 检查数据质量（可选，但建议执行）
             if len(df) > 0:

@@ -190,10 +190,10 @@ def fine_tune_base_model(base_model_name: str,
         if len(fine_tune_df) < 100:
             logger.warning(f"微调样本数较少（{len(fine_tune_df)}条），建议至少1000+条")
         
-        # 5. 准备特征和标签
-        logger.info("\n准备特征和标签...")
+        # 5. 准备特征和标签（严格使用 selected_features.pkl）
+        logger.info("\n准备特征和标签（严格使用 selected_features.pkl）...")
         X_finetune, y_finetune, feature_names = feature_engineering.prepare_features(
-            fine_tune_df, label_column='label_up'
+            fine_tune_df, label_column='label_up', use_selected_features=True
         )
         
         if X_finetune.empty:

@@ -96,10 +96,10 @@ def train_models(train_start_date: str = '2014-01-01',
             train_df = train_df.sort_values('target_date').reset_index(drop=True)
             logger.info("训练数据已按 target_date 排序")
         
-        # 4. 准备特征和标签
-        logger.info("准备特征和标签...")
+        # 4. 准备特征和标签（严格使用 selected_features.pkl 中的特征）
+        logger.info("准备特征和标签（严格使用 selected_features.pkl）...")
         X_train, y_train, feature_names = feature_engineering.prepare_features(
-            train_df, label_column='label_up'
+            train_df, label_column='label_up', use_selected_features=True
         )
         
         if X_train.empty:
@@ -107,22 +107,8 @@ def train_models(train_start_date: str = '2014-01-01',
             return
         
         X_val, y_val, _ = feature_engineering.prepare_features(
-            val_df, label_column='label_up'
+            val_df, label_column='label_up', use_selected_features=True
         )
-        
-        # 4.5 若存在筛选后的因子列表，则仅使用 selected_features（与预测一致）
-        if os.path.isfile(SELECTED_FEATURES_PATH):
-            try:
-                with open(SELECTED_FEATURES_PATH, 'rb') as f:
-                    selected_features = pickle.load(f)
-                available = [c for c in selected_features if c in X_train.columns]
-                if available:
-                    X_train = X_train[available].copy()
-                    X_val = X_val.reindex(columns=available, fill_value=0.0)
-                    feature_names = available
-                    logger.info(f"已加载因子筛选结果：使用 {len(feature_names)} 个筛选因子（selected_features.pkl）")
-            except Exception as e:
-                logger.warning(f"加载 selected_features.pkl 失败，使用全部特征: {e}")
         
         # 5. 特征标准化（可选）
         # X_train, X_val, _ = feature_engineering.normalize_features(
@@ -155,12 +141,12 @@ def train_models(train_start_date: str = '2014-01-01',
                         X_train, y_train, X_val=X_val, y_val=y_val, n_splits=5
                     )
                 elif model_type == 'xgb_regressor':
-                    # 使用涨跌幅作为标签（需要重新准备特征）
+                    # 使用涨跌幅作为标签（严格使用 selected_features.pkl）
                     X_train_reg, y_train_reg, feature_names_reg = feature_engineering.prepare_features(
-                        train_df, label_column='label_change_pct'
+                        train_df, label_column='label_change_pct', use_selected_features=True
                     )
                     X_val_reg, y_val_reg, _ = feature_engineering.prepare_features(
-                        val_df, label_column='label_change_pct'
+                        val_df, label_column='label_change_pct', use_selected_features=True
                     )
                     model_feature_names = feature_names_reg
                     model, metrics = model_trainer.train_xgb_regressor(

@@ -534,15 +534,13 @@ class PredictionConfigManager:
                 if category not in values:
                     return False, f"缺少必需的分类: {category}"
             
-            # 验证预测权重总和
+            # 验证预测权重总和（5 个因子 + ML 默认权重，共 6 项和为 1.0）
             if 'prediction' in values:
                 prediction = values['prediction']
-                # 【已优化】移除三个已优化的因子：sector_rotation_weight, us_sector_weight, valuation_weight
                 weight_keys = [
                     'news_weight', 'capital_flow_weight', 'market_weight',
-                    'technical_weight', 'history_weight'
+                    'technical_weight', 'history_weight', 'ml_default_weight'
                 ]
-                
                 total_weight = 0
                 for key in weight_keys:
                     if key in prediction:
@@ -550,8 +548,6 @@ class PredictionConfigManager:
                         if weight < 0 or weight > 1:
                             return False, f"权重 {key} 超出范围 [0, 1]: {weight}"
                         total_weight += weight
-                
-                # 允许±0.01的误差
                 if abs(total_weight - 1.0) > 0.01:
                     return False, f"权重总和为 {total_weight:.2f}，应为 1.0（允许误差±0.01）"
             

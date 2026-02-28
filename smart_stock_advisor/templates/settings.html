@@ -821,6 +821,24 @@
                     <div class="help-text" style="margin-bottom: 20px;">
                         管理中国股票和美股数据的定时获取任务。支持增量更新（每日收盘后更新）和全量收集（收集历史数据）。
                     </div>
+
+                    <!-- 立即获取某一天的数据（无需定时任务） -->
+                    <div style="margin-bottom: 20px; padding: 12px 15px; border-radius: 8px; border: 1px solid #e0e0e0; background: #fafafa;">
+                        <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">
+                            📅 立即获取某一天的股票数据（中国 A 股）
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <input type="date" id="directStockDataDate" style="padding: 6px 10px; border: 2px solid #ddd; border-radius: 5px;">
+                            <button class="btn btn-primary" id="directStockDataFetchBtn" onclick="fetchStockDataForDate()">
+                                ⚡ 立即获取
+                            </button>
+                            <span id="directStockDataStatus" style="font-size: 12px; color: #666;"></span>
+                        </div>
+                        <div class="help-text" style="margin-top: 5px;">
+                            选择一个交易日后点击「立即获取」，系统会直接从数据源获取该日的全部 A 股日线数据并写入数据库，
+                            无需创建或等待定时任务。
+                        </div>
+                    </div>
                     
                     <div class="task-controls" style="margin-bottom: 20px;">
                         <button class="btn btn-primary" onclick="showCreateStockDataTaskModal()">
@@ -982,7 +1000,7 @@
                             <div style="padding: 16px 18px; background: #fffaf0; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 功能概览</div>
                                 <div style="font-size: 13px; color: #555; line-height: 1.7;">
-                                    本页面用于配置预测系统的所有核心参数。架构为 <strong>传统因子 65% + ML 模型 35% = 100%</strong>。<br>
+                                    本页面用于配置预测系统的所有核心参数。架构为 <strong>六项权重合计 100%</strong>（默认：ML 55% + 技术 15% + 资金 10% + 新闻 8% + 市场 7% + 历史 5%）。<br>
                                     修改参数后点击「保存并激活」即可 <strong>热更新生效</strong>，无需重启服务。支持多配置管理和版本切换。
                                 </div>
                             </div>
@@ -994,8 +1012,8 @@
                                 <div style="margin-bottom: 14px; padding: 12px; background: #f0f4ff; border-radius: 8px; border-left: 4px solid #667eea;">
                                     <div style="font-weight: 600; color: #667eea; margin-bottom: 6px; font-size: 13px;">📊 第一区：预测权重配置（最重要）</div>
                                     <div style="font-size: 12px; color: #555; line-height: 1.8;">
-                                        <strong>包含：</strong>5 个传统因子权重（技术 20% + 新闻 16% + 资金 13% + 市场 11% + 历史 5%）、ML 模型参数、通用预测参数。<br>
-                                        <strong>操作：</strong>拖动滑块或直接输入数值调整权重。传统因子合计必须等于 1.0，可点击「一键平衡」自动调整。<br>
+                                        <strong>包含：</strong>五因子权重（技术 15%、资金 10%、新闻 8%、市场 7%、历史 5%）+ ML 默认权重 55%，六项合计 1.0；通用预测参数与 ML 参数。<br>
+                                        <strong>操作：</strong>拖动滑块或直接输入数值调整权重。六项合计须为 1.0，可点击「一键平衡」自动调整。<br>
                                         <strong>建议：</strong>一般不需要手动调，使用「模型学习 → 参数优化」自动优化后会反映到这里。如需手动微调，每次只改一个因子，然后去「模型学习」回测对比效果。
                                     </div>
                                 </div>
@@ -1084,7 +1102,7 @@
                                         </tr>
                                         <tr>
                                             <td style="padding: 8px; color: #333; font-weight: 500;">⚖️ 一键平衡</td>
-                                            <td style="padding: 8px;">自动按比例调整 5 个传统因子权重，使其精确合计等于 1.0</td>
+                                            <td style="padding: 8px;">按比例调整 5 个因子权重，使五因子 + ML 默认权重合计等于 1.0</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -1108,7 +1126,7 @@
                         </h3>
                         <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px; padding: 12px 15px; background: linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); border-radius: 8px;">
                             <div style="font-size: 14px;">
-                                传统因子权重合计 <span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 18px;">1.00</span> / 1.00
+                                六项权重合计（五因子+ML） <span id="weightSum" style="font-weight: bold; color: #667eea; font-size: 18px;">1.00</span> / 1.00
                                 <span style="color: #888; margin-left: 8px; font-size: 12px;">（ML模型权重在预测时动态计算）</span>
                             </div>
                             <button class="btn" onclick="balanceWeights()" style="padding: 6px 14px; font-size: 12px; background: white; border: 1px solid #ddd;">⚖️ 一键平衡</button>
@@ -1116,22 +1134,22 @@
                         
                         <!-- 传统因子权重（5个，清晰列表） -->
                         <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 18px; margin-bottom: 15px;">
-                            <h4 style="margin: 0 0 12px 0; color: #555; font-size: 14px;">传统因子权重（合计应为 1.0）</h4>
+                            <h4 style="margin: 0 0 12px 0; color: #555; font-size: 14px;">传统因子权重（五因子 + ML 默认权重合计 1.0）</h4>
                             
                             <div style="display: grid; grid-template-columns: 110px 1fr 80px; gap: 8px; align-items: center;">
-                                <span style="font-size: 13px; color: #333;">技术指标 20%</span>
+                                <span style="font-size: 13px; color: #333;">技术指标 15%</span>
                                 <input type="range" id="technical_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'technical_weight')">
                                 <input type="number" id="technical_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'technical_weight')">
                                 
-                                <span style="font-size: 13px; color: #333;">新闻情感 16%</span>
+                                <span style="font-size: 13px; color: #333;">新闻情感 8%</span>
                                 <input type="range" id="news_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'news_weight')">
                                 <input type="number" id="news_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'news_weight')">
                                 
-                                <span style="font-size: 13px; color: #333;">资金流向 13%</span>
+                                <span style="font-size: 13px; color: #333;">资金流向 10%</span>
                                 <input type="range" id="capital_flow_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'capital_flow_weight')">
                                 <input type="number" id="capital_flow_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'capital_flow_weight')">
                                 
-                                <span style="font-size: 13px; color: #333;">市场情绪 11%</span>
+                                <span style="font-size: 13px; color: #333;">市场情绪 7%</span>
                                 <input type="range" id="market_weight" min="0" max="65" step="0.01" style="width:100%;" oninput="updateWeightSlider(this, 'market_weight')">
                                 <input type="number" id="market_weight_value" min="0" max="1" step="0.01" style="width:80px; padding:5px; text-align:center;" onchange="updateWeightInput(this, 'market_weight')">
                                 
@@ -1148,12 +1166,12 @@
                         <!-- ML模型 + 其他预测参数（紧凑两列） -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                             <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0066cc;">
-                                <h4 style="margin: 0 0 10px 0; color: #0066cc; font-size: 14px;">🤖 ML模型权重（占35%）</h4>
+                                <h4 style="margin: 0 0 10px 0; color: #0066cc; font-size: 14px;">🤖 ML模型权重（占55%）</h4>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                     <div class="form-group" style="margin-bottom:8px;">
                                         <label style="font-size:12px;">默认权重</label>
-                                        <input type="number" id="ml_default_weight" min="0" max="1" step="0.01" style="width:100%;padding:6px;">
-                                        <div class="help-text">0.35</div>
+                                        <input type="number" id="ml_default_weight" min="0" max="1" step="0.01" style="width:100%;padding:6px;" onchange="updateWeightSum()">
+                                        <div class="help-text">0.55</div>
                                     </div>
                                     <div class="form-group" style="margin-bottom:8px;">
                                         <label style="font-size:12px;">最小 / 最大</label>
@@ -1161,7 +1179,7 @@
                                             <input type="number" id="ml_min_weight" min="0" max="1" step="0.01" style="width:50%;padding:6px;">
                                             <input type="number" id="ml_max_weight" min="0" max="1" step="0.01" style="width:50%;padding:6px;">
                                         </div>
-                                        <div class="help-text">0.10 ~ 0.50</div>
+                                        <div class="help-text">0.10 ~ 0.65</div>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label style="font-size:12px;">高准确率阈值</label>
@@ -1484,7 +1502,7 @@
                             <div style="padding: 16px 18px; background: #f8fff8; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 功能概览</div>
                                 <div style="font-size: 13px; color: #555; line-height: 1.7;">
-                                    模型训练是让 ML 模型「学习」历史数据规律的过程。训练并<strong>激活</strong>后的模型会参与预测，占预测权重的约 <strong>35%</strong>（可动态调整）。<br>
+                                    模型训练是让 ML 模型「学习」历史数据规律的过程。训练并<strong>激活</strong>后的模型会参与预测，占预测权重的约 <strong>55%</strong>（可动态调整）。<br>
                                     本页提供因子质量优化、历史数据训练、预测数据微调和已训练模型管理，建议按上方推荐流程操作。
                                 </div>
                             </div>
@@ -1581,7 +1599,7 @@
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">没训练过模型能用系统吗？</td>
-                                            <td style="padding: 8px;">可以。未训练或未激活模型时，预测仅使用传统因子；训练并在「已训练模型列表」中激活模型后，ML 会参与预测（默认约占 35% 权重），预测更准。</td>
+                                            <td style="padding: 8px;">可以。未训练或未激活模型时，预测仅使用传统因子；训练并在「已训练模型列表」中激活模型后，ML 会参与预测（默认约占 55% 权重），预测更准。</td>
                                         </tr>
                                         <tr style="border-bottom: 1px solid #eee;">
                                             <td style="padding: 8px; color: #333; font-weight: 500;">分类器和回归器有什么区别？</td>
@@ -1653,6 +1671,10 @@
                                 <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
                                     <input type="checkbox" id="modelLgbRegressor" style="cursor: pointer;">
                                     <span>LightGBM回归器</span>
+                                </label>
+                                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                    <input type="checkbox" id="modelLgbRegressorReturn" checked style="cursor: pointer;">
+                                    <span>涨跌幅回归（增强涨幅预测）</span>
                                 </label>
                             </div>
                             <div style="display: flex; gap: 10px;">
@@ -1795,6 +1817,8 @@
                                     🔄 刷新
                                 </button>
                             </div>
+                            <!-- 涨跌幅回归模型状态（不入库，单独展示） -->
+                            <div id="regressorReturnStatusCard" style="margin-bottom: 15px;"></div>
                             <div id="trainedModelsList" style="min-height: 100px;">
                                 <div class="empty-state">正在加载模型列表...</div>
                             </div>
@@ -1832,8 +1856,8 @@
                             <div style="padding: 16px 18px; background: #f8f9ff; border-bottom: 1px solid #e8e8e8;">
                                 <div style="font-weight: 600; color: #333; margin-bottom: 8px; font-size: 14px;">🏗️ 预测架构</div>
                                 <div style="font-size: 13px; color: #555; line-height: 1.7;">
-                                    本系统采用 <strong>ML 模型（35%）+ 传统因子（65%）</strong> 的混合预测架构。<br>
-                                    传统因子包括：技术分析 20% + 新闻舆情 16% + 资金流向 13% + 市场环境 11% + 历史规律 5%。<br>
+                                    本系统采用 <strong>六项权重</strong> 的混合预测架构（默认 ML 55% + 技术 15% + 资金 10% + 新闻 8% + 市场 7% + 历史 5%）。<br>
+                                    可在「参数设置」中调整各因子与 ML 默认权重，六项合计须为 1.0。<br>
                                     本页面的功能用于 <strong>评估预测效果、优化参数权重、验证优化结果</strong>，让系统越用越准。
                                 </div>
                             </div>
@@ -2371,7 +2395,7 @@
                 <h3>📊 股票分析任务</h3>
                 <div class="help-item">
                     <strong>预测使用什么模型？</strong>
-                    <p>分析任务使用 <strong>ML 模型（35%）+ 传统因子（65%）</strong> 的混合架构。传统因子包括：技术分析 20%、新闻舆情 16%、资金流向 13%、市场环境 11%、历史规律 5%。可在「参数设置」中调整权重。</p>
+                    <p>分析任务使用 <strong>六项权重</strong> 混合架构（默认 ML 55%、技术 15%、资金 10%、新闻 8%、市场 7%、历史 5%）。可在「参数设置」中调整权重。</p>
                 </div>
                 <div class="help-item">
                     <strong>如何创建分析任务？</strong>
@@ -2419,7 +2443,7 @@
                 <h3>⚙️ 参数设置</h3>
                 <div class="help-item">
                     <strong>如何调整预测参数？</strong>
-                    <p>在"参数设置"面板中，可以调整传统因子权重（共 65%）、ML 模型权重（35%）及技术指标参数等。修改后点击"保存配置"即可生效，无需重启。建议先使用默认配置，熟悉后再调整。</p>
+                    <p>在"参数设置"面板中，可以调整六项预测权重（ML 55%、技术 15%、资金 10%、新闻 8%、市场 7%、历史 5%）及技术指标参数等。修改后点击"保存配置"即可生效，无需重启。建议先使用默认配置，熟悉后再调整。</p>
                 </div>
                 <div class="help-item">
                     <strong>配置模板如何使用？</strong>
@@ -2447,7 +2471,7 @@
                 </div>
                 <div class="help-item">
                     <strong>如何激活训练好的模型？</strong>
-                    <p>训练完成后，在「已训练模型列表」中找到要使用的模型，点击「激活」按钮。只有激活的模型才会被用于预测，权重默认约 35%（系统可能根据模型表现动态调整）。</p>
+                    <p>训练完成后，在「已训练模型列表」中找到要使用的模型，点击「激活」按钮。只有激活的模型才会被用于预测，权重默认约 55%（系统可能根据模型表现动态调整）。</p>
                 </div>
                 <div class="help-item">
                     <strong>训练数据时间范围如何选择？</strong>
@@ -2518,10 +2542,27 @@
             
             <div id="logUpdateContent" class="help-section">
                 <div class="log-entry">
+                    <div class="log-date">2026-02-28 (六)</div>
+                    <ul class="log-items">
+                        <li>【ML 涨幅管线修复】修正 ML 回归涨幅与概率相乘导致振幅被严重压缩的问题，改为直接使用回归输出 <code>ml_predicted_return</code> 并按 <code>_get_max_change_pct</code> 动态涨跌停限制裁剪，回归与波动率路径统一使用动态 clamp（ST 5% / 主板 10% / 创业板 20% / 科创板 20% / 北交所 30%）。</li>
+                        <li>【ML 涨停捕获增强】在特征工程中新增短周期动量/加速度、均线多头结构、成交量爆发、涨停记忆、波动收缩突破等因子，引入 <code>ml_breakout_score</code> 与 <code>ml_boost_factor</code>（最高约 2.5 倍）对高爆发个股的回归涨幅进行适度放大，并在预测结果/数据库中增加 <code>ml_breakout_score</code>、<code>ml_boosted_return</code> 字段，用于后续分析与验证。</li>
+                        <li>【回归训练兼容性】LightGBM 回归训练改用 callbacks 管理 early stopping，兼容新版 LightGBM，确保 <code>lgb_regressor_return</code> 训练稳定完成并正确生成 <code>models/lgb_regressor_return.pkl</code>；设置页勾选「涨跌幅回归（增强涨幅预测）」后，一次训练即可激活该增强路径。</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
+                    <div class="log-date">2026-02-27～28</div>
+                    <ul class="log-items">
+                        <li>【ML 涨跌幅回归】新增回归模型 lgb_regressor_return：特征工程增加 future_return 标签，训练保存为 models/lgb_regressor_return.pkl，预测时自动加载并写入 ml_predicted_return，涨幅计算支持「base_return × probability_strength」并限制 ±15%；设置页历史数据训练增加「涨跌幅回归（增强涨幅预测）」勾选，已训练模型列表上方增加该模型状态卡片（已就绪/未训练）。</li>
+                        <li>【权重配置】六项权重（ML 0.55 / 技术 0.15 / 资金 0.10 / 新闻 0.08 / 市场 0.07 / 历史 0.05）前后端与校验统一，默认值与页面展示、一键平衡及 API 默认回退值同步更新。</li>
+                        <li>【训练任务】训练数据为空时异常重新抛出，任务正确标记为失败并显示「训练失败」；数据加载增加分块构建进度与完成日志，空数据提示更明确。</li>
+                    </ul>
+                </div>
+                <div class="log-entry">
                     <div class="log-date">2026-02-22 (日)</div>
                     <ul class="log-items">
                         <li>【设置页-模型训练】使用流程与功能说明优化：推荐流程增加「因子质量优化(可选)」步骤并说明单任务并发限制；各功能说明新增因子质量优化块，修正已训练模型列表为需手动「激活」才用于预测；常见问题补充「已有任务正在运行」及激活/权重表述；说明弹窗与帮助文档统一训练时间与数据范围建议，新增因子质量优化说明</li>
                         <li>【设置页-模型训练/股票数据】修复：股票数据获取任务分页变量提前声明避免 TDZ 报错；补全缺失的 startFactorQualityOptimization() 使「运行因子质量优化」按钮可用</li>
+                        <li>【设置页-股票数据获取】新增「立即获取某一天的股票数据」功能：在股票数据获取面板增加日期选择+立即获取按钮，后端新增 /api/stock-data/fetch-once 接口，直接调用 StockHistoryCollector.incremental_update_today(additional_dates=[target_date]) 获取指定日期的 A 股日线数据，无需创建定时任务。</li>
                     </ul>
                 </div>
                 <div class="log-entry">
@@ -2630,7 +2671,7 @@
                             </ul>
                         </li>
                         <li><strong>训练时间</strong>：根据数据量，通常 5 分钟～2 小时；数据量较小时约 5～30 分钟</li>
-                        <li><strong>模型影响</strong>：训练完成后需在「已训练模型列表」中点击「激活」才会用于预测；预测时 ML 默认约占 35% 权重，系统可能根据表现动态调整</li>
+                        <li><strong>模型影响</strong>：训练完成后需在「已训练模型列表」中点击「激活」才会用于预测；预测时 ML 默认约占 55% 权重，系统可能根据表现动态调整</li>
                     </ul>
                 </div>
                 
@@ -2728,18 +2769,18 @@
                             </ul>
                         </li>
                         <li><strong>训练时间</strong>：通常需要10-30分钟</li>
-                        <li><strong>模型影响</strong>：微调后的模型会替换原基础模型，权重仍为35%</li>
+                        <li><strong>模型影响</strong>：微调后的模型会替换原基础模型，权重仍为 55%（与当前默认一致）</li>
                     </ul>
                 </div>
                 
                 <div style="margin-bottom: 15px;">
                     <strong style="color: #333;">3. 模型对预测的影响</strong>
                     <ul style="margin: 5px 0 0 20px; padding-left: 0;">
-                        <li><strong>权重分配</strong>：ML模型权重为35%，传统因子（技术+新闻+资金+市场+历史）共65%</li>
-                        <li><strong>权重平衡</strong>：系统会自动归一化权重，确保总权重为100%</li>
+                        <li><strong>权重分配</strong>：默认 ML 55%，五因子（技术 15%+资金 10%+新闻 8%+市场 7%+历史 5%）共 45%，六项合计 100%</li>
+                        <li><strong>权重平衡</strong>：系统会自动归一化权重，确保总权重为 100%</li>
                         <li><strong>预测逻辑</strong>：
                             <ul style="margin: 5px 0 0 20px;">
-                                <li>ML模型得分 × 35% + 传统因子得分 × 65% = 最终得分</li>
+                                <li>ML 得分 × 55% + 五因子得分 × 45% = 最终得分（默认权重）</li>
                                 <li>最终得分通过Sigmoid函数转换为上涨/下跌概率</li>
                                 <li>ML模型预测失败时，自动降级为传统多因子预测（不影响主流程）</li>
                             </ul>
@@ -2801,7 +2842,7 @@
                         <li><strong>模型元数据</strong>：保存在数据库 <code>trained_models</code> 表（包含训练指标、特征重要性等）</li>
                         <li><strong>训练日志</strong>：保存在 <code>logs/</code> 目录</li>
                         <li><strong>模型激活</strong>：训练完成后需要手动激活模型，激活后立即应用到所有股票预测</li>
-                        <li><strong>自动使用</strong>：激活的模型会在每次预测时自动加载，权重为35%，与5个传统因子（共65%）融合</li>
+                        <li><strong>自动使用</strong>：激活的模型会在每次预测时自动加载，默认权重 55%，与 5 个传统因子（共 45%）融合</li>
                     </ul>
                 </div>
             </div>
@@ -3770,13 +3811,12 @@
             // 加载默认配置（从config.py）
         function loadDefaultConfig() {
             // 默认值来自config.py
-            // R6-2修复：传统因子权重合计应为1.0（与后端校验一致）
-            // 注意：虽然config.py中传统因子合计0.65，但配置中需要存储为1.0，ML权重在预测时动态计算
-            setWeightValue('technical_weight', 0.20);   // 技术指标
-            setWeightValue('news_weight', 0.16);        // 新闻情感
-            setWeightValue('capital_flow_weight', 0.13); // 资金流向
-            setWeightValue('market_weight', 0.11);      // 市场情绪
-            setWeightValue('history_weight', 0.40);     // 历史模式（调整为使总和为1.0）
+            // 预测因子权重 + ML 默认权重，六项合计 1.0（与后端校验一致）
+            setWeightValue('technical_weight', 0.15);   // 技术指标
+            setWeightValue('news_weight', 0.08);        // 新闻情感
+            setWeightValue('capital_flow_weight', 0.10); // 资金流向（基本面/资金）
+            setWeightValue('market_weight', 0.07);     // 市场情绪
+            setWeightValue('history_weight', 0.05);    // 历史模式
             // 【已优化移除】以下三个因子已从预测模型中移除
             // setWeightValue('sector_rotation_weight', 0.05);
             // setWeightValue('us_sector_weight', 0.05);
@@ -3808,10 +3848,10 @@
             document.getElementById('x2_high_score').value = -0.05;
             document.getElementById('x2_low_score').value = 0.05;
             
-            // ML模型动态权重参数默认值（ML占35%，与config.py一致）
-            document.getElementById('ml_default_weight').value = 0.35;
+            // ML模型动态权重参数默认值（ML占55%）
+            document.getElementById('ml_default_weight').value = 0.55;
             document.getElementById('ml_min_weight').value = 0.10;
-            document.getElementById('ml_max_weight').value = 0.50;
+            document.getElementById('ml_max_weight').value = 0.65;
             document.getElementById('ml_high_accuracy_threshold').value = 0.60;
             document.getElementById('ml_medium_accuracy_threshold').value = 0.50;
             
@@ -3868,8 +3908,8 @@
                 document.getElementById('min_confidence').value = safeNumber(pred.min_confidence, 0.5);
                 document.getElementById('lookback_days').value = safeInt(pred.lookback_days, 60);
                 
-                // 加载ML模型动态权重参数（ML占35%，与config.py一致）
-                document.getElementById('ml_default_weight').value = safeNumber(pred.ml_default_weight, 0.35);
+                // 加载ML模型动态权重参数（默认 ML 55%）
+                document.getElementById('ml_default_weight').value = safeNumber(pred.ml_default_weight, 0.55);
                 document.getElementById('ml_min_weight').value = safeNumber(pred.ml_min_weight, 0.10);
                 document.getElementById('ml_max_weight').value = safeNumber(pred.ml_max_weight, 0.50);
                 document.getElementById('ml_high_accuracy_threshold').value = safeNumber(pred.ml_high_accuracy_threshold, 0.60);
@@ -3980,26 +4020,26 @@
             updateWeightSum();
         }
         
-        // 更新权重总和（传统因子合计应为1.0，与后端校验一致）
+        // 更新权重总和（五因子 + ML 默认权重，六项合计应为 1.0，与后端校验一致）
         function updateWeightSum() {
-            const weights = [
+            const factorKeys = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
                 'technical_weight', 'history_weight'
             ];
-            
             let sum = 0;
-            weights.forEach(key => {
+            factorKeys.forEach(key => {
                 const input = document.getElementById(key + '_value');
                 if (input) {
-                    const value = parseFloat(input.value) || 0;
-                    sum += value;
+                    sum += parseFloat(input.value) || 0;
                 }
             });
-            
+            const mlInput = document.getElementById('ml_default_weight');
+            if (mlInput) {
+                sum += parseFloat(mlInput.value) || 0;
+            }
             const sumElement = document.getElementById('weightSum');
             if (sumElement) {
                 sumElement.textContent = sum.toFixed(2);
-                // R6-2修复：传统因子合计应为1.0（允许±0.01误差，与后端校验一致）
                 if (Math.abs(sum - 1.0) <= 0.01) {
                     sumElement.style.color = '#4caf50';
                 } else {
@@ -4008,14 +4048,15 @@
             }
         }
         
-        // 一键平衡权重（传统因子合计1.0，与后端校验一致）
+        // 一键平衡权重：五因子按比例调整，使五因子之和 = (1 - ml_default_weight)，六项合计 1.0
         function balanceWeights() {
             const weights = [
                 'news_weight', 'capital_flow_weight', 'market_weight',
                 'technical_weight', 'history_weight'
             ];
-            
-            // 计算当前总和
+            const mlInput = document.getElementById('ml_default_weight');
+            const mlVal = mlInput ? Math.max(0, Math.min(1, parseFloat(mlInput.value) || 0)) : 0.55;
+            const targetSum = 1.0 - mlVal;
             let sum = 0;
             const currentValues = {};
             weights.forEach(key => {
@@ -4026,20 +4067,16 @@
                     sum += value;
                 }
             });
-            
             if (sum === 0) {
-                alert('所有权重都为0，无法平衡');
+                alert('五因子权重都为0，无法平衡');
                 return;
             }
-            
-            // R6-2修复：按比例调整，使传统因子总和为1.0（与后端校验一致）
             weights.forEach(key => {
-                const adjustedValue = (currentValues[key] / sum) * 1.0;
+                const adjustedValue = (currentValues[key] / sum) * targetSum;
                 setWeightValue(key, adjustedValue);
             });
-            
             updateWeightSum();
-            alert('传统因子权重已平衡为总和1.0');
+            alert('五因子权重已按比例调整，六项总和为 1.0');
         }
         
         // 获取当前表单配置值
@@ -4068,8 +4105,8 @@
             values.prediction.min_confidence = safeNumber(parseFloat(document.getElementById('min_confidence').value), 0.5);
             values.prediction.lookback_days = safeInt(parseInt(document.getElementById('lookback_days').value), 60);
             
-            // 获取ML模型动态权重参数（ML占35%，与config.py一致）
-            values.prediction.ml_default_weight = safeNumber(parseFloat(document.getElementById('ml_default_weight').value), 0.35);
+            // 获取ML模型动态权重参数（ML占55%）
+            values.prediction.ml_default_weight = safeNumber(parseFloat(document.getElementById('ml_default_weight').value), 0.55);
             values.prediction.ml_min_weight = safeNumber(parseFloat(document.getElementById('ml_min_weight').value), 0.10);
             values.prediction.ml_max_weight = safeNumber(parseFloat(document.getElementById('ml_max_weight').value), 0.50);
             values.prediction.ml_high_accuracy_threshold = safeNumber(parseFloat(document.getElementById('ml_high_accuracy_threshold').value), 0.60);
@@ -9085,6 +9122,92 @@
                 alert('删除失败: ' + error.message);
             }
         }
+
+        // 立即获取某一天的股票数据（中国 A 股）
+        async function fetchStockDataForDate() {
+            const dateInput = document.getElementById('directStockDataDate');
+            const btn = document.getElementById('directStockDataFetchBtn');
+            const statusEl = document.getElementById('directStockDataStatus');
+
+            if (!dateInput) {
+                alert('找不到日期输入框，请刷新页面重试');
+                return;
+            }
+
+            const targetDate = dateInput.value;
+            if (!targetDate) {
+                alert('请选择要获取数据的日期');
+                return;
+            }
+
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = '获取中...';
+                }
+                if (statusEl) {
+                    statusEl.textContent = `正在获取 ${targetDate} 的股票数据，请稍候...`;
+                    statusEl.style.color = '#666';
+                }
+
+                const response = await fetch('/api/stock-data/fetch-once', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        market_type: 'cn',
+                        target_date: targetDate
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const msg = result.message || `已完成 ${targetDate} 的股票数据获取`;
+                    if (typeof showSuccess === 'function') {
+                        showSuccess(msg);
+                    } else {
+                        alert(msg);
+                    }
+                    if (statusEl) {
+                        statusEl.textContent = msg;
+                        statusEl.style.color = '#2e7d32';
+                    }
+                    // 可选：刷新历史记录列表
+                    if (typeof refreshStockDataHistory === 'function') {
+                        refreshStockDataHistory();
+                    }
+                } else {
+                    const errMsg = result.message || '获取股票数据失败';
+                    if (typeof showError === 'function') {
+                        showError(errMsg);
+                    } else {
+                        alert('获取失败: ' + errMsg);
+                    }
+                    if (statusEl) {
+                        statusEl.textContent = errMsg;
+                        statusEl.style.color = '#f44336';
+                    }
+                }
+            } catch (error) {
+                const errMsg = '获取失败: ' + error.message;
+                if (typeof showError === 'function') {
+                    showError(errMsg);
+                } else {
+                    alert(errMsg);
+                }
+                if (statusEl) {
+                    statusEl.textContent = errMsg;
+                    statusEl.style.color = '#f44336';
+                }
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '⚡ 立即获取';
+                }
+            }
+        }
         
         // 显示创建股票数据获取任务模态框
         function showCreateStockDataTaskModal() {
@@ -10930,16 +11053,55 @@
             }
         };
         
-        // 加载已训练模型列表
-        async function loadTrainedModels() {
+        // 加载涨跌幅回归模型状态并渲染到 regressorReturnStatusCard
+        async function loadRegressorReturnStatus() {
+            const cardEl = document.getElementById('regressorReturnStatusCard');
+            if (!cardEl) return;
+            try {
+                const res = await fetch('/api/ml/regressor-return-status?t=' + Date.now());
+                const json = await res.json();
+                if (!json.success || !json.data) {
+                    cardEl.innerHTML = '';
+                    return;
+                }
+                const d = json.data;
+                const available = d.available === true;
+                const updatedAt = d.updated_at || '';
+                cardEl.innerHTML =
+                    '<div style="border: 1px solid ' + (available ? '#4caf50' : '#e0e0e0') + '; border-radius: 8px; padding: 12px 15px; background: ' + (available ? '#f1f8e9' : '#fafafa') + ';">' +
+                    '<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">' +
+                    '<div><strong style="font-size: 13px; color: #333;">涨跌幅回归（增强涨幅预测）</strong>' +
+                    '<span style="margin-left: 8px; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; background: ' + (available ? '#4caf50' : '#9e9e9e') + '; color: white;">' + (available ? '已就绪' : '未训练') + '</span></div>' +
+                    (available && updatedAt ? '<div style="font-size: 12px; color: #666;">更新时间: ' + escapeHtml(updatedAt) + '</div>' : '') +
+                    '</div>' +
+                    '<div style="font-size: 11px; color: #666; margin-top: 6px;">' + (available ? '预测时自动用于涨幅计算，无需激活。' : '勾选「涨跌幅回归（增强涨幅预测）」并执行历史数据训练后，将生成此模型。') + '</div>' +
+                    '</div>';
+            } catch (e) {
+                cardEl.innerHTML = '';
+            }
+        }
+        
+        // 加载已训练模型列表（noCache 为 true 时加时间戳避免缓存，用于训练完成后刷新）
+        async function loadTrainedModels(noCache) {
             const container = document.getElementById('trainedModelsList');
             if (!container) return;
             
             try {
                 container.innerHTML = '<div class="empty-state">正在加载模型列表...</div>';
-                
-                const response = await fetch('/api/ml/models');
+                const url = noCache ? ('/api/ml/models?t=' + Date.now()) : '/api/ml/models';
+                const regressorUrl = '/api/ml/regressor-return-status?t=' + Date.now();
+                const [response, regressorRes] = await Promise.all([fetch(url), fetch(regressorUrl)]);
                 const result = await response.json();
+                let regressorAvailable = false;
+                let regressorUpdatedAt = '';
+                try {
+                    const regressorJson = await regressorRes.json();
+                    if (regressorJson.success && regressorJson.data) {
+                        regressorAvailable = regressorJson.data.available === true;
+                        regressorUpdatedAt = regressorJson.data.updated_at || '';
+                    }
+                } catch (e) {}
+                loadRegressorReturnStatus();
                 
                 if (!result.success) {
                     container.innerHTML = `<div class="empty-state" style="color: #f44336;">加载失败: ${result.message || '未知错误'}</div>`;
@@ -10948,8 +11110,17 @@
                 
                 const models = result.data || [];
                 
+                let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
+                // 列表顶部：涨跌幅回归（不入库，单独 pkl）
+                html += '<div style="border: 1px solid ' + (regressorAvailable ? '#4caf50' : '#e0e0e0') + '; border-radius: 8px; padding: 15px; background: ' + (regressorAvailable ? '#f1f8e9' : '#fafafa') + ';">';
+                html += '<h5 style="margin: 0 0 10px 0; color: #333; font-size: 14px; font-weight: bold;">涨跌幅回归（增强涨幅预测）</h5>';
+                html += '<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;"><div><span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; background: ' + (regressorAvailable ? '#4caf50' : '#9e9e9e') + '; color: white;">' + (regressorAvailable ? '已就绪' : '未训练') + '</span>';
+                if (regressorAvailable && regressorUpdatedAt) html += ' <span style="margin-left: 8px; font-size: 12px; color: #666;">更新时间: ' + escapeHtml(regressorUpdatedAt) + '</span>';
+                html += '</div><div style="font-size: 11px; color: #666;">' + (regressorAvailable ? '预测时自动用于涨幅计算，无需激活。' : '勾选「涨跌幅回归」并执行历史数据训练后，将生成此模型。') + '</div></div></div>';
+                
                 if (models.length === 0) {
-                    container.innerHTML = '<div class="empty-state">暂无已训练的模型</div>';
+                    html += '<div class="empty-state">暂无已入库的模型（请先执行历史数据训练并选择 XGB/LGB 分类器等）</div></div>';
+                    container.innerHTML = html;
                     return;
                 }
                 
@@ -10963,9 +11134,7 @@
                     modelsByType[type].push(model);
                 });
                 
-                let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
-                
-                // 遍历每种模型类型
+                // 遍历每种模型类型（入库模型）
                 Object.keys(modelsByType).forEach(modelType => {
                     const typeModels = modelsByType[modelType];
                     const typeName = getModelTypeName(modelType);
@@ -11084,7 +11253,8 @@
                 'xgb_classifier': 'XGBoost分类器',
                 'lgb_classifier': 'LightGBM分类器',
                 'xgb_regressor': 'XGBoost回归器',
-                'lgb_regressor': 'LightGBM回归器'
+                'lgb_regressor': 'LightGBM回归器',
+                'lgb_regressor_return': '涨跌幅回归（增强涨幅预测）'
             };
             return typeMap[modelType] || modelType;
         }
@@ -11121,6 +11291,9 @@
             }
             if (document.getElementById('modelLgbRegressor').checked) {
                 models.push('lgb_regressor');
+            }
+            if (document.getElementById('modelLgbRegressorReturn').checked) {
+                models.push('lgb_regressor_return');
             }
             
             if (models.length === 0) {
@@ -11314,10 +11487,10 @@
                         }
                         
                         if (task.status === 'completed') {
-                            showSuccess('训练完成！');
-                            // 刷新模型列表
+                            showSuccess('训练完成！请查看下方「已训练模型列表」');
+                            // 刷新模型列表（短延迟确保后端已写入 DB，并避免缓存）
                             if (typeof loadTrainedModels === 'function') {
-                                loadTrainedModels();
+                                setTimeout(function() { loadTrainedModels(true); }, 400);
                             }
                         } else {
                             showError('训练失败: ' + (task.message || '未知错误'));

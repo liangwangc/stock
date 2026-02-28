@@ -5277,6 +5277,89 @@ def api_get_stock_data_tasks():
         return jsonify({'success': False, 'message': str(e), 'data': [], 'total': 0, 'page': 1, 'page_size': 20})
 
 
+@app.route('/api/stock-data/fetch-once', methods=['POST'])
+def api_fetch_stock_data_once():
+    """直接获取某一天的股票数据（无需创建定时任务）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '请先登录'}), 401
+
+    try:
+        data = request.get_json() or {}
+        market_type = data.get('market_type', 'cn')
+        target_date = data.get('target_date')
+        symbols = data.get('symbols')  # 可选：限制股票列表
+
+        if not target_date:
+            return jsonify({'success': False, 'message': '请提供 target_date 参数（YYYY-MM-DD）'}), 400
+
+        # 当前仅支持中国 A 股的直接获取
+        if market_type != 'cn':
+            return jsonify({'success': False, 'message': '当前仅支持中国股票数据的直接获取，请使用定时任务获取其他市场数据'}), 400
+
+        # 为了复用与定时任务一致的数据获取 + 预测表更新 + MACD 修复逻辑，
+        # 这里直接调用 ScheduledTaskManager 的中国股票数据获取执行函数。
+        try:
+            from utils.scheduled_task_manager import get_scheduled_task_manager
+            manager = get_scheduled_task_manager()
+            if manager is None:
+                return jsonify({'success': False, 'message': '定时任务管理器不可用，无法执行一次性股票数据获取'}), 500
+
+            # 构造一个“临时任务”配置，复用 _execute_cn_stock_data_collection 的实现：
+            # - collection_type 固定为 incremental
+            # - 通过 task_config.target_date 控制具体哪一天
+            # - 如果传入了 symbols，则只处理这些股票
+            task = {
+                'task_type': 'stock_data_collection_cn',
+                'task_config': {
+                    'collection_type': 'incremental',
+                    'target_date': target_date,
+                    'years': 10,
+                    'threads': data.get('threads', 30),
+                    'batch_size': data.get('batch_size', 1000),
+                    'delay': data.get('delay', 1.2),
+                    'symbols': symbols
+                }
+            }
+
+            # 直接调用内部执行函数（不写入 scheduled_tasks 表，仅复用逻辑）
+            result = manager._execute_cn_stock_data_collection(task)  # type: ignore[attr-defined]
+
+            if not result or not result.get('success', False):
+                return jsonify({
+                    'success': False,
+                    'message': result.get('message', '执行失败') if result else '执行失败',
+                    'data': result
+                }), 500
+
+            data_result = result.get('data', {}) or {}
+            success_count = data_result.get('success_count', 0)
+            fail_count = data_result.get('fail_count', 0)
+            skip_count = data_result.get('skip_count', 0)
+            duration = data_result.get('total_duration_seconds', 0.0)
+
+            message = (
+                f"已完成 {target_date} 的股票数据获取："
+                f"成功 {success_count} 条，失败 {fail_count} 条，跳过 {skip_count} 条，"
+                f"总耗时 {duration:.1f} 秒（包含预测表真实价格更新与 MACD 修复）"
+            )
+
+            return jsonify({
+                'success': True,
+                'message': message,
+                'data': result
+            })
+        except Exception as e:
+            logger.error(f"通过任务管理器执行一次性股票数据获取失败: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'success': False, 'message': str(e)}), 500
+    except Exception as e:
+        logger.error(f"直接获取某一天的股票数据失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/stock-data/tasks', methods=['POST'])
 def api_create_stock_data_task():
     """创建股票数据获取任务"""
@@ -7429,14 +7512,23 @@ def api_train_base_model():
                     ml_training_tasks[task_id]['progress'] = 5
                     ml_training_tasks[task_id]['logs'].append('开始训练基础模型')
                 
-                # 执行训练
+                def progress_callback(progress: int, message: str, log: str = None):
+                    with ml_training_lock:
+                        if task_id in ml_training_tasks:
+                            ml_training_tasks[task_id]['progress'] = min(progress, 100)
+                            ml_training_tasks[task_id]['message'] = message
+                            if log:
+                                ml_training_tasks[task_id]['logs'].append(log)
+                
+                # 执行训练（传入进度回调，便于页面显示步骤 3/4/5）
                 train_base_models(
                     train_start_date=train_start_date,
                     train_end_date=train_end_date,
                     val_start_date=val_start_date,
                     val_end_date=val_end_date,
                     model_types=models,
-                    is_active=True
+                    is_active=True,
+                    progress_callback=progress_callback
                 )
                 
                 # 更新完成状态
@@ -7731,6 +7823,35 @@ def api_check_finetune_data():
         logger.error(f"检查微调数据失败: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/ml/regressor-return-status', methods=['GET'])
+def api_regressor_return_status():
+    """涨跌幅回归模型（lgb_regressor_return.pkl）是否存在，用于页面展示"""
+    try:
+        import os
+        from datetime import datetime
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(project_root, 'models', 'lgb_regressor_return.pkl')
+        available = os.path.isfile(path)
+        updated_at = None
+        if available:
+            try:
+                mtime = os.path.getmtime(path)
+                updated_at = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                pass
+        return jsonify({
+            'success': True,
+            'data': {
+                'available': available,
+                'path': 'models/lgb_regressor_return.pkl',
+                'updated_at': updated_at
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取涨跌幅回归模型状态失败: {str(e)}")
         return jsonify({'success': False, 'message': str(e)})
 
 

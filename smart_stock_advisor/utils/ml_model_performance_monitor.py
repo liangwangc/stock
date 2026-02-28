@@ -60,23 +60,23 @@ class MLModelPerformanceMonitor:
             if active_config and active_config.get('prediction'):
                 prediction_config = active_config['prediction']
                 # 优先使用配置中的ML权重参数（config.py中的PREDICTION_CONFIG）
-                self._default_weight = prediction_config.get('ml_default_weight', 0.35)
+                self._default_weight = prediction_config.get('ml_default_weight', 0.55)
                 self._min_weight = prediction_config.get('ml_min_weight', 0.10)
-                self._max_weight = prediction_config.get('ml_max_weight', 0.50)
+                self._max_weight = prediction_config.get('ml_max_weight', 0.65)
                 self._high_accuracy_threshold = prediction_config.get('ml_high_accuracy_threshold', 0.60)
                 self._medium_accuracy_threshold = prediction_config.get('ml_medium_accuracy_threshold', 0.50)
             else:
-                # 使用默认值（与PREDICTION_CONFIG保持一致）
-                self._default_weight = 0.35
+                # 使用默认值（与配置一致）
+                self._default_weight = 0.55
                 self._min_weight = 0.10
-                self._max_weight = 0.50
+                self._max_weight = 0.65
                 self._high_accuracy_threshold = 0.60
                 self._medium_accuracy_threshold = 0.50
         except Exception as e:
             self.logger.warning(f"加载ML模型配置失败，使用默认值: {str(e)}")
-            self._default_weight = 0.35
+            self._default_weight = 0.55
             self._min_weight = 0.10
-            self._max_weight = 0.50
+            self._max_weight = 0.65
             self._high_accuracy_threshold = 0.60
             self._medium_accuracy_threshold = 0.50
     

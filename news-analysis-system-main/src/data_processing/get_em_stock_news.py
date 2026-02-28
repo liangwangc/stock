@@ -484,15 +484,23 @@ def fetch_and_store_em_stock_news(symbols: list = None, max_symbols: int = 100):
                         )
 
             if relations:
-                relations_df = pd.DataFrame(relations)
-                relations_df.to_sql(
-                    name="news_stock_relation",
-                    con=engine,
-                    if_exists="append",
-                    index=False,
-                )
+                # 按 (news_id, symbol) 去重，并用 INSERT IGNORE 避免 uk_news_symbol 重复报错
+                seen = set()
+                unique_relations = []
+                for r in relations:
+                    key = (r["news_id"], r["symbol"])
+                    if key not in seen:
+                        seen.add(key)
+                        unique_relations.append(r)
+                insert_sql = text("""
+                    INSERT IGNORE INTO news_stock_relation (news_id, symbol, relevance_score, relation_type)
+                    VALUES (:news_id, :symbol, :relevance_score, :relation_type)
+                """)
+                with engine.connect() as conn:
+                    conn.execute(insert_sql, unique_relations)
+                    conn.commit()
                 print(
-                    f"成功保存 {len(relations)} 条东方财富股票关联关系到 news_stock_relation 表"
+                    f"成功保存 {len(unique_relations)} 条东方财富股票关联关系到 news_stock_relation 表"
                 )
     except Exception as e:
         print(f"保存东方财富股票关联关系失败: {e}")

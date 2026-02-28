@@ -30,7 +30,8 @@ class MLFeatureEngineering:
                         exclude_columns: Optional[List[str]] = None,
                         filter_by_completeness: bool = True,
                         min_completeness: float = 0.5,
-                        critical_fields: Optional[List[str]] = None) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
+                        critical_fields: Optional[List[str]] = None,
+                        use_selected_features: bool = False) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
         """
         准备特征和标签（优化版：支持根据数据完整性过滤字段）
         
@@ -49,11 +50,12 @@ class MLFeatureEngineering:
             return pd.DataFrame(), pd.Series(), []
         
         # 机构级增强因子：横截面排名、指数、相对强弱（无未来函数，新增列自动参与后续 feature_columns）
+        self.logger.info(f"正在计算增强因子（样本数 {len(df):,}），请稍候…")
         df = self._add_enhanced_factors(df)
         
         # 默认排除的列（元数据列和标签列，不应该作为特征）
         default_exclude = ['symbol', 'target_date', 'future_date', 'prediction_date', 
-                          'label_direction', 'label_change_pct', 'label_up', 'label_up_probability',
+                          'future_return_5d', 'future_return', 'label_direction', 'label_change_pct', 'label_up', 'label_up_probability',
                           'deviation_pct', 'absolute_deviation_pct', 'deviation_price']
         
         if exclude_columns:
@@ -79,6 +81,44 @@ class MLFeatureEngineering:
                     f"保留 {len(filtered_columns)} 个特征"
                 )
                 feature_columns = filtered_columns
+        
+        # 严格模式：仅使用 selected_features.pkl 中的特征（用于模型训练）
+        if use_selected_features:
+            import pickle
+            selected_features = None
+            try:
+                data_path = os.path.join(project_root, 'data', 'selected_features.pkl')
+                models_path = os.path.join(project_root, 'models', 'selected_features.pkl')
+                selected_path = data_path if os.path.isfile(data_path) else models_path if os.path.isfile(models_path) else None
+                
+                if not selected_path:
+                    raise FileNotFoundError("selected_features.pkl not found in data/ or models/ directory")
+                
+                with open(selected_path, 'rb') as f:
+                    selected_features = pickle.load(f)
+                
+                if not isinstance(selected_features, (list, tuple)):
+                    raise ValueError("selected_features.pkl 内容格式错误，应为特征名列表")
+                
+                # 只保留 df 中存在的特征，顺序按 selected_features
+                available = [c for c in selected_features if c in df.columns and c not in exclude_set]
+                missing = [c for c in selected_features if c not in df.columns]
+                
+                if not available:
+                    raise ValueError("selected_features.pkl 中的特征在当前数据中均不存在，无法训练")
+                
+                feature_columns = available
+                self.logger.info(f"使用筛选特征（selected_features.pkl）：{len(feature_columns)} 个")
+                self.logger.info(f"筛选特征名称列表：{feature_columns}")
+                
+                if missing:
+                    self.logger.warning(
+                        f"selected_features.pkl 中有 {len(missing)} 个特征在当前数据中不存在，将被忽略：{missing}"
+                    )
+            except Exception as e:
+                self.logger.error(f"加载或应用 selected_features.pkl 失败：{e}")
+                # 严格要求：不能退回使用全部特征，直接抛出错误
+                raise
         
         # 提取特征和标签
         X = df[feature_columns].copy()
@@ -280,23 +320,269 @@ class MLFeatureEngineering:
         
         return X
     
+    def _add_core_prediction_factors(self, df: pd.DataFrame, date_col: str) -> pd.DataFrame:
+        """
+        新增核心预测因子（动量、横截面排名、成交量动量、趋势强度、价格位置、突破、波动率变化）。
+        所有 rolling 均 shift(1)，避免未来函数。
+        """
+        if df.empty or 'symbol' not in df.columns or 'close_price' not in df.columns:
+            return df
+        try:
+            orig_index = df.index
+            df_sorted = df.sort_values(['symbol', date_col]).copy()
+            g = df_sorted.groupby('symbol', sort=False)
+            close = df_sorted['close_price'].astype(float).replace(0, np.nan)
+
+            # ---------- 动量因子（最重要）：(close/close.shift(n)-1).shift(1) 按组，避免未来函数 ----------
+            df_sorted['return_5d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(5).replace(0, np.nan) - 1).shift(1)
+            )
+            df_sorted['return_10d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(10).replace(0, np.nan) - 1).shift(1)
+            )
+            df_sorted['return_20d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(20).replace(0, np.nan) - 1).shift(1)
+            )
+            df_sorted['return_60d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(60).replace(0, np.nan) - 1).shift(1)
+            )
+
+            # 趋势爆发短周期动量：1日/3日收益（用于涨停捕获）
+            df_sorted['return_1d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(1).replace(0, np.nan) - 1).shift(1)
+            )
+            df_sorted['return_3d'] = g['close_price'].transform(
+                lambda x: (x.astype(float) / x.astype(float).shift(3).replace(0, np.nan) - 1).shift(1)
+            )
+
+            # 加速度因子：最近1日收益相对前3日/5日收益的加速程度（用于主升浪识别）
+            def _acceleration_series(x: pd.Series, long_lag: int) -> pd.Series:
+                x = x.astype(float)
+                r1 = x / x.shift(1).replace(0, np.nan) - 1
+                r_long = x.shift(1) / x.shift(long_lag).replace(0, np.nan) - 1
+                return (r1 - r_long).shift(1)
+
+            df_sorted['acceleration_3d'] = g['close_price'].transform(
+                lambda x: _acceleration_series(x, 4)
+            )
+            df_sorted['acceleration_5d'] = g['close_price'].transform(
+                lambda x: _acceleration_series(x, 6)
+            )
+
+            # ---------- 成交量动量与爆发结构：volume_momentum + volume_ratio_* ----------
+            if 'volume' in df_sorted.columns:
+                vol_series = g['volume'].transform(lambda x: x.astype(float))
+                df_sorted['volume_momentum'] = vol_series / vol_series.shift(5).replace(0, np.nan) - 1
+                df_sorted['volume_momentum'] = df_sorted['volume_momentum'].shift(1)
+
+                # 5日/10日成交量均线（shift(1) 避免未来函数）
+                volume_ma5 = g['volume'].transform(
+                    lambda x: x.astype(float).rolling(5, min_periods=1).mean().shift(1)
+                )
+                volume_ma10 = g['volume'].transform(
+                    lambda x: x.astype(float).rolling(10, min_periods=1).mean().shift(1)
+                )
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    df_sorted['volume_ratio_5d'] = vol_series / volume_ma5.replace(0, np.nan)
+                    df_sorted['volume_ratio_10d'] = vol_series / volume_ma10.replace(0, np.nan)
+                df_sorted['volume_ratio_5d'] = df_sorted['volume_ratio_5d'].replace([np.inf, -np.inf], np.nan)
+                df_sorted['volume_ratio_10d'] = df_sorted['volume_ratio_10d'].replace([np.inf, -np.inf], np.nan)
+
+                # 成交量加速度：当前 volume_ratio_5d 与 3 日前的差值
+                df_sorted['_volume_ratio_5d_lag3'] = g['volume_ratio_5d'].transform(lambda x: x.shift(3))
+                df_sorted['volume_acceleration'] = (
+                    df_sorted['volume_ratio_5d'] - df_sorted['_volume_ratio_5d_lag3']
+                )
+                df_sorted.drop(columns=['_volume_ratio_5d_lag3'], inplace=True)
+            else:
+                df_sorted['volume_momentum'] = np.nan
+                df_sorted['volume_ratio_5d'] = np.nan
+                df_sorted['volume_ratio_10d'] = np.nan
+                df_sorted['volume_acceleration'] = np.nan
+
+            # ---------- 趋势强度（极重要）：(ma5 - ma20) / ma20，按组 shift(1)，用 transform 避免 groupby.apply 的 FutureWarning 与性能问题 ----------
+            if 'ma5' in df_sorted.columns and 'ma20' in df_sorted.columns:
+                ma5_f = g['ma5'].transform(lambda x: x.astype(float))
+                ma20_f = g['ma20'].transform(lambda x: x.astype(float).replace(0, np.nan))
+                df_sorted['_ts_raw'] = (ma5_f - ma20_f) / ma20_f
+                df_sorted['trend_strength'] = g['_ts_raw'].transform(lambda x: x.shift(1))
+                df_sorted.drop(columns=['_ts_raw'], inplace=True)
+            else:
+                df_sorted['trend_strength'] = np.nan
+
+            # 均线爆发结构：短中长期均线斜率 + 多头结构评分
+            if all(c in df_sorted.columns for c in ['ma5', 'ma10', 'ma20']):
+                ma5_full = g['ma5'].transform(lambda x: x.astype(float))
+                ma10_full = g['ma10'].transform(lambda x: x.astype(float))
+                ma20_full = g['ma20'].transform(lambda x: x.astype(float))
+                ma5_lag3 = g['ma5'].transform(lambda x: x.astype(float).shift(3))
+                ma10_lag3 = g['ma10'].transform(lambda x: x.astype(float).shift(3))
+                ma20_lag5 = g['ma20'].transform(lambda x: x.astype(float).shift(5))
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    df_sorted['ma5_slope'] = (ma5_full - ma5_lag3) / ma5_lag3.replace(0, np.nan)
+                    df_sorted['ma10_slope'] = (ma10_full - ma10_lag3) / ma10_lag3.replace(0, np.nan)
+                    df_sorted['ma20_slope'] = (ma20_full - ma20_lag5) / ma20_lag5.replace(0, np.nan)
+                df_sorted['ma5_above_ma10'] = (ma5_full > ma10_full).astype(int)
+                df_sorted['ma10_above_ma20'] = (ma10_full > ma20_full).astype(int)
+                df_sorted['bull_structure_score'] = (
+                    df_sorted['ma5_above_ma10'] + df_sorted['ma10_above_ma20']
+                )
+            else:
+                df_sorted['ma5_slope'] = np.nan
+                df_sorted['ma10_slope'] = np.nan
+                df_sorted['ma20_slope'] = np.nan
+                df_sorted['ma5_above_ma10'] = 0
+                df_sorted['ma10_above_ma20'] = 0
+                df_sorted['bull_structure_score'] = 0
+
+            # ---------- 价格位置因子（极重要）：(close_T-1 - min) / (max - min)，rolling 均 shift(1) ----------
+            rolling_min_20d = g['close_price'].transform(lambda x: x.rolling(20, min_periods=1).min().shift(1))
+            rolling_max_20d = g['close_price'].transform(lambda x: x.rolling(20, min_periods=1).max().shift(1))
+            close_lag1 = g['close_price'].transform(lambda x: x.shift(1))
+            span = rolling_max_20d - rolling_min_20d
+            df_sorted['price_position_20d'] = np.nan
+            df_sorted.loc[span > 0, 'price_position_20d'] = (close_lag1 - rolling_min_20d) / span
+
+            # ---------- 突破因子（极重要）：close > rolling_max_20d.shift(1)，即当日 close 是否突破前 20 日高点 ----------
+            rolling_max_20d_lag1 = g['close_price'].transform(lambda x: x.rolling(20, min_periods=1).max().shift(1))
+            df_sorted['is_20d_breakout'] = (close > rolling_max_20d_lag1).astype(int)
+
+            # ---------- 波动率结构（重要）：volatility_5, volatility_20, ratio 均 shift(1) 按组 ----------
+            volatility_5 = g['close_price'].transform(
+                lambda x: x.pct_change().rolling(5, min_periods=1).std().shift(1)
+            )
+            volatility_20 = g['close_price'].transform(
+                lambda x: x.pct_change().rolling(20, min_periods=1).std().shift(1)
+            )
+            df_sorted['volatility_change'] = volatility_5 - volatility_20
+            # 比例因子：volatility_ratio = volatility_5 / volatility_20
+            with np.errstate(divide='ignore', invalid='ignore'):
+                denom = volatility_20.replace(0, np.nan)
+                df_sorted['volatility_ratio'] = (volatility_5 / denom)
+                df_sorted['volatility_contract'] = (volatility_5 / denom)
+
+            # ---------- 趋势斜率（trend_slope_5 / 20），按组 rolling 回归斜率 + shift(1) ----------
+            def _window_slope(y: np.ndarray) -> float:
+                n = len(y)
+                if n == 0:
+                    return 0.0
+                x_idx = np.arange(n, dtype=float)
+                x_mean = x_idx.mean()
+                y_mean = y.mean()
+                denom = ((x_idx - x_mean) ** 2).sum()
+                if denom == 0:
+                    return 0.0
+                num = ((x_idx - x_mean) * (y - y_mean)).sum()
+                return float(num / denom)
+
+            df_sorted['trend_slope_5'] = g['close_price'].transform(
+                lambda x: x.astype(float).rolling(5, min_periods=5).apply(_window_slope, raw=True).shift(1)
+            )
+            df_sorted['trend_slope_20'] = g['close_price'].transform(
+                lambda x: x.astype(float).rolling(20, min_periods=20).apply(_window_slope, raw=True).shift(1)
+            )
+
+            # 涨停记忆特征：最近若干日涨停次数（使用前一日涨跌幅，避免未来函数）
+            if 'change_pct' in df_sorted.columns:
+                df_sorted['limit_up_flag'] = g['change_pct'].transform(
+                    lambda x: (x.astype(float) >= 9.5).astype(int).shift(1)
+                )
+                df_sorted['limit_up_count_5d'] = g['limit_up_flag'].transform(
+                    lambda x: x.rolling(5, min_periods=1).sum()
+                )
+                df_sorted['limit_up_count_10d'] = g['limit_up_flag'].transform(
+                    lambda x: x.rolling(10, min_periods=1).sum()
+                )
+            else:
+                df_sorted['limit_up_flag'] = 0
+                df_sorted['limit_up_count_5d'] = 0
+                df_sorted['limit_up_count_10d'] = 0
+
+            # 波动收缩突破特征：突破强度 = (close - 20日最高价) / 20日最高价
+            highest_close_20d = rolling_max_20d_lag1
+            with np.errstate(divide='ignore', invalid='ignore'):
+                denom_h = highest_close_20d.replace(0, np.nan)
+                df_sorted['breakout_strength'] = (close - denom_h) / denom_h
+
+            # 对齐回原 df 顺序
+            core_cols = [
+                'return_5d', 'return_10d', 'return_20d', 'return_60d',
+                'return_1d', 'return_3d',
+                'acceleration_3d', 'acceleration_5d',
+                'volume_momentum', 'volume_ratio_5d', 'volume_ratio_10d', 'volume_acceleration',
+                'trend_strength', 'price_position_20d', 'is_20d_breakout',
+                'volatility_change', 'volatility_ratio', 'volatility_contract',
+                'trend_slope_5', 'trend_slope_20',
+                'ma5_slope', 'ma10_slope', 'ma20_slope',
+                'ma5_above_ma10', 'ma10_above_ma20', 'bull_structure_score',
+                'limit_up_flag', 'limit_up_count_5d', 'limit_up_count_10d',
+                'breakout_strength',
+            ]
+            for col in core_cols:
+                if col in df_sorted.columns:
+                    df[col] = df_sorted[col].reindex(orig_index).values
+            return df
+        except Exception as e:
+            self.logger.debug(f"核心预测因子计算异常: {e}")
+            return df
+
     def _add_enhanced_factors(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        机构级增强因子：横截面排名、指数收益/波动、相对强弱。
-        无未来函数（排名用当日截面，指数用 shift(1) 后 merge）。
+        机构级增强因子：核心预测因子 + 横截面排名、指数收益/波动、相对强弱。
+        无未来函数（所有 rolling 均 shift(1)，排名用当日截面）。
         新增列自动处理 NaN（填 0 或 0.5）。
         """
         if df.empty or 'target_date' not in df.columns:
             return df
         try:
-            # 1. 横截面排名（按 target_date 分组，pct=True 得 [0,1]）
             date_col = 'target_date'
+            # 0. 核心预测因子（动量、成交量动量、趋势强度、价格位置、突破、波动率变化），均 shift(1)
+            df = self._add_core_prediction_factors(df, date_col)
+
+            # 1. 横截面排名（按 target_date 分组，return_20d_rank = groupby(trade_date).rank(return_20d)）
+            if 'return_20d' in df.columns:
+                df['return_20d_rank'] = df.groupby(date_col)['return_20d'].rank(pct=True)
+                df['return_20d_rank'] = df['return_20d_rank'].fillna(0.5)
+
             for col in ['volume', 'turnover_rate', 'amount', 'return_5d', 'return_20d']:
                 if col not in df.columns:
                     continue
                 rank_col = f'{col}_rank_all'
                 df[rank_col] = df.groupby(date_col)[col].rank(pct=True)
                 df[rank_col] = df[rank_col].fillna(0.5)
+
+            # 横截面 rank 特征：change_pct_rank, volume_ratio_rank, turnover_rate_rank
+            for col, rank_name in [('change_pct', 'change_pct_rank'), ('volume_ratio', 'volume_ratio_rank'), ('turnover_rate', 'turnover_rate_rank')]:
+                if col in df.columns:
+                    df[rank_name] = df.groupby(date_col)[col].rank(pct=True)
+                    df[rank_name] = df[rank_name].fillna(0.5)
+
+            # alpha 风格的横截面 rank 因子
+            if 'close_price' in df.columns:
+                df['alpha_close_rank'] = df.groupby(date_col)['close_price'].rank(pct=True)
+            if 'return_20d' in df.columns:
+                df['alpha_return_rank'] = df.groupby(date_col)['return_20d'].rank(pct=True)
+            if 'volume' in df.columns:
+                df['alpha_volume_rank'] = df.groupby(date_col)['volume'].rank(pct=True)
+            if 'turnover_rate' in df.columns:
+                df['alpha_turnover_rank'] = df.groupby(date_col)['turnover_rate'].rank(pct=True)
+            if 'main_net_inflow' in df.columns:
+                df['alpha_main_inflow_rank'] = df.groupby(date_col)['main_net_inflow'].rank(pct=True)
+            # 市值 rank：总市值 & 流通市值
+            if 'total_market_cap' in df.columns:
+                df['alpha_market_cap_rank'] = df.groupby(date_col)['total_market_cap'].rank(pct=True)
+            if 'float_market_cap' in df.columns:
+                df['alpha_float_market_cap_rank'] = df.groupby(date_col)['float_market_cap'].rank(pct=True)
+
+            # 行业 alpha：行业平均 5 日收益 + 个股相对行业的超额
+            if 'industry' in df.columns and 'return_5d' in df.columns:
+                industry_mean = df.groupby([date_col, 'industry'])['return_5d'].transform('mean')
+                df['industry_return_5d_mean'] = industry_mean
+                df['alpha_vs_industry'] = (df['return_5d'] - industry_mean)
+
+            # 波动率横截面排名：volatility_rank = groupby(trade_date).rank(volatility_ratio)
+            if 'volatility_ratio' in df.columns:
+                df['volatility_rank'] = df.groupby(date_col)['volatility_ratio'].rank(pct=True)
             
             # 2. 指数因子：从 market_indices 取沪深300，算收益/波动后 shift(1) 再 merge
             try:
@@ -358,13 +644,35 @@ class MLFeatureEngineering:
                     if f'return_{period}' in df.columns and f'relative_strength_{period}' not in df.columns:
                         df[f'relative_strength_{period}'] = df[f'return_{period}'].fillna(0.0)
             
-            # 4. 新增列统一 NaN 填 0（排名列已在上面填 0.5）
-            new_cols = [c for c in df.columns if c.endswith('_rank_all') or c.startswith('index_') or c.startswith('relative_strength_')]
-            for c in new_cols:
-                if c in df.columns and c not in ['volume_rank_all', 'turnover_rank_all', 'amount_rank_all', 'return_5d_rank_all', 'return_20d_rank_all']:
-                    df[c] = df[c].fillna(0.0)
-                elif c in df.columns and c.endswith('_rank_all'):
+            # 4. 新增列统一 NaN 填 0（排名列填 0.5）
+            rank_cols = [c for c in df.columns if c.endswith('_rank_all') or c == 'return_20d_rank'
+                         or c in ('change_pct_rank', 'volume_ratio_rank', 'turnover_rate_rank',
+                                  'alpha_close_rank', 'alpha_return_rank',
+                                  'alpha_volume_rank', 'alpha_turnover_rank',
+                                  'alpha_main_inflow_rank', 'alpha_market_cap_rank',
+                                  'alpha_float_market_cap_rank',
+                                  'volatility_rank')]
+            other_new = [c for c in df.columns if c.startswith('index_') or c.startswith('relative_strength_') or
+                         c in (
+                             'return_5d', 'return_10d', 'return_20d', 'return_60d',
+                             'return_1d', 'return_3d',
+                             'acceleration_3d', 'acceleration_5d',
+                             'volume_momentum', 'volume_ratio_5d', 'volume_ratio_10d', 'volume_acceleration',
+                             'trend_strength', 'price_position_20d', 'is_20d_breakout',
+                             'volatility_change', 'volatility_ratio', 'volatility_contract',
+                             'trend_slope_5', 'trend_slope_20',
+                             'ma5_slope', 'ma10_slope', 'ma20_slope',
+                             'ma5_above_ma10', 'ma10_above_ma20', 'bull_structure_score',
+                             'limit_up_flag', 'limit_up_count_5d', 'limit_up_count_10d',
+                             'breakout_strength',
+                             'industry_return_5d_mean', 'alpha_vs_industry'
+                         )]
+            for c in rank_cols:
+                if c in df.columns:
                     df[c] = df[c].fillna(0.5)
+            for c in other_new:
+                if c in df.columns:
+                    df[c] = df[c].fillna(0.0)
         except Exception as e:
             self.logger.warning(f"增强因子计算异常，跳过: {e}")
         return df

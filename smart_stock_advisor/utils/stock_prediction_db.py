@@ -213,6 +213,12 @@ class StockPredictionDB:
                 # 检查偏差值字段
                 columns_check_deviation = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'deviation_pct'")
                 has_deviation_field = len(columns_check_deviation) > 0
+
+                # 检查 ML 爆发增强相关字段（可选）
+                columns_check_breakout = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'ml_breakout_score'")
+                has_breakout_field = len(columns_check_breakout) > 0
+                columns_check_boosted = self.db.execute_query("SHOW COLUMNS FROM stock_predictions LIKE 'ml_boosted_return'")
+                has_boosted_field = len(columns_check_boosted) > 0
             except:
                 has_industry_field = False
                 has_stock_type_field = False
@@ -224,6 +230,8 @@ class StockPredictionDB:
                 has_factor_consistency_field = False
                 has_config_id_field = False
                 has_deviation_field = False
+                has_breakout_field = False
+                has_boosted_field = False
             
             # 根据字段存在情况选择使用stock_type还是prediction_type
             type_field_name = 'stock_type' if has_stock_type_field else ('prediction_type' if has_prediction_type_field else None)
@@ -324,6 +332,17 @@ class StockPredictionDB:
                     'absolute_deviation_pct = VALUES(absolute_deviation_pct)',
                     'deviation_price = VALUES(deviation_price)'
                 ])
+
+            # 添加 ML 爆发增强相关字段（如果存在）
+            if has_breakout_field:
+                base_fields.append('ml_breakout_score')
+                base_params.append(prediction_result.get('ml_breakout_score'))
+                base_updates.append('ml_breakout_score = VALUES(ml_breakout_score)')
+
+            if has_boosted_field:
+                base_fields.append('ml_boosted_return')
+                base_params.append(prediction_result.get('ml_boosted_return'))
+                base_updates.append('ml_boosted_return = VALUES(ml_boosted_return)')
             
             base_fields.extend(['prediction_time', 'png_file', 'interactive_html', 'full_report_html', 'summary'])
             base_params.extend([

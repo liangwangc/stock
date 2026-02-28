@@ -28,7 +28,8 @@ def train_base_models(train_start_date: str = '2014-01-01',
                      test_start_date: str = '2024-01-01',
                      test_end_date: str = '2024-12-31',
                      model_types: list = ['xgb_classifier', 'lgb_classifier'],
-                     is_active: bool = True):
+                     is_active: bool = True,
+                     progress_callback=None):
     """
     训练基础模型（使用stock_history_data表全量数据）
     
@@ -41,8 +42,16 @@ def train_base_models(train_start_date: str = '2014-01-01',
         test_end_date: 测试集结束日期
         model_types: 要训练的模型类型列表
         is_active: 是否激活训练好的模型
+        progress_callback: 可选，签名为 (progress: int, message: str, log: Optional[str])，用于页面进度与日志
     """
+    def _progress(progress: int, message: str, log: str = None):
+        if progress_callback:
+            try:
+                progress_callback(progress, message, log)
+            except Exception:
+                pass
     try:
+        _progress(5, "正在加载训练数据...", "开始训练基础模型（使用stock_history_data表全量数据）")
         logger.info("=" * 60)
         logger.info("开始训练基础模型（使用stock_history_data表全量数据）")
         logger.info("=" * 60)
@@ -72,8 +81,10 @@ def train_base_models(train_start_date: str = '2014-01-01',
         
         if train_df.empty:
             logger.error("训练数据为空，无法继续训练")
-            return
+            _progress(0, "训练失败：训练数据为空", "训练数据为空，无法继续训练。请检查：1) stock_history_data 表是否有数据；2) 训练/验证日期范围是否在表内。")
+            raise RuntimeError("训练数据为空，无法继续训练")
         
+        _progress(10, "训练数据加载完成，正在加载验证数据...", f"✓ 训练数据加载完成：{len(train_df):,} 条样本")
         logger.info(f"✓ 训练数据加载完成：{len(train_df):,} 条样本，耗时 {train_load_time:.1f}秒 ({train_load_time/60:.1f}分钟)")
         
         # 3. 加载验证数据
@@ -90,25 +101,28 @@ def train_base_models(train_start_date: str = '2014-01-01',
         val_load_time = time.time() - val_start_time
         
         logger.info(f"✓ 验证数据加载完成：{len(val_df):,} 条样本，耗时 {val_load_time:.1f}秒 ({val_load_time/60:.1f}分钟)")
+        _progress(20, "验证数据加载完成，正在准备特征...", "步骤 2/5: 加载验证数据 完成")
         
         # 4. 准备特征和标签
         logger.info(f"\n{'=' * 60}")
         logger.info(f"步骤 3/5: 准备特征和标签")
         logger.info(f"{'=' * 60}")
+        _progress(25, "正在准备特征和标签（可能需数分钟）...", "步骤 3/5: 准备特征和标签")
         
         feature_start_time = time.time()
         logger.info("正在提取训练集特征...")
         X_train, y_train, feature_names = feature_engineering.prepare_features(
-            train_df, label_column='label_up'
+            train_df, label_column='label_up', use_selected_features=True
         )
         
         if X_train.empty:
             logger.error("特征准备失败，无法继续训练")
-            return
+            _progress(25, "特征准备失败", "特征准备失败，无法继续训练")
+            raise RuntimeError("特征准备失败，无法继续训练")
         
         logger.info("正在提取验证集特征...")
         X_val, y_val, _ = feature_engineering.prepare_features(
-            val_df, label_column='label_up'
+            val_df, label_column='label_up', use_selected_features=True
         )
         feature_time = time.time() - feature_start_time
         
@@ -126,9 +140,12 @@ def train_base_models(train_start_date: str = '2014-01-01',
         if len(y_val) > 0:
             logger.info(f"  验证集标签分布：上涨 {val_up_count:,} ({val_up_count/len(y_val)*100:.1f}%), 下跌 {val_down_count:,} ({val_down_count/len(y_val)*100:.1f}%)")
         
+        _progress(45, "特征准备完成，正在训练模型...", f"✓ 特征准备完成：{len(feature_names)} 个特征")
+        
         # 5. 训练模型
         total_models = len(model_types)
         for model_idx, model_type in enumerate(model_types, 1):
+            _progress(45 + int(35 * (model_idx - 1) / max(1, total_models)), f"正在训练模型 ({model_idx}/{total_models})...", f"步骤 4/5: 训练基础模型 ({model_idx}/{total_models})")
             logger.info(f"\n{'=' * 60}")
             logger.info(f"步骤 4/5: 训练基础模型 ({model_idx}/{total_models})")
             logger.info(f"{'=' * 60}")
@@ -147,14 +164,25 @@ def train_base_models(train_start_date: str = '2014-01-01',
                     X_train, y_train, X_val, y_val
                 )
             elif model_type == 'xgb_regressor':
-                # 使用涨跌幅作为标签
+                # 使用涨跌幅作为标签（严格按 selected_features.pkl 选取特征）
                 X_train_reg, y_train_reg, _ = feature_engineering.prepare_features(
-                    train_df, label_column='label_change_pct'
+                    train_df, label_column='label_change_pct', use_selected_features=True
                 )
                 X_val_reg, y_val_reg, _ = feature_engineering.prepare_features(
-                    val_df, label_column='label_change_pct'
+                    val_df, label_column='label_change_pct', use_selected_features=True
                 )
                 model, metrics = model_trainer.train_xgb_regressor(
+                    X_train_reg, y_train_reg, X_val_reg, y_val_reg
+                )
+            elif model_type == 'lgb_regressor_return':
+                # 回归模型：预测 future_return（涨跌幅小数=(future_close - close)/close），用于涨幅预测增强
+                X_train_reg, y_train_reg, _ = feature_engineering.prepare_features(
+                    train_df, label_column='future_return', use_selected_features=True
+                )
+                X_val_reg, y_val_reg, _ = feature_engineering.prepare_features(
+                    val_df, label_column='future_return', use_selected_features=True
+                )
+                model, metrics = model_trainer.train_lgb_regressor_return(
                     X_train_reg, y_train_reg, X_val_reg, y_val_reg
                 )
             else:
@@ -177,6 +205,28 @@ def train_base_models(train_start_date: str = '2014-01-01',
                     else:
                         logger.info(f"  {key}: {value}")
             
+            # 回归涨跌幅模型：仅保存到 models/lgb_regressor_return.pkl，不写数据库
+            if model_type == 'lgb_regressor_return':
+                reg_return_path = os.path.join(project_root, 'models', 'lgb_regressor_return.pkl')
+                os.makedirs(os.path.dirname(reg_return_path), exist_ok=True)
+                try:
+                    import pickle
+                    with open(reg_return_path, 'wb') as f:
+                        pickle.dump(model, f)
+                    # 打印规范化成功信息（英文 + 相对路径），便于脚本/日志检测
+                    logger.info("✓ Regression model trained successfully")
+                    logger.info("✓ Saved to models/lgb_regressor_return.pkl")
+                    # 训练完成后进行文件存在性校验
+                    rel_path = os.path.join('models', 'lgb_regressor_return.pkl')
+                    assert os.path.exists(os.path.join(project_root, rel_path)), \
+                        f"Regression model file not found after saving: {rel_path}"
+                except Exception as e:
+                    logger.error(f"✗ 涨跌幅回归模型保存失败: {e}")
+                    raise
+                model_total_time = time.time() - model_start_time
+                logger.info(f"模型 {model_type} 处理完成，总耗时: {model_total_time:.1f}秒")
+                continue
+            
             # 6. 获取特征重要性
             logger.info("正在计算特征重要性...")
             feature_importance = feature_engineering.get_feature_importance(
@@ -191,6 +241,7 @@ def train_base_models(train_start_date: str = '2014-01-01',
                     logger.info(f"  {feat_name}: {importance:.4f}")
             
             # 7. 保存模型（标记为基础模型）
+            _progress(85, "正在保存模型...", "步骤 5/5: 保存模型")
             logger.info(f"\n{'=' * 60}")
             logger.info(f"步骤 5/5: 保存模型")
             logger.info(f"{'=' * 60}")
@@ -218,14 +269,20 @@ def train_base_models(train_start_date: str = '2014-01-01',
             )
             
             if not success:
-                logger.error(f"✗ 模型保存失败: {model_type}")
-                continue
+                logger.error(f"✗ 模型文件保存失败: {model_type}")
+                _progress(90, f"模型文件保存失败: {model_type}", f"✗ 模型文件保存失败: {model_type}")
+                raise RuntimeError(
+                    f"模型文件保存失败: {model_type}。请检查：1) 目录 models/{model_type} 是否有写权限；"
+                    "2) 磁盘空间是否充足；3) 查看 logs 中的详细错误"
+                )
             
             save_time = time.time() - save_start_time
             logger.info(f"✓ 模型文件保存成功，耗时 {save_time:.1f}秒")
+            _progress(88, "模型文件已保存，正在写入数据库...", "✓ 模型文件保存成功")
             
             # 8. 保存模型信息到数据库（标记为base模型）
             logger.info("正在保存模型信息到数据库...")
+            _progress(89, "正在保存模型信息到数据库...", "正在保存模型信息到数据库...")
             model_id = model_manager.save_model_info(
                 model_name=model_name,
                 model_type=model_type,
@@ -252,18 +309,24 @@ def train_base_models(train_start_date: str = '2014-01-01',
             
             if model_id > 0:
                 logger.info(f"✓ 基础模型信息保存成功: {model_name} (ID: {model_id})")
-                
+                _progress(90 + int(10 * model_idx / max(1, total_models)), f"已保存: {model_name}", f"✓ 基础模型信息保存成功: {model_name} (ID: {model_id})")
                 # 如果激活，则激活该模型
                 if is_active:
                     model_manager.activate_model(model_id)
                     logger.info(f"✓ 基础模型已激活: {model_name}")
             else:
-                logger.warning(f"✗ 基础模型信息保存失败: {model_name}")
+                logger.error(f"✗ 基础模型信息保存失败: {model_name}，数据库未写入记录")
+                _progress(90, "模型信息保存失败，数据库未写入", f"✗ 基础模型信息保存失败: {model_name}")
+                raise RuntimeError(
+                    "模型信息保存失败，数据库未写入记录。请检查：1) config_db 中 USE_DATABASE=True；"
+                    "2) 数据库连接正常；3) trained_models 表已创建；4) 查看 logs 中的详细错误"
+                )
             
             model_total_time = time.time() - model_start_time
             logger.info(f"\n模型 {model_type} 处理完成，总耗时: {model_total_time:.1f}秒 ({model_total_time/60:.1f}分钟)")
         
         total_time = time.time() - total_start_time
+        _progress(100, "训练完成", "✓ 基础模型训练完成")
         logger.info("\n" + "=" * 60)
         logger.info("✓ 基础模型训练完成")
         logger.info("=" * 60)
@@ -285,6 +348,11 @@ def train_base_models(train_start_date: str = '2014-01-01',
         logger.error(f"训练过程出错: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+        try:
+            _progress(0, f"训练失败: {str(e)}", f"训练过程出错: {str(e)}")
+        except Exception:
+            pass
+        raise  # 重新抛出，便于 Web 端将任务标记为失败
 
 
 if __name__ == '__main__':

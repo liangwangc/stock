@@ -232,16 +232,16 @@ class ScheduledTaskManager:
                 
                 loop_count += 1
                 
-                # 每60秒输出一次状态（避免日志过多）
+                # 每60秒输出一次状态（默认改为debug级别，避免控制台日志过多）
                 current_time = time.time()
                 if current_time - last_status_log >= 60:
-                    self.logger.info(f"📊 调度器运行中... 当前有 {len(pending_jobs)} 个已注册任务")
-                    # 显示每个任务的详细信息
+                    self.logger.debug(f"📊 调度器运行中... 当前有 {len(pending_jobs)} 个已注册任务")
+                    # 显示每个任务的详细信息（仅在debug级别打印）
                     for idx, job in enumerate(pending_jobs, 1):
                         job_name = getattr(job.job_func, '__name__', 'unknown')
                         next_run = getattr(job, 'next_run', 'unknown')
                         should_run = getattr(job, 'should_run', False)
-                        self.logger.info(f"  任务 {idx}: {job_name}, 下次执行: {next_run}, 应该执行: {should_run}")
+                        self.logger.debug(f"  任务 {idx}: {job_name}, 下次执行: {next_run}, 应该执行: {should_run}")
                     last_status_log = current_time
                     
             except Exception as e:
@@ -1680,12 +1680,17 @@ class ScheduledTaskManager:
                 from contextlib import redirect_stdout, redirect_stderr
                 import sys
                 
+                # 使用不可关闭的缓冲区，避免 akshare 等库内部 close(sys.stdout) 导致 "I/O operation on closed file"
+                class _UnclosableStringIO(io.StringIO):
+                    def close(self):
+                        pass  # 忽略 close，防止第三方库关闭 stdout 后 print 报错
+                
                 # 保存原始的 stdout 和 stderr
                 original_stdout = sys.stdout
                 original_stderr = sys.stderr
                 
-                stdout_buffer = io.StringIO()
-                stderr_buffer = io.StringIO()
+                stdout_buffer = _UnclosableStringIO()
+                stderr_buffer = _UnclosableStringIO()
                 
                 try:
                     # 抑制 pandas SettingWithCopyWarning 警告（来自 akshare 库内部）
@@ -1722,14 +1727,14 @@ class ScheduledTaskManager:
                     if sys.stderr is not original_stderr:
                         sys.stderr = original_stderr
                     
-                    # 关闭缓冲区（在恢复 stdout/stderr 之后）
+                    # 关闭缓冲区（在恢复 stdout/stderr 之后；_UnclosableStringIO.close 为 no-op）
                     try:
                         stdout_buffer.close()
-                    except:
+                    except Exception:
                         pass
                     try:
                         stderr_buffer.close()
-                    except:
+                    except Exception:
                         pass
                 
                 self.logger.info("news-analysis-system-main 新闻获取任务执行完成（财联社 + 东方财富个股新闻）")

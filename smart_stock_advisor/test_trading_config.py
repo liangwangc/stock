@@ -173,12 +173,13 @@ def test_config_api_availability():
         # 测试验证函数
         test_values = {
             'prediction': {
-                'news_weight': 0.25,
-                'capital_flow_weight': 0.18,
-                'market_weight': 0.17,
-                'technical_weight': 0.20,
-                'sector_rotation_weight': 0.05,
-                'history_weight': 0.08,
+                'news_weight': 0.08,
+                'capital_flow_weight': 0.10,
+                'market_weight': 0.07,
+                'technical_weight': 0.15,
+                'ml_default_weight': 0.55,
+                'history_weight': 0.05,
+                'sector_rotation_weight': 0.0,
                 'us_sector_weight': 0.05,
                 'valuation_weight': 0.02,
             },
